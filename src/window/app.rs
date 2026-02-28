@@ -9,9 +9,8 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::platform::windows::WindowAttributesExtWindows;
 use winit::window::{Window, WindowId, WindowLevel};
 
-use crate::core::config::{
-    BASE_HEIGHT, BASE_WIDTH, EXPANDED_HEIGHT, EXPANDED_WIDTH, PADDING, TOP_OFFSET, WINDOW_TITLE,
-};
+use crate::core::config::{AppConfig, PADDING, TOP_OFFSET, WINDOW_TITLE};
+use crate::core::persistence::load_config;
 use crate::core::render::draw_island;
 use crate::utils::color::get_island_border_weights;
 use crate::utils::mouse::{get_global_cursor_pos, is_point_in_rect};
@@ -23,11 +22,12 @@ pub struct App {
     surface: Option<Surface<Arc<Window>, Arc<Window>>>,
     tray: Option<TrayManager>,
 
+    config: AppConfig,
     expanded: bool,
     visible: bool,
     border_weights: [f32; 4],
     target_border_weights: [f32; 4],
-    
+
     spring_w: Spring,
     spring_h: Spring,
     spring_r: Spring,
@@ -43,17 +43,19 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
+        let config = load_config();
         Self {
             window: None,
             surface: None,
             tray: None,
+            config: config.clone(),
             expanded: false,
             visible: true,
             border_weights: [0.0; 4],
             target_border_weights: [0.0; 4],
-            spring_w: Spring::new(BASE_WIDTH),
-            spring_h: Spring::new(BASE_HEIGHT),
-            spring_r: Spring::new(13.5),
+            spring_w: Spring::new(config.base_width * config.global_scale),
+            spring_h: Spring::new(config.base_height * config.global_scale),
+            spring_r: Spring::new((config.base_height * config.global_scale) / 2.0),
             os_w: 0,
             os_h: 0,
             win_x: 0,
@@ -68,8 +70,8 @@ impl ApplicationHandler for App {
         event_loop.set_control_flow(ControlFlow::Poll);
 
         if self.window.is_none() {
-            self.os_w = (EXPANDED_WIDTH + PADDING) as u32;
-            self.os_h = (EXPANDED_HEIGHT + PADDING) as u32;
+            self.os_w = (self.config.expanded_width * self.config.global_scale + PADDING) as u32;
+            self.os_h = (self.config.expanded_height * self.config.global_scale + PADDING) as u32;
 
             let attrs = Window::default_attributes()
                 .with_title(WINDOW_TITLE)
@@ -103,67 +105,109 @@ impl ApplicationHandler for App {
                 )
                 .unwrap();
             self.surface = Some(surface);
-            
+
             self.tray = Some(TrayManager::new());
-            
+
             window.request_redraw();
         }
     }
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::MouseInput {
-                state: ElementState::Pressed,
-                button: MouseButton::Left,
-                ..
-            } => {
-                let (px, py) = get_global_cursor_pos();
-                let rel_x = px - self.win_x;
-                let rel_y = py - self.win_y;
-                
-                let island_y = PADDING as f64 / 2.0;
-                let offset_x = (self.os_w as f64 - self.spring_w.value as f64) / 2.0;
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        if let Some(win) = &self.window {
+            if win.id() == id {
+                match event {
+                    WindowEvent::CloseRequested => event_loop.exit(),
+                    WindowEvent::MouseInput {
+                        state: ElementState::Pressed,
+                        button: MouseButton::Left,
+                        ..
+                    } => {
+                        let (px, py) = get_global_cursor_pos();
+                        let rel_x = px - self.win_x;
+                        let rel_y = py - self.win_y;
 
-                if is_point_in_rect(rel_x as f64, rel_y as f64, offset_x, island_y, self.spring_w.value as f64, self.spring_h.value as f64)
-                {
-                    if self.expanded {
-                        if (rel_y as f64) < island_y + 40.0 {
-                            self.expanded = false;
-                            self.spring_w.velocity *= 0.2;
-                            self.spring_h.velocity *= 0.2;
-                            self.spring_r.velocity *= 0.2;
+                        let island_y = PADDING as f64 / 2.0;
+                        let offset_x = (self.os_w as f64 - self.spring_w.value as f64) / 2.0;
+
+                        if is_point_in_rect(
+                            rel_x as f64,
+                            rel_y as f64,
+                            offset_x,
+                            island_y,
+                            self.spring_w.value as f64,
+                            self.spring_h.value as f64,
+                        ) {
+                            if self.expanded {
+                                if (rel_y as f64) < island_y + 40.0 {
+                                    self.expanded = false;
+                                    self.spring_w.velocity *= 0.2;
+                                    self.spring_h.velocity *= 0.2;
+                                    self.spring_r.velocity *= 0.2;
+                                }
+                            } else {
+                                self.expanded = true;
+                                self.spring_w.velocity *= 0.2;
+                                self.spring_h.velocity *= 0.2;
+                                self.spring_r.velocity *= 0.2;
+                            }
                         }
-                    } else {
-                        self.expanded = true;
-                        self.spring_w.velocity *= 0.2;
-                        self.spring_h.velocity *= 0.2;
-                        self.spring_r.velocity *= 0.2;
                     }
+                    WindowEvent::RedrawRequested => {
+                        if let Some(surface) = self.surface.as_mut() {
+                            draw_island(
+                                surface,
+                                self.spring_w.value,
+                                self.spring_h.value,
+                                self.spring_r.value,
+                                self.os_w,
+                                self.os_h,
+                                self.border_weights,
+                            );
+                        }
+                    }
+                    _ => (),
                 }
             }
-            WindowEvent::RedrawRequested => {
-                if let Some(surface) = self.surface.as_mut() {
-                    draw_island(surface, self.spring_w.value, self.spring_h.value, self.spring_r.value, self.os_w, self.os_h, self.border_weights);
-                }
-            }
-            _ => (),
         }
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if let Some(window) = &self.window {
             if let Some(tray) = &self.tray {
-                if let Some(action) = tray.handle_events() {
-                    match action {
-                        TrayAction::ToggleVisibility => {
+                if let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
+                    match TrayAction::from_id(event.id, tray) {
+                        Some(TrayAction::ToggleVisibility) => {
                             self.visible = !self.visible;
                             window.set_visible(self.visible);
                             tray.update_item_text(self.visible);
                         }
-                        TrayAction::Exit => {
+                        Some(TrayAction::OpenSettings) => {
+                            let _ = std::process::Command::new(std::env::current_exe().unwrap())
+                                .arg("--settings")
+                                .spawn();
+                        }
+                        Some(TrayAction::Exit) => {
                             event_loop.exit();
                         }
+                        None => (),
+                    }
+                }
+            }
+
+            let current_config = load_config();
+            if current_config != self.config {
+                self.config = current_config;
+                let new_os_w = (self.config.expanded_width * self.config.global_scale + PADDING) as u32;
+                let new_os_h = (self.config.expanded_height * self.config.global_scale + PADDING) as u32;
+                if new_os_w != self.os_w || new_os_h != self.os_h {
+                    self.os_w = new_os_w;
+                    self.os_h = new_os_h;
+                    let _ = window.request_inner_size(PhysicalSize::new(self.os_w, self.os_h));
+                    if let Some(surface) = self.surface.as_mut() {
+                        let _ = surface.resize(
+                            std::num::NonZeroU32::new(self.os_w).unwrap(),
+                            std::num::NonZeroU32::new(self.os_h).unwrap(),
+                        );
                     }
                 }
             }
@@ -178,14 +222,31 @@ impl ApplicationHandler for App {
             let rel_y = py - self.win_y;
             let island_y = PADDING as f64 / 2.0;
             let offset_x = (self.os_w as f64 - self.spring_w.value as f64) / 2.0;
-            let is_hovering = is_point_in_rect(rel_x as f64, rel_y as f64, offset_x, island_y, self.spring_w.value as f64, self.spring_h.value as f64);
+            let is_hovering = is_point_in_rect(
+                rel_x as f64,
+                rel_y as f64,
+                offset_x,
+                island_y,
+                self.spring_w.value as f64,
+                self.spring_h.value as f64,
+            );
             let _ = window.set_cursor_hittest(is_hovering);
 
-            if self.frame_count % 30 == 0 {
-                let island_cx = self.win_x + (self.os_w as i32 / 2);
-                let island_cy = self.win_y + (PADDING as i32 / 2) + (self.spring_h.value as i32 / 2);
-                let raw_weights = get_island_border_weights(island_cx, island_cy, self.spring_w.value, self.spring_h.value);
-                self.target_border_weights = raw_weights.map(|w| if w > 0.85 { w } else { 0.0 });
+            if self.config.adaptive_border {
+                if self.frame_count % 30 == 0 {
+                    let island_cx = self.win_x + (self.os_w as i32 / 2);
+                    let island_cy =
+                        self.win_y + (PADDING as i32 / 2) + (self.spring_h.value as i32 / 2);
+                    let raw_weights = get_island_border_weights(
+                        island_cx,
+                        island_cy,
+                        self.spring_w.value,
+                        self.spring_h.value,
+                    );
+                    self.target_border_weights = raw_weights.map(|w| if w > 0.85 { w } else { 0.0 });
+                }
+            } else {
+                self.target_border_weights = [0.0; 4];
             }
             self.frame_count += 1;
 
@@ -204,11 +265,25 @@ impl ApplicationHandler for App {
                 window.request_redraw();
             }
 
-            let target_w = if self.expanded { EXPANDED_WIDTH } else { BASE_WIDTH };
-            let target_h = if self.expanded { EXPANDED_HEIGHT } else { BASE_HEIGHT };
-            let target_r = if self.expanded { 32.0 } else { 13.5 };
+            let target_w = (if self.expanded {
+                self.config.expanded_width
+            } else {
+                self.config.base_width
+            }) * self.config.global_scale;
+            let target_h = (if self.expanded {
+                self.config.expanded_height
+            } else {
+                self.config.base_height
+            }) * self.config.global_scale;
+            let target_r = if self.expanded {
+                32.0 * self.config.global_scale
+            } else {
+                (self.config.base_height * self.config.global_scale) / 2.0
+            };
 
-            let total_w = (EXPANDED_WIDTH - BASE_WIDTH).abs().max(1.0);
+            let total_w = (self.config.expanded_width - self.config.base_width)
+                .abs()
+                .max(1.0) * self.config.global_scale;
             let dist_w = (target_w - self.spring_w.value).abs();
             let ratio = (dist_w / total_w).clamp(0.0, 1.0);
 
@@ -223,7 +298,10 @@ impl ApplicationHandler for App {
             self.spring_h.update(target_h, stiffness, damping);
             self.spring_r.update(target_r, stiffness, damping);
 
-            if self.spring_w.velocity.abs() > 0.01 || self.spring_h.velocity.abs() > 0.01 || self.spring_r.velocity.abs() > 0.01 {
+            if self.spring_w.velocity.abs() > 0.01
+                || self.spring_h.velocity.abs() > 0.01
+                || self.spring_r.velocity.abs() > 0.01
+            {
                 window.request_redraw();
             }
 

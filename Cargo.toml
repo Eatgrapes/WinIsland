@@ -11,3 +11,8 @@ tokio = { version = "1.49.0", features = ["rt", "time", "macros"] }
 tray-icon = "0.19"
 windows = { version = "0.58", features = ["Win32_Foundation", "Win32_System_Registry", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_Graphics_Gdi"] }
 winit = "0.30"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+directories = "6.0"
+dirs = "6.0"
+open = "5.3"
