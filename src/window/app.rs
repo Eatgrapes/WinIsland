@@ -293,29 +293,31 @@ impl ApplicationHandler for App {
                     }
                 }
             }
-            let current_config = load_config();
-            if current_config != self.config {
-                let old_scale = self.config.global_scale;
-                self.config = current_config;
-                let max_w = self.config.expanded_width.max(450.0);
-                let new_os_w = (max_w * self.config.global_scale + PADDING) as u32;
-                let new_os_h = (self.config.expanded_height * self.config.global_scale + PADDING) as u32;
-                if new_os_w != self.os_w || new_os_h != self.os_h || old_scale != self.config.global_scale {
-                    self.os_w = new_os_w;
-                    self.os_h = new_os_h;
-                    let _ = window.request_inner_size(PhysicalSize::new(self.os_w, self.os_h));
-                    if let Some(surface) = self.surface.as_mut() {
-                        let _ = surface.resize(
-                            std::num::NonZeroU32::new(self.os_w).unwrap(),
-                            std::num::NonZeroU32::new(self.os_h).unwrap(),
-                        );
-                    }
-                    if let Some(monitor) = window.current_monitor() {
-                        let mon_size = monitor.size();
-                        let mon_pos = monitor.position();
-                        let center_x = mon_pos.x + (mon_size.width as i32) / 2;
-                        self.win_x = center_x - (self.os_w as i32) / 2;
-                        window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+            if self.frame_count % 60 == 0 {
+                let current_config = load_config();
+                if current_config != self.config {
+                    let old_scale = self.config.global_scale;
+                    self.config = current_config;
+                    let max_w = self.config.expanded_width.max(450.0);
+                    let new_os_w = (max_w * self.config.global_scale + PADDING) as u32;
+                    let new_os_h = (self.config.expanded_height * self.config.global_scale + PADDING) as u32;
+                    if new_os_w != self.os_w || new_os_h != self.os_h || old_scale != self.config.global_scale {
+                        self.os_w = new_os_w;
+                        self.os_h = new_os_h;
+                        let _ = window.request_inner_size(PhysicalSize::new(self.os_w, self.os_h));
+                        if let Some(surface) = self.surface.as_mut() {
+                            let _ = surface.resize(
+                                std::num::NonZeroU32::new(self.os_w).unwrap(),
+                                std::num::NonZeroU32::new(self.os_h).unwrap(),
+                            );
+                        }
+                        if let Some(monitor) = window.current_monitor() {
+                            let mon_size = monitor.size();
+                            let mon_pos = monitor.position();
+                            let center_x = mon_pos.x + (mon_size.width as i32) / 2;
+                            self.win_x = center_x - (self.os_w as i32) / 2;
+                            window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+                        }
                     }
                 }
             }

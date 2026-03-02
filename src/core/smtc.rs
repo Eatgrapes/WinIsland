@@ -122,22 +122,10 @@ impl SmtcListener {
             } else { 0 }
         } else { 0 };
 
-        let mut thumb_data = None;
-        if let Ok(thumb_ref) = props.Thumbnail() {
-            if let Ok(stream) = thumb_ref.OpenReadAsync()?.get() {
-                let size = stream.Size()? as u32;
-                let buffer = windows::Storage::Streams::Buffer::Create(size)?;
-                let res_buffer = stream.ReadAsync(&buffer, size, windows::Storage::Streams::InputStreamOptions::None)?.get()?;
-                let reader = windows::Storage::Streams::DataReader::FromBuffer(&res_buffer)?;
-                let mut bytes = vec![0u8; size as usize];
-                reader.ReadBytes(&mut bytes)?;
-                thumb_data = Some(Arc::new(bytes));
-            }
-        }
-        
         let new_title = props.Title()?.to_string();
         let new_artist = props.Artist()?.to_string();
         let mut should_fetch_lyrics = false;
+        let mut should_fetch_thumbnail = false;
 
         if let Ok(mut info) = info_arc.lock() {
             let song_changed = info.title != new_title || info.artist != new_artist;
@@ -145,7 +133,9 @@ impl SmtcListener {
                 info.title = new_title.clone();
                 info.artist = new_artist.clone();
                 info.lyrics = None;
+                info.thumbnail = None;
                 should_fetch_lyrics = true;
+                should_fetch_thumbnail = true;
             }
             info.album = props.AlbumTitle()?.to_string();
             
@@ -161,8 +151,28 @@ impl SmtcListener {
             }
             
             info.is_playing = is_playing;
-            if thumb_data.is_some() {
-                info.thumbnail = thumb_data;
+        }
+
+        if should_fetch_thumbnail {
+            if let Ok(thumb_ref) = props.Thumbnail() {
+                if let Ok(stream_async) = thumb_ref.OpenReadAsync() {
+                    if let Ok(stream) = stream_async.get() {
+                        if let Ok(size) = stream.Size() {
+                            let buffer = windows::Storage::Streams::Buffer::Create(size as u32).unwrap();
+                            if let Ok(res_buffer_async) = stream.ReadAsync(&buffer, size as u32, windows::Storage::Streams::InputStreamOptions::None) {
+                                if let Ok(res_buffer) = res_buffer_async.get() {
+                                    if let Ok(reader) = windows::Storage::Streams::DataReader::FromBuffer(&res_buffer) {
+                                        let mut bytes = vec![0u8; size as usize];
+                                        let _ = reader.ReadBytes(&mut bytes);
+                                        if let Ok(mut info) = info_arc.lock() {
+                                            info.thumbnail = Some(Arc::new(bytes));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 

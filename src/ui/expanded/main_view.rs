@@ -7,6 +7,8 @@ use crate::icons::arrows::draw_arrow_right;
 use crate::core::smtc::MediaInfo;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use crate::core::persistence::load_config;
+
 thread_local! {
     static IMG_CACHE: RefCell<Option<(String, Image)>> = RefCell::new(None);
     static FONT_MGR: FontMgr = FontMgr::new();
@@ -14,32 +16,52 @@ thread_local! {
     static TEXT_CACHE: RefCell<HashMap<String, (String, Vec<(String, Typeface)>)>> = RefCell::new(HashMap::new());
     static COLOR_CACHE: RefCell<HashMap<String, Vec<Color>>> = RefCell::new(HashMap::new());
     static VIZ_HEIGHTS: RefCell<[f32; 6]> = RefCell::new([3.0; 6]);
+    static CUSTOM_TYPEFACE: RefCell<Option<(String, Typeface)>> = RefCell::new(None);
 }
+
 fn style_to_key(style: FontStyle) -> u32 {
     let weight = *style.weight() as u32;
     let width = *style.width() as u32;
     let slant = style.slant() as u32;
     (weight << 16) | (width << 8) | slant
 }
-use crate::core::persistence::load_config;
+
+fn get_custom_typeface() -> Option<Typeface> {
+    let config = load_config();
+    if let Some(path) = config.custom_font_path {
+        CUSTOM_TYPEFACE.with(|cache| {
+            let mut cache_mut = cache.borrow_mut();
+            if let Some((ref cached_path, ref tf)) = *cache_mut {
+                if cached_path == &path {
+                    return Some(tf.clone());
+                }
+            }
+            if let Ok(data) = std::fs::read(&path) {
+                if let Some(tf) = FONT_MGR.with(|mgr| mgr.new_from_data(&data, None)) {
+                    *cache_mut = Some((path, tf.clone()));
+                    return Some(tf);
+                }
+            }
+            None
+        })
+    } else {
+        None
+    }
+}
 
 fn get_typeface_for_char(c: char, style: FontStyle) -> Typeface {
     let s_key = style_to_key(style);
     FALLBACK_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
+        if cache.len() > 2000 { cache.clear(); }
         if let Some(tf) = cache.get(&(c, s_key)) { return tf.clone(); }
         
-        let config = load_config();
-        if let Some(path) = &config.custom_font_path {
-            if let Ok(data) = std::fs::read(path) {
-                if let Some(tf) = FONT_MGR.with(|mgr| mgr.new_from_data(&data, None)) {
-                    let mut glyphs = [0u16; 1];
-                    tf.unichars_to_glyphs(&[c as i32], &mut glyphs);
-                    if glyphs[0] != 0 {
-                        cache.insert((c, s_key), tf.clone());
-                        return tf;
-                    }
-                }
+        if let Some(tf) = get_custom_typeface() {
+            let mut glyphs = [0u16; 1];
+            tf.unichars_to_glyphs(&[c as i32], &mut glyphs);
+            if glyphs[0] != 0 {
+                cache.insert((c, s_key), tf.clone());
+                return tf;
             }
         }
 
@@ -49,10 +71,12 @@ fn get_typeface_for_char(c: char, style: FontStyle) -> Typeface {
         tf
     })
 }
+
 pub fn draw_text_cached(canvas: &Canvas, text: &str, pos: (f32, f32), size: f32, style: FontStyle, paint: &Paint, align_center: bool, max_w: f32) {
-    let cache_key = format!("{}-{}-{:?}-{}", text, max_w, style, size);
+    let cache_key = format!("{}-{}-{:?}-{}", text, max_w as i32, style, size as i32);
     TEXT_CACHE.with(|cache| {
         let mut cache_mut = cache.borrow_mut();
+        if cache_mut.len() > 500 { cache_mut.clear(); }
         if !cache_mut.contains_key(&cache_key) {
             let mut current_w = 0.0;
             let mut truncated = String::new();
@@ -98,6 +122,7 @@ pub fn draw_text_cached(canvas: &Canvas, text: &str, pos: (f32, f32), size: f32,
         }
     });
 }
+
 pub fn get_cached_media_image(media: &MediaInfo) -> Option<Image> {
     if media.title.is_empty() { return None; }
     let cache_key = format!("{}-{}", media.title, media.album);
@@ -120,6 +145,7 @@ pub fn get_cached_media_image(media: &MediaInfo) -> Option<Image> {
     });
     result
 }
+
 pub fn get_media_palette(media: &MediaInfo) -> Vec<Color> {
     if let Some(img) = get_cached_media_image(media) {
         let cache_key = format!("{}-{}", media.title, media.album);
@@ -128,6 +154,7 @@ pub fn get_media_palette(media: &MediaInfo) -> Vec<Color> {
         vec![Color::from_rgb(180, 180, 180), Color::from_rgb(100, 100, 100)]
     }
 }
+
 pub fn draw_main_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: u8, media: &MediaInfo, music_active: bool, view_offset: f32, scale: f32) {
     let arrow_alpha = (alpha as f32 * (1.0 - view_offset * 5.0).clamp(0.0, 1.0)) as u8;
     if arrow_alpha > 0 {
@@ -170,6 +197,7 @@ pub fn draw_main_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: 
     draw_text_cached(canvas, artist, (text_x, title_y + 22.0 * scale), 15.0 * scale, FontStyle::normal(), &text_paint, false, max_text_w);
     draw_visualizer(canvas, ox + w - 45.0 * scale, title_y - 4.0 * scale, alpha, music_active && media.is_playing, &palette, &media.spectrum, scale, scale, (0.5, 0.08));
 }
+
 pub fn draw_visualizer(canvas: &Canvas, x: f32, y: f32, alpha: u8, is_playing: bool, palette: &[Color], spectrum: &[f32; 6], w_scale: f32, h_scale: f32, smooth_factors: (f32, f32)) {
     let (rise, fall) = smooth_factors;
     let bar_count = 6;
@@ -210,9 +238,11 @@ pub fn draw_visualizer(canvas: &Canvas, x: f32, y: f32, alpha: u8, is_playing: b
         }
     });
 }
+
 fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color> {
     COLOR_CACHE.with(|cache| {
         let mut cache_mut = cache.borrow_mut();
+        if cache_mut.len() > 50 { cache_mut.clear(); }
         if let Some(palette) = cache_mut.get(cache_key) { return palette.clone(); }
         let mut palette = Vec::new();
         let info = skia_safe::ImageInfo::new(
@@ -278,6 +308,7 @@ fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color> {
         palette
     })
 }
+
 fn draw_placeholder(canvas: &Canvas, x: f32, y: f32, size: f32, alpha: u8, scale: f32) {
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
@@ -288,4 +319,3 @@ fn draw_placeholder(canvas: &Canvas, x: f32, y: f32, size: f32, alpha: u8, scale
     let cy = y + size / 2.0;
     crate::icons::music::draw_music_icon(canvas, cx, cy, alpha, scale * 1.8);
 }
-
