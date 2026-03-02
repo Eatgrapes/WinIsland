@@ -92,8 +92,10 @@ impl MusicApp {
         paint.set_anti_alias(true);
         paint.set_color(COLOR_TEXT_PRI);
         canvas.draw_str(&tr("music_settings_title"), (25.0, 45.0), &font_title, &paint);
+        
         paint.set_color(COLOR_CARD);
         canvas.draw_round_rect(Rect::from_xywh(20.0, 70.0, MUSIC_W - 40.0, 100.0), 12.0, 12.0, &paint);
+        
         let font_item = self.get_font(15.0, false);
         paint.set_color(COLOR_TEXT_PRI);
         canvas.draw_str(&tr("smtc_control"), (40.0, 102.0), &font_item, &paint);
@@ -105,11 +107,13 @@ impl MusicApp {
         let enabled = self.config.smtc_enabled;
         let text_color = if enabled { COLOR_TEXT_PRI } else { COLOR_TEXT_SEC };
         let sec_color = if enabled { COLOR_TEXT_SEC } else { COLOR_DISABLED };
+        let media_apps_y = 195.0;
         paint.set_color(sec_color);
         let font_sec = self.get_font(12.0, true);
-        canvas.draw_str(&tr("media_apps"), (30.0, 205.0), &font_sec, &paint);
-        self.draw_text_button(canvas, MUSIC_W - 130.0, 190.0, 110.0, 24.0, &tr("scan_apps"), enabled);
-        let mut current_y = 220.0;
+        canvas.draw_str(&tr("media_apps"), (30.0, media_apps_y + 15.0), &font_sec, &paint);
+        self.draw_text_button(canvas, MUSIC_W - 130.0, media_apps_y, 110.0, 24.0, &tr("scan_apps"), enabled);
+        
+        let mut current_y = media_apps_y + 30.0;
         if self.detected_apps.is_empty() {
             paint.set_color(sec_color);
             canvas.draw_str(&tr("no_sessions"), (40.0, current_y + 25.0), &font_item, &paint);
@@ -177,12 +181,15 @@ impl MusicApp {
             self.config.show_lyrics = !self.config.show_lyrics;
             changed = true;
         }
+        
+        let media_apps_y = 195.0;
+
         if self.config.smtc_enabled {
-            if mx >= MUSIC_W - 130.0 && mx <= MUSIC_W - 20.0 && my >= 190.0 && my <= 214.0 {
+            if mx >= MUSIC_W - 130.0 && mx <= MUSIC_W - 20.0 && my >= media_apps_y && my <= media_apps_y + 24.0 {
                 self.update_detected_apps();
                 if let Some(win) = &self.window { win.request_redraw(); }
             }
-            let mut current_y = 220.0;
+            let mut current_y = media_apps_y + 30.0;
             let mut to_remove = None;
             for (i, app) in self.detected_apps.iter().enumerate() {
                 if mx >= 320.0 && mx <= 380.0 && my >= current_y && my <= current_y + 45.0 {
@@ -252,16 +259,18 @@ impl ApplicationHandler for MusicApp {
                 }
                 win_clone.request_redraw();
             }
+            let mut redraw = false;
             let target = if self.config.smtc_enabled { 1.0 } else { 0.0 };
             if (target - self.switch_pos).abs() > 0.01 {
                 self.switch_pos += (target - self.switch_pos) * 0.2;
-                win_clone.request_redraw();
+                redraw = true;
             }
             let l_target = if self.config.show_lyrics { 1.0 } else { 0.0 };
             if (l_target - self.lyrics_switch_pos).abs() > 0.01 {
                 self.lyrics_switch_pos += (l_target - self.lyrics_switch_pos) * 0.2;
-                win_clone.request_redraw();
+                redraw = true;
             }
+            if redraw { win_clone.request_redraw(); }
             std::thread::sleep(Duration::from_millis(16));
         }
     }

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::cell::RefCell;
 use winit::window::Window;
 use crate::core::config::{PADDING, TOP_OFFSET};
-use crate::ui::expanded::main_view::{draw_main_page, get_media_palette, draw_visualizer, get_cached_media_image};
+use crate::ui::expanded::main_view::{draw_main_page, get_media_palette, draw_visualizer, get_cached_media_image, draw_text_cached};
 use crate::ui::expanded::tools_view::draw_tools_page;
 use crate::core::smtc::MediaInfo;
 
@@ -155,11 +155,7 @@ pub fn draw_island(
                         }
                         
                         let text_y = offset_y + current_h / 2.0 + 4.0 * global_scale - (10.0 * global_scale * lyric_transition);
-                        
-                        crate::ui::expanded::main_view::draw_text_cached(
-                            canvas, old_lyric, (text_x, text_y), 12.0 * global_scale,
-                            skia_safe::FontStyle::normal(), &text_paint, true, available_w
-                        );
+                        draw_text_cached(canvas, old_lyric, (text_x, text_y), 12.0 * global_scale, skia_safe::FontStyle::normal(), &text_paint, true, available_w);
                     }
 
                     if !current_lyric.is_empty() {
@@ -174,11 +170,7 @@ pub fn draw_island(
                         }
 
                         let text_y = offset_y + current_h / 2.0 + 4.0 * global_scale + (10.0 * global_scale * (1.0 - lyric_transition));
-                        
-                        crate::ui::expanded::main_view::draw_text_cached(
-                            canvas, current_lyric, (text_x, text_y), 12.0 * global_scale,
-                            skia_safe::FontStyle::normal(), &text_paint, true, available_w
-                        );
+                        draw_text_cached(canvas, current_lyric, (text_x, text_y), 12.0 * global_scale, skia_safe::FontStyle::normal(), &text_paint, true, available_w);
                     }
                 } else {
                     let text_y = offset_y + current_h / 2.0 + 4.0 * global_scale;
@@ -188,22 +180,14 @@ pub fn draw_island(
                         let progress = lyric_transition * 2.0;
                         let fade_alpha = (alpha as f32 * (1.0 - progress)) as u8;
                         text_paint.set_color(Color::from_argb(fade_alpha, 255, 255, 255));
-                        
-                        crate::ui::expanded::main_view::draw_text_cached(
-                            canvas, old_lyric, (text_x, text_y), 12.0 * global_scale,
-                            skia_safe::FontStyle::normal(), &text_paint, true, available_w
-                        );
+                        draw_text_cached(canvas, old_lyric, (text_x, text_y), 12.0 * global_scale, skia_safe::FontStyle::normal(), &text_paint, true, available_w);
                     } else if lyric_transition >= 0.5 && !current_lyric.is_empty() {
                         let mut text_paint = Paint::default();
                         text_paint.set_anti_alias(true);
                         let progress = (lyric_transition - 0.5) * 2.0;
                         let fade_alpha = (alpha as f32 * progress) as u8;
                         text_paint.set_color(Color::from_argb(fade_alpha, 255, 255, 255));
-                        
-                        crate::ui::expanded::main_view::draw_text_cached(
-                            canvas, current_lyric, (text_x, text_y), 12.0 * global_scale,
-                            skia_safe::FontStyle::normal(), &text_paint, true, available_w
-                        );
+                        draw_text_cached(canvas, current_lyric, (text_x, text_y), 12.0 * global_scale, skia_safe::FontStyle::normal(), &text_paint, true, available_w);
                     }
                 }
                 canvas.restore();

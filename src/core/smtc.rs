@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
+use std::time::{Instant, Duration};
 use windows::Media::Control::{
     GlobalSystemMediaTransportControlsSessionManager,
     GlobalSystemMediaTransportControlsSession,
@@ -19,6 +19,7 @@ pub struct MediaInfo {
     pub position_ms: u64,
     pub last_update: Instant,
     pub lyrics: Option<Arc<Vec<LyricLine>>>,
+    pub last_smtc_pos: u64,
 }
 
 impl Default for MediaInfo {
@@ -33,37 +34,40 @@ impl Default for MediaInfo {
             position_ms: 0,
             last_update: Instant::now(),
             lyrics: None,
+            last_smtc_pos: 0,
         }
     }
 }
 
 impl MediaInfo {
     pub fn current_lyric(&self) -> Option<String> {
-        if let Some(lyrics) = &self.lyrics {
-            let current_pos = if self.is_playing {
-                self.position_ms + self.last_update.elapsed().as_millis() as u64
-            } else {
-                self.position_ms
-            };
-            
-            let mut current_text = None;
-            for line in lyrics.iter() {
-                if line.time_ms <= current_pos {
-                    current_text = Some(line.text.clone());
+        let lyrics = self.lyrics.as_ref()?;
+        if lyrics.is_empty() { return None; }
+
+        let current_pos = if self.is_playing {
+            self.position_ms + self.last_update.elapsed().as_millis() as u64
+        } else {
+            self.position_ms
+        };
+        
+        match lyrics.binary_search_by_key(&current_pos, |line| line.time_ms) {
+            Ok(idx) => Some(lyrics[idx].text.clone()),
+            Err(idx) => {
+                if idx > 0 {
+                    Some(lyrics[idx - 1].text.clone())
                 } else {
-                    break;
+                    None
                 }
             }
-            current_text
-        } else {
-            None
         }
     }
 }
+
 pub struct SmtcListener {
     info: Arc<Mutex<MediaInfo>>,
     active: Arc<AtomicBool>,
 }
+
 impl SmtcListener {
     pub fn new() -> Self {
         let listener = Self {
@@ -73,9 +77,11 @@ impl SmtcListener {
         listener.init();
         listener
     }
+
     pub fn get_info(&self) -> MediaInfo {
         self.info.lock().unwrap().clone()
     }
+
     fn init(&self) {
         let info_clone = self.info.clone();
         let active_clone = self.active.clone();
@@ -87,16 +93,21 @@ impl SmtcListener {
                 },
                 Err(_) => return,
             };
+
             let update_info = |mgr: &GlobalSystemMediaTransportControlsSessionManager, arc: &Arc<Mutex<MediaInfo>>| {
                 if let Ok(session) = mgr.GetCurrentSession() {
                     let _ = Self::fetch_properties(&session, arc);
                 } else {
                     if let Ok(mut info) = arc.lock() {
-                        *info = MediaInfo::default();
+                        if !info.title.is_empty() {
+                            *info = MediaInfo::default();
+                        }
                     }
                 }
             };
+
             update_info(&manager, &info_clone);
+
             let info_for_handler = info_clone.clone();
             let handler = TypedEventHandler::new(move |m: &Option<GlobalSystemMediaTransportControlsSessionManager>, _| {
                 if let Some(mgr) = m {
@@ -105,18 +116,22 @@ impl SmtcListener {
                 Ok(())
             });
             let _ = manager.SessionsChanged(&handler);
+
             while active_clone.load(Ordering::Relaxed) {
-                update_info(&manager, &info_clone);
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                if let Ok(session) = manager.GetCurrentSession() {
+                    let _ = Self::fetch_properties(&session, &info_clone);
+                }
+                std::thread::sleep(Duration::from_millis(300));
             }
         });
     }
+
     fn fetch_properties(session: &GlobalSystemMediaTransportControlsSession, info_arc: &Arc<Mutex<MediaInfo>>) -> windows::core::Result<()> {
         let props = session.TryGetMediaPropertiesAsync()?.get()?;
         let pb_info = session.GetPlaybackInfo()?;
         let is_playing = pb_info.PlaybackStatus()? == windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing;
         
-        let position_ms = if let Ok(tl) = session.GetTimelineProperties() {
+        let smtc_pos = if let Ok(tl) = session.GetTimelineProperties() {
             if let Ok(pos) = tl.Position() {
                 (pos.Duration / 10000) as u64
             } else { 0 }
@@ -134,22 +149,42 @@ impl SmtcListener {
                 info.artist = new_artist.clone();
                 info.lyrics = None;
                 info.thumbnail = None;
+                info.position_ms = smtc_pos;
+                info.last_smtc_pos = smtc_pos;
+                info.last_update = Instant::now();
                 should_fetch_lyrics = true;
                 should_fetch_thumbnail = true;
             }
+            
             info.album = props.AlbumTitle()?.to_string();
             
-            let extrapolated = if info.is_playing {
+            let current_extrapolated = if info.is_playing {
                 info.position_ms + info.last_update.elapsed().as_millis() as u64
             } else {
                 info.position_ms
             };
 
-            if song_changed || (position_ms as i64 - extrapolated as i64).abs() > 1500 || info.is_playing != is_playing {
-                info.position_ms = position_ms;
+            let smtc_changed = smtc_pos != info.last_smtc_pos;
+            let diff_with_extrapolated = (smtc_pos as i64 - current_extrapolated as i64).abs();
+
+            let should_sync = if song_changed {
+                true
+            } else if info.is_playing != is_playing {
+                true
+            } else if smtc_changed && diff_with_extrapolated > 2000 {
+                true
+            } else if smtc_pos > 0 && info.position_ms == 0 && is_playing {
+                true
+            } else {
+                false
+            };
+
+            if should_sync {
+                info.position_ms = smtc_pos;
                 info.last_update = Instant::now();
             }
             
+            info.last_smtc_pos = smtc_pos;
             info.is_playing = is_playing;
         }
 
@@ -191,4 +226,3 @@ impl SmtcListener {
         Ok(())
     }
 }
-
