@@ -29,4 +29,4 @@ cargo build --release
 如果你有精力或兴趣，欢迎提交 PR。
 
 ## 许可证
-[GPL](LICENSE)
+[MIT](LICENSE)
