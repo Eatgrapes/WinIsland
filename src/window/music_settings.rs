@@ -27,12 +27,14 @@ pub struct MusicApp {
     frame_count: u64,
     switch_pos: f32,
     lyrics_switch_pos: f32,
+    lyrics_fallback_switch_pos: f32,
     detected_apps: Vec<String>,
 }
 impl MusicApp {
     pub fn new(config: AppConfig) -> Self {
         let sp = if config.smtc_enabled { 1.0 } else { 0.0 };
         let lsp = if config.show_lyrics { 1.0 } else { 0.0 };
+        let lfsp = if config.lyrics_fallback { 1.0 } else { 0.0 };
         Self {
             window: None,
             surface: None,
@@ -43,6 +45,7 @@ impl MusicApp {
             frame_count: 0,
             switch_pos: sp,
             lyrics_switch_pos: lsp,
+            lyrics_fallback_switch_pos: lfsp,
             detected_apps: Vec::new(),
         }
     }
@@ -121,13 +124,13 @@ impl MusicApp {
         canvas.draw_str(&tr("music_settings_title"), (25.0, 45.0), &font_title, &paint);
         
         paint.set_color(COLOR_CARD);
-        canvas.draw_round_rect(Rect::from_xywh(20.0, 70.0, MUSIC_W - 40.0, 155.0), 12.0, 12.0, &paint);
-        
+        canvas.draw_round_rect(Rect::from_xywh(20.0, 70.0, MUSIC_W - 40.0, 205.0), 12.0, 12.0, &paint);
+
         let font_item = self.get_font(15.0, false);
         paint.set_color(COLOR_TEXT_PRI);
         canvas.draw_str(&tr("smtc_control"), (40.0, 102.0), &font_item, &paint);
         self.draw_switch(canvas, 325.0, 82.0, self.switch_pos);
-        
+
         canvas.draw_str(&tr("show_lyrics"), (40.0, 152.0), &font_item, &paint);
         self.draw_switch(canvas, 325.0, 132.0, self.lyrics_switch_pos);
 
@@ -138,10 +141,14 @@ impl MusicApp {
         self.draw_source_button(canvas, 235.0, 185.0, 50.0, "163", source == "163", show_lyrics);
         self.draw_source_button(canvas, 292.0, 185.0, 68.0, "LRCLIB", source == "lrclib", show_lyrics);
 
+        paint.set_color(if show_lyrics { COLOR_TEXT_PRI } else { COLOR_TEXT_SEC });
+        canvas.draw_str(&tr("lyrics_fallback"), (40.0, 252.0), &font_item, &paint);
+        self.draw_switch(canvas, 325.0, 232.0, if show_lyrics { self.lyrics_fallback_switch_pos } else { 0.0 });
+
         let enabled = self.config.smtc_enabled;
         let text_color = if enabled { COLOR_TEXT_PRI } else { COLOR_TEXT_SEC };
         let sec_color = if enabled { COLOR_TEXT_SEC } else { COLOR_DISABLED };
-        let media_apps_y = 250.0;
+        let media_apps_y = 300.0;
         paint.set_color(sec_color);
         let font_sec = self.get_font(12.0, true);
         canvas.draw_str(&tr("media_apps"), (30.0, media_apps_y + 15.0), &font_sec, &paint);
@@ -230,9 +237,10 @@ impl MusicApp {
         if self.config.show_lyrics {
             if lmx >= 235.0 && lmx <= 285.0 && lmy >= 185.0 && lmy <= 207.0 { return true; }
             if lmx >= 292.0 && lmx <= 360.0 && lmy >= 185.0 && lmy <= 207.0 { return true; }
+            if lmx >= 320.0 && lmx <= 380.0 && lmy >= 232.0 && lmy <= 262.0 { return true; }
         }
-        
-        let media_apps_y = 250.0;
+
+        let media_apps_y = 300.0;
 
         if self.config.smtc_enabled {
             if lmx >= MUSIC_W - 130.0 && lmx <= MUSIC_W - 20.0 && lmy >= media_apps_y && lmy <= media_apps_y + 24.0 { return true; }
@@ -275,9 +283,13 @@ impl MusicApp {
                 self.config.lyrics_source = "lrclib".to_string();
                 changed = true;
             }
+            if lmx >= 320.0 && lmx <= 380.0 && lmy >= 232.0 && lmy <= 262.0 {
+                self.config.lyrics_fallback = !self.config.lyrics_fallback;
+                changed = true;
+            }
         }
-        
-        let media_apps_y = 250.0;
+
+        let media_apps_y = 300.0;
 
         if self.config.smtc_enabled {
             if lmx >= MUSIC_W - 130.0 && lmx <= MUSIC_W - 20.0 && lmy >= media_apps_y && lmy <= media_apps_y + 24.0 {
@@ -392,6 +404,11 @@ impl ApplicationHandler for MusicApp {
             let l_target = if self.config.show_lyrics { 1.0 } else { 0.0 };
             if (l_target - self.lyrics_switch_pos).abs() > 0.01 {
                 self.lyrics_switch_pos += (l_target - self.lyrics_switch_pos) * 0.2;
+                redraw = true;
+            }
+            let lf_target = if self.config.lyrics_fallback { 1.0 } else { 0.0 };
+            if (lf_target - self.lyrics_fallback_switch_pos).abs() > 0.01 {
+                self.lyrics_fallback_switch_pos += (lf_target - self.lyrics_fallback_switch_pos) * 0.2;
                 redraw = true;
             }
             if redraw { win_clone.request_redraw(); }

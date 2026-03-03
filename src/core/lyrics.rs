@@ -9,19 +9,27 @@ pub struct LyricLine {
     pub text: String,
 }
 
-pub fn fetch_lyrics(title: &str, artist: &str, duration_secs: u64, source: &str) -> Option<Arc<Vec<LyricLine>>> {
+pub fn fetch_lyrics(title: &str, artist: &str, duration_secs: u64, source: &str, fallback: bool) -> Option<Arc<Vec<LyricLine>>> {
     if title.is_empty() {
         return None;
     }
-    match source {
+    let result = match source {
         "lrclib" => fetch_lyrics_lrclib(title, artist, duration_secs),
         _ => fetch_lyrics_163(title, artist),
+    };
+    if result.is_none() && fallback {
+        match source {
+            "lrclib" => fetch_lyrics_163(title, artist),
+            _ => fetch_lyrics_lrclib(title, artist, duration_secs),
+        }
+    } else {
+        result
     }
 }
 
 fn fetch_lyrics_163(title: &str, artist: &str) -> Option<Arc<Vec<LyricLine>>> {
     let query = format!("{} {}", title, artist);
-    let url = format!("http://music.163.com/api/search/get/web?s={}&type=1&offset=0&total=true&limit=1", url_encode(&query));
+    let url = format!("https://music.163.com/api/search/get/web?s={}&type=1&offset=0&total=true&limit=1", url_encode(&query));
 
     let res = ureq::get(&url)
         .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
@@ -37,7 +45,7 @@ fn fetch_lyrics_163(title: &str, artist: &str) -> Option<Arc<Vec<LyricLine>>> {
         .get("id")?
         .as_i64()?;
 
-    let lyric_url = format!("http://music.163.com/api/song/lyric?id={}&lv=1&kv=1&tv=-1", song_id);
+    let lyric_url = format!("https://music.163.com/api/song/lyric?id={}&lv=1&kv=1&tv=-1", song_id);
     
     let lyric_res = ureq::get(&lyric_url)
         .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
