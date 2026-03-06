@@ -10,7 +10,7 @@ English | [简体中文](./README-zh.md)
 
 This is a project that can display **Dynamic Island** on Windows.
 
-## Build it
+## Build it 
 
 - **Rust** environment
 - **Cargo**
