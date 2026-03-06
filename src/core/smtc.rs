@@ -131,7 +131,7 @@ impl SmtcListener {
                         if let Ok(pb_info) = session.GetPlaybackInfo() {
                             if let Ok(playback_type) = pb_info.PlaybackType() {
                                 if let Ok(value) = playback_type.Value() {
-                                    if value == windows::Media::MediaPlaybackType::Audio {
+                                    if value == windows::Media::MediaPlaybackType::Music {
                                         if let Ok(status) = pb_info.PlaybackStatus() {
                                             if status == windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
                                                 return Some(session);
