@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use crate::core::config::{APP_VERSION, APP_HOMEPAGE};
 
 #[derive(Clone, Default, Debug)]
 pub struct LyricLine {
@@ -8,13 +9,27 @@ pub struct LyricLine {
     pub text: String,
 }
 
-pub fn fetch_lyrics(title: &str, artist: &str) -> Option<Arc<Vec<LyricLine>>> {
+pub fn fetch_lyrics(title: &str, artist: &str, duration_secs: u64, source: &str, fallback: bool) -> Option<Arc<Vec<LyricLine>>> {
     if title.is_empty() {
         return None;
     }
+    let result = match source {
+        "lrclib" => fetch_lyrics_lrclib(title, artist, duration_secs),
+        _ => fetch_lyrics_163(title, artist),
+    };
+    if result.is_none() && fallback {
+        match source {
+            "lrclib" => fetch_lyrics_163(title, artist),
+            _ => fetch_lyrics_lrclib(title, artist, duration_secs),
+        }
+    } else {
+        result
+    }
+}
 
+fn fetch_lyrics_163(title: &str, artist: &str) -> Option<Arc<Vec<LyricLine>>> {
     let query = format!("{} {}", title, artist);
-    let url = format!("http://music.163.com/api/search/get/web?s={}&type=1&offset=0&total=true&limit=1", url_encode(&query));
+    let url = format!("https://music.163.com/api/search/get/web?s={}&type=1&offset=0&total=true&limit=1", url_encode(&query));
 
     let res = ureq::get(&url)
         .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
@@ -30,7 +45,7 @@ pub fn fetch_lyrics(title: &str, artist: &str) -> Option<Arc<Vec<LyricLine>>> {
         .get("id")?
         .as_i64()?;
 
-    let lyric_url = format!("http://music.163.com/api/song/lyric?id={}&lv=1&kv=1&tv=-1", song_id);
+    let lyric_url = format!("https://music.163.com/api/song/lyric?id={}&lv=1&kv=1&tv=-1", song_id);
     
     let lyric_res = ureq::get(&lyric_url)
         .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
@@ -43,6 +58,26 @@ pub fn fetch_lyrics(title: &str, artist: &str) -> Option<Arc<Vec<LyricLine>>> {
     let tlrc_str = lyric_json.get("tlyric")?.get("lyric")?.as_str().unwrap_or("");
     
     Some(Arc::new(parse_lyrics(lrc_str, tlrc_str)))
+}
+
+fn fetch_lyrics_lrclib(title: &str, artist: &str, duration_secs: u64) -> Option<Arc<Vec<LyricLine>>> {
+    let url = format!(
+        "https://lrclib.net/api/get?track_name={}&artist_name={}&duration={}",
+        url_encode(title),
+        url_encode(artist),
+        duration_secs
+    );
+
+    let res = ureq::get(&url)
+        .set("User-Agent", &format!("WinIsland/{} ({})", APP_VERSION, APP_HOMEPAGE))
+        .call()
+        .ok()?;
+
+    let json: Value = res.into_json().ok()?;
+    let synced = json.get("syncedLyrics")?.as_str()?;
+
+    let lines = parse_lyrics(synced, "");
+    if lines.is_empty() { None } else { Some(Arc::new(lines)) }
 }
 
 fn parse_lyrics(lrc: &str, tlrc: &str) -> Vec<LyricLine> {

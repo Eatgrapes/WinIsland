@@ -97,7 +97,7 @@ pub fn draw_island(
         if blur_filter.is_some() { canvas.restore(); }
         canvas.restore();
     }
-    if mini_alpha_f > 0.01 && current_w > 100.0 * global_scale && music_active {
+    if mini_alpha_f > 0.01 && current_w > 45.0 * global_scale && music_active {
         let alpha = (mini_alpha_f * 255.0) as u8;
         if let Some(image) = get_cached_media_image(media) {
             let size = 18.0 * global_scale; 
