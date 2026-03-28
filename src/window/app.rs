@@ -234,7 +234,7 @@ impl ApplicationHandler for App {
                                     let dist_sq = (rel_x as f64 - btn_x).powi(2) + (rel_y as f64 - center_y).powi(2);
                                     if dist_sq <= (25.0 * scale).powi(2) {
                                         self.tools_view = true;
-                                        self.spring_view.velocity *= 0.2;
+                                        
                                         return;
                                     }
                                 } else {
@@ -242,7 +242,7 @@ impl ApplicationHandler for App {
                                     let dist_sq = (rel_x as f64 - btn_x).powi(2) + (rel_y as f64 - center_y).powi(2);
                                     if dist_sq <= (25.0 * scale).powi(2) {
                                         self.tools_view = false;
-                                        self.spring_view.velocity *= 0.2;
+                                        
                                         return;
                                     }
                                     let grid_w = self.spring_w.value as f64 - 80.0 * scale;
@@ -275,9 +275,9 @@ impl ApplicationHandler for App {
                                 if (rel_y as f64) < island_y + 40.0 * scale {
                                     self.expanded = false;
                                     self.tools_view = false;
-                                    self.spring_w.velocity *= 0.2;
-                                    self.spring_h.velocity *= 0.2;
-                                    self.spring_r.velocity *= 0.2;
+                                    
+                                    
+                                    
                                 }
                             } else {
                                 if is_hovering_visible || is_on_hidden_handle {
@@ -298,9 +298,9 @@ impl ApplicationHandler for App {
                                         self.idle_timer = Instant::now();
                                     } else {
                                         self.expanded = true;
-                                        self.spring_w.velocity *= 0.2;
-                                        self.spring_h.velocity *= 0.2;
-                                        self.spring_r.velocity *= 0.2;
+                                        
+                                        
+                                        
                                     }
                                 } else {
                                     if self.spring_hide.value > 0.3 {
@@ -543,9 +543,9 @@ impl ApplicationHandler for App {
             if self.expanded && !is_hovering_visible && is_left_button_pressed() {
                 self.expanded = false;
                 self.tools_view = false;
-                self.spring_w.velocity *= 0.2;
-                self.spring_h.velocity *= 0.2;
-                self.spring_r.velocity *= 0.2;
+                
+                
+                
                 window.request_redraw();
             }
 
@@ -688,7 +688,7 @@ impl ApplicationHandler for App {
                 }
             }
 
-            if self.expanded || music_active || self.spring_w.velocity.abs() > 0.01 || self.spring_h.velocity.abs() > 0.01 {
+            if self.expanded || music_active || self.spring_w.velocity.abs() > 0.001 || self.spring_h.velocity.abs() > 0.001 || self.spring_r.velocity.abs() > 0.001 || self.spring_view.velocity.abs() > 0.001 {
                 window.request_redraw();
             }
             let elapsed = frame_start.elapsed();
