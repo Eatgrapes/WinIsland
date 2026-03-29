@@ -2,7 +2,8 @@ use crate::core::config::AppConfig;
 use crate::core::persistence::save_config;
 use crate::core::i18n::tr;
 use crate::utils::color::*;
-use skia_safe::{surfaces, Color, Font, FontMgr, FontStyle, Paint, Rect};
+use crate::utils::font::FontManager;
+use skia_safe::{surfaces, Color, Paint, Rect};
 use softbuffer::{Context, Surface};
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,7 +24,6 @@ pub struct MusicApp {
     sk_surface: Option<skia_safe::Surface>,
     config: AppConfig,
     logical_mouse_pos: (f32, f32),
-    font_mgr: FontMgr,
     frame_count: u64,
     switch_pos: f32,
     lyrics_switch_pos: f32,
@@ -41,27 +41,12 @@ impl MusicApp {
             sk_surface: None,
             config,
             logical_mouse_pos: (0.0, 0.0),
-            font_mgr: FontMgr::new(),
             frame_count: 0,
             switch_pos: sp,
             lyrics_switch_pos: lsp,
             lyrics_fallback_switch_pos: lfsp,
             detected_apps: Vec::new(),
         }
-    }
-    fn get_font(&self, size: f32, bold: bool) -> Font {
-        let style = if bold { FontStyle::bold() } else { FontStyle::normal() };
-        if let Some(path) = &self.config.custom_font_path {
-            if let Ok(data) = std::fs::read(path) {
-                if let Some(tf) = self.font_mgr.new_from_data(&data, None) {
-                    return Font::from_typeface(tf, size);
-                }
-            }
-        }
-        let typeface = self.font_mgr.match_family_style("Microsoft YaHei", style)
-            .or_else(|| self.font_mgr.match_family_style("Segoe UI", style))
-            .unwrap_or_else(|| self.font_mgr.legacy_make_typeface(None, style).unwrap());
-        Font::from_typeface(typeface, size)
     }
     fn update_detected_apps(&mut self) {
         use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
@@ -117,32 +102,31 @@ impl MusicApp {
         let dy = (logical_h - MUSIC_H) / 2.0;
         canvas.translate((dx, dy));
 
-        let font_title = self.get_font(22.0, true);
+        let fm = FontManager::global();
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
         paint.set_color(COLOR_TEXT_PRI);
-        canvas.draw_str(&tr("music_settings_title"), (25.0, 45.0), &font_title, &paint);
-        
+        fm.draw_text(canvas, &tr("music_settings_title"), (25.0, 45.0), 22.0, true, &paint);
+
         paint.set_color(COLOR_CARD);
         canvas.draw_round_rect(Rect::from_xywh(20.0, 70.0, MUSIC_W - 40.0, 205.0), 12.0, 12.0, &paint);
 
-        let font_item = self.get_font(15.0, false);
         paint.set_color(COLOR_TEXT_PRI);
-        canvas.draw_str(&tr("smtc_control"), (40.0, 102.0), &font_item, &paint);
+        fm.draw_text(canvas, &tr("smtc_control"), (40.0, 102.0), 15.0, false, &paint);
         self.draw_switch(canvas, 325.0, 82.0, self.switch_pos);
 
-        canvas.draw_str(&tr("show_lyrics"), (40.0, 152.0), &font_item, &paint);
+        fm.draw_text(canvas, &tr("show_lyrics"), (40.0, 152.0), 15.0, false, &paint);
         self.draw_switch(canvas, 325.0, 132.0, self.lyrics_switch_pos);
 
         let show_lyrics = self.config.show_lyrics;
         paint.set_color(if show_lyrics { COLOR_TEXT_PRI } else { COLOR_TEXT_SEC });
-        canvas.draw_str(&tr("lyrics_source"), (40.0, 202.0), &font_item, &paint);
+        fm.draw_text(canvas, &tr("lyrics_source"), (40.0, 202.0), 15.0, false, &paint);
         let source = &self.config.lyrics_source.clone();
         self.draw_source_button(canvas, 235.0, 185.0, 50.0, "163", source == "163", show_lyrics);
         self.draw_source_button(canvas, 292.0, 185.0, 68.0, "LRCLIB", source == "lrclib", show_lyrics);
 
         paint.set_color(if show_lyrics { COLOR_TEXT_PRI } else { COLOR_TEXT_SEC });
-        canvas.draw_str(&tr("lyrics_fallback"), (40.0, 252.0), &font_item, &paint);
+        fm.draw_text(canvas, &tr("lyrics_fallback"), (40.0, 252.0), 15.0, false, &paint);
         self.draw_switch(canvas, 325.0, 232.0, if show_lyrics { self.lyrics_fallback_switch_pos } else { 0.0 });
 
         let enabled = self.config.smtc_enabled;
@@ -150,14 +134,13 @@ impl MusicApp {
         let sec_color = if enabled { COLOR_TEXT_SEC } else { COLOR_DISABLED };
         let media_apps_y = 300.0;
         paint.set_color(sec_color);
-        let font_sec = self.get_font(12.0, true);
-        canvas.draw_str(&tr("media_apps"), (30.0, media_apps_y + 15.0), &font_sec, &paint);
+        fm.draw_text(canvas, &tr("media_apps"), (30.0, media_apps_y + 15.0), 12.0, true, &paint);
         self.draw_text_button(canvas, MUSIC_W - 130.0, media_apps_y, 110.0, 24.0, &tr("scan_apps"), enabled);
-        
+
         let mut current_y = media_apps_y + 30.0;
         if self.detected_apps.is_empty() {
             paint.set_color(sec_color);
-            canvas.draw_str(&tr("no_sessions"), (40.0, current_y + 25.0), &font_item, &paint);
+            fm.draw_text(canvas, &tr("no_sessions"), (40.0, current_y + 25.0), 15.0, false, &paint);
         } else {
             for app in &self.detected_apps {
                 paint.set_color(COLOR_CARD);
@@ -167,13 +150,12 @@ impl MusicApp {
                 canvas.draw_circle((45.0, current_y + 22.5), 8.0, &paint);
                 paint.set_color(text_color);
                 let display_name = app.split('!').next().unwrap_or(app);
-                canvas.draw_str(display_name, (65.0, current_y + 27.0), &font_item, &paint);
+                fm.draw_text(canvas, display_name, (65.0, current_y + 27.0), 15.0, false, &paint);
                 if enabled {
-                    let del_font = self.get_font(12.0, false);
                     let del_str = tr("delete");
-                    let (_, rect) = del_font.measure_str(&del_str, None);
+                    let (_, rect) = fm.measure(&del_str, 12.0, false);
                     paint.set_color(COLOR_DANGER);
-                    canvas.draw_str(&del_str, (MUSIC_W - 35.0 - rect.width(), current_y + 27.0), &del_font, &paint);
+                    fm.draw_text(canvas, &del_str, (MUSIC_W - 35.0 - rect.width(), current_y + 27.0), 12.0, false, &paint);
                 }
                 current_y += 50.0;
                 if current_y > MUSIC_H - 50.0 { break; }
@@ -202,25 +184,23 @@ impl MusicApp {
         canvas.draw_round_rect(Rect::from_xywh(x + 2.0 + (pos * 22.0), y + 2.0, 22.0, 22.0), 11.0, 11.0, &paint);
     }
     fn draw_text_button(&self, canvas: &skia_safe::Canvas, x: f32, y: f32, w: f32, h: f32, label: &str, enabled: bool) {
+        let fm = FontManager::global();
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
         paint.set_color(if enabled { COLOR_CARD_HIGHLIGHT } else { COLOR_DISABLED });
         canvas.draw_round_rect(Rect::from_xywh(x, y, w, h), h/2.0, h/2.0, &paint);
-        let font = self.get_font(12.0, true);
         paint.set_color(if enabled { COLOR_TEXT_PRI } else { COLOR_TEXT_SEC });
-        let (_, rect) = font.measure_str(label, None);
-        canvas.draw_str(label, (x + (w - rect.width()) / 2.0, y + 16.0), &font, &paint);
+        fm.draw_text_in_rect(canvas, label, x, y + 16.0, w, 12.0, true, &paint);
     }
     fn draw_source_button(&self, canvas: &skia_safe::Canvas, x: f32, y: f32, w: f32, label: &str, active: bool, enabled: bool) {
+        let fm = FontManager::global();
         let h = 22.0;
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
         paint.set_color(if !enabled { COLOR_DISABLED } else if active { COLOR_ACCENT } else { COLOR_CARD_HIGHLIGHT });
         canvas.draw_round_rect(Rect::from_xywh(x, y, w, h), h / 2.0, h / 2.0, &paint);
-        let font = self.get_font(11.0, true);
         paint.set_color(if enabled { COLOR_TEXT_PRI } else { COLOR_TEXT_SEC });
-        let (_, rect) = font.measure_str(label, None);
-        canvas.draw_str(label, (x + (w - rect.width()) / 2.0, y + 15.0), &font, &paint);
+        fm.draw_text_in_rect(canvas, label, x, y + 15.0, w, 11.0, true, &paint);
     }
     fn get_hover_state(&self) -> bool {
         let (mx, my) = self.logical_mouse_pos;

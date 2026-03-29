@@ -2,7 +2,8 @@ use crate::core::config::{AppConfig, APP_AUTHOR, APP_HOMEPAGE, APP_VERSION};
 use crate::core::persistence::save_config;
 use crate::core::i18n::{tr, set_lang, current_lang};
 use crate::utils::color::*;
-use skia_safe::{surfaces, Color, Font, FontMgr, FontStyle, Paint, Rect};
+use crate::utils::font::FontManager;
+use skia_safe::{surfaces, Color, Paint, Rect};
 use softbuffer::{Context, Surface};
 use std::sync::Arc;
 use windows::core::w;
@@ -29,9 +30,6 @@ pub struct SettingsApp {
     autostart_switch_pos: f32,
     update_switch_pos: f32,
     logical_mouse_pos: (f32, f32),
-    font_mgr: FontMgr,
-    custom_font_typeface: Option<skia_safe::Typeface>,
-    custom_font_path_cache: Option<String>,
     frame_count: u64,
     scroll_y: f32,
     target_scroll_y: f32,
@@ -42,7 +40,7 @@ impl SettingsApp {
         let initial_blur = if config.motion_blur { 1.0 } else { 0.0 };
         let initial_autostart = if config.auto_start { 1.0 } else { 0.0 };
         let initial_update = if config.check_for_updates { 1.0 } else { 0.0 };
-        let mut app = Self {
+        Self {
             window: None,
             surface: None,
             sk_surface: None,
@@ -53,37 +51,10 @@ impl SettingsApp {
             autostart_switch_pos: initial_autostart,
             update_switch_pos: initial_update,
             logical_mouse_pos: (0.0, 0.0),
-            font_mgr: FontMgr::new(),
-            custom_font_typeface: None,
-            custom_font_path_cache: None,
             frame_count: 0,
             scroll_y: 0.0,
             target_scroll_y: 0.0,
-        };
-        app.refresh_custom_font_cache();
-        app
-    }
-    fn refresh_custom_font_cache(&mut self) {
-        if self.custom_font_path_cache == self.config.custom_font_path {
-            return;
         }
-        self.custom_font_path_cache = self.config.custom_font_path.clone();
-        self.custom_font_typeface = self
-            .config
-            .custom_font_path
-            .as_ref()
-            .and_then(|path| std::fs::read(path).ok())
-            .and_then(|data| self.font_mgr.new_from_data(&data, None));
-    }
-    fn get_font(&self, size: f32, bold: bool) -> Font {
-        let style = if bold { FontStyle::bold() } else { FontStyle::normal() };
-        if let Some(typeface) = &self.custom_font_typeface {
-            return Font::from_typeface(typeface.clone(), size);
-        }
-        let typeface = self.font_mgr.match_family_style("Microsoft YaHei", style)
-            .or_else(|| self.font_mgr.match_family_style("Segoe UI", style))
-            .unwrap_or_else(|| self.font_mgr.legacy_make_typeface(None, style).unwrap());
-        Font::from_typeface(typeface, size)
     }
     fn draw(&mut self) {
         let win = self.window.as_ref().unwrap();
@@ -151,7 +122,7 @@ impl SettingsApp {
         }
     }
     fn draw_tabs(&self, canvas: &skia_safe::Canvas) {
-        let font = self.get_font(14.0, true);
+        let fm = FontManager::global();
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
         let center_x = SETTINGS_W / 2.0;
@@ -167,12 +138,11 @@ impl SettingsApp {
             } else {
                 paint.set_color(COLOR_TEXT_SEC);
             }
-            let (_, rect) = font.measure_str(label, None);
-            canvas.draw_str(label, (bx + (80.0 - rect.width()) / 2.0, 43.0), &font, &paint);
+            fm.draw_text_in_rect(canvas, label, bx, 43.0, 80.0, 14.0, true, &paint);
         }
     }
     fn draw_general(&self, canvas: &skia_safe::Canvas) {
-        let font = self.get_font(14.0, false);
+        let fm = FontManager::global();
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
         let items = [
@@ -188,32 +158,31 @@ impl SettingsApp {
             paint.set_color(COLOR_CARD);
             canvas.draw_round_rect(Rect::from_xywh(20.0, y - 5.0, SETTINGS_W - 40.0, 42.0), 10.0, 10.0, &paint);
             paint.set_color(COLOR_TEXT_PRI);
-            canvas.draw_str(&label, (35.0, y + 21.0), &font, &paint);
+            fm.draw_text(canvas, label, (35.0, y + 21.0), 14.0, false, &paint);
             self.draw_button(canvas, 270.0, y + 2.0, "-");
             paint.set_color(COLOR_TEXT_PRI);
-            let (_, rect) = font.measure_str(&val, None);
-            canvas.draw_str(&val, (325.0 - rect.width() / 2.0, y + 21.0), &font, &paint);
+            fm.draw_text_centered(canvas, val, 325.0, y + 21.0, 14.0, false, &paint);
             self.draw_button(canvas, 345.0, y + 2.0, "+");
         }
         let sw_border_y = start_y + (items.len() as f32 * 50.0) + 10.0;
         paint.set_color(COLOR_CARD);
         canvas.draw_round_rect(Rect::from_xywh(20.0, sw_border_y - 5.0, SETTINGS_W - 40.0, 42.0), 10.0, 10.0, &paint);
         paint.set_color(COLOR_TEXT_PRI);
-        canvas.draw_str(&tr("adaptive_border"), (35.0, sw_border_y + 21.0), &font, &paint);
+        fm.draw_text(canvas, &tr("adaptive_border"), (35.0, sw_border_y + 21.0), 14.0, false, &paint);
         self.draw_switch(canvas, 326.0, sw_border_y + 3.0, self.border_switch_pos);
-        
+
         let sw_blur_y = sw_border_y + 50.0;
         paint.set_color(COLOR_CARD);
         canvas.draw_round_rect(Rect::from_xywh(20.0, sw_blur_y - 5.0, SETTINGS_W - 40.0, 42.0), 10.0, 10.0, &paint);
         paint.set_color(COLOR_TEXT_PRI);
-        canvas.draw_str(&tr("motion_blur"), (35.0, sw_blur_y + 21.0), &font, &paint);
+        fm.draw_text(canvas, &tr("motion_blur"), (35.0, sw_blur_y + 21.0), 14.0, false, &paint);
         self.draw_switch(canvas, 326.0, sw_blur_y + 3.0, self.blur_switch_pos);
-        
+
         let font_y = sw_blur_y + 50.0;
         paint.set_color(COLOR_CARD);
         canvas.draw_round_rect(Rect::from_xywh(20.0, font_y - 5.0, SETTINGS_W - 40.0, 42.0), 10.0, 10.0, &paint);
         paint.set_color(COLOR_TEXT_PRI);
-        canvas.draw_str(&tr("custom_font"), (35.0, font_y + 21.0), &font, &paint);
+        fm.draw_text(canvas, &tr("custom_font"), (35.0, font_y + 21.0), 14.0, false, &paint);
         self.draw_text_button(canvas, 310.0, font_y + 3.0, 65.0, 26.0, &tr("font_select"));
         if self.config.custom_font_path.is_some() {
             self.draw_text_button_danger(canvas, 235.0, font_y + 3.0, 65.0, 26.0, &tr("font_reset"));
@@ -223,87 +192,81 @@ impl SettingsApp {
         paint.set_color(COLOR_CARD);
         canvas.draw_round_rect(Rect::from_xywh(20.0, autostart_y - 5.0, SETTINGS_W - 40.0, 42.0), 10.0, 10.0, &paint);
         paint.set_color(COLOR_TEXT_PRI);
-        canvas.draw_str(&tr("start_boot"), (35.0, autostart_y + 21.0), &font, &paint);
+        fm.draw_text(canvas, &tr("start_boot"), (35.0, autostart_y + 21.0), 14.0, false, &paint);
         self.draw_switch(canvas, 326.0, autostart_y + 3.0, self.autostart_switch_pos);
 
         let autohide_y = autostart_y + 50.0;
         paint.set_color(COLOR_CARD);
         canvas.draw_round_rect(Rect::from_xywh(20.0, autohide_y - 5.0, SETTINGS_W - 40.0, 42.0), 10.0, 10.0, &paint);
         paint.set_color(COLOR_TEXT_PRI);
-        canvas.draw_str(&tr("auto_hide"), (35.0, autohide_y + 21.0), &font, &paint);
+        fm.draw_text(canvas, &tr("auto_hide"), (35.0, autohide_y + 21.0), 14.0, false, &paint);
         self.draw_switch(canvas, 326.0, autohide_y + 3.0, if self.config.auto_hide { 1.0 } else { 0.0 });
 
         let update_y = autohide_y + 50.0;
         paint.set_color(COLOR_CARD);
         canvas.draw_round_rect(Rect::from_xywh(20.0, update_y - 5.0, SETTINGS_W - 40.0, 42.0), 10.0, 10.0, &paint);
         paint.set_color(COLOR_TEXT_PRI);
-        canvas.draw_str(&tr("check_updates"), (35.0, update_y + 21.0), &font, &paint);
+        fm.draw_text(canvas, &tr("check_updates"), (35.0, update_y + 21.0), 14.0, false, &paint);
         self.draw_switch(canvas, 326.0, update_y + 3.0, self.update_switch_pos);
 
         let interval_y = update_y + 50.0;
         paint.set_color(COLOR_CARD);
         canvas.draw_round_rect(Rect::from_xywh(20.0, interval_y - 5.0, SETTINGS_W - 40.0, 42.0), 10.0, 10.0, &paint);
         paint.set_color(if self.config.check_for_updates { COLOR_TEXT_PRI } else { COLOR_TEXT_SEC });
-        canvas.draw_str(&tr("update_interval"), (35.0, interval_y + 21.0), &font, &paint);
+        fm.draw_text(canvas, &tr("update_interval"), (35.0, interval_y + 21.0), 14.0, false, &paint);
         let interval_str = format!("{:.0}", self.config.update_check_interval);
         self.draw_button(canvas, 270.0, interval_y + 2.0, "-");
-        let (_, rect) = font.measure_str(&interval_str, None);
-        canvas.draw_str(&interval_str, (325.0 - rect.width() / 2.0, interval_y + 21.0), &font, &paint);
+        fm.draw_text_centered(canvas, &interval_str, 325.0, interval_y + 21.0, 14.0, false, &paint);
         self.draw_button(canvas, 345.0, interval_y + 2.0, "+");
 
         let lang_y = interval_y + 50.0;
         paint.set_color(COLOR_CARD);
         canvas.draw_round_rect(Rect::from_xywh(20.0, lang_y - 5.0, SETTINGS_W - 40.0, 42.0), 10.0, 10.0, &paint);
         paint.set_color(COLOR_TEXT_PRI);
-        canvas.draw_str(&tr("language"), (35.0, lang_y + 21.0), &font, &paint);
+        fm.draw_text(canvas, &tr("language"), (35.0, lang_y + 21.0), 14.0, false, &paint);
         self.draw_text_button(canvas, 300.0, lang_y + 3.0, 75.0, 26.0, &tr("lang_name"));
 
         let delay_y = lang_y + 50.0;
         paint.set_color(COLOR_CARD);
         canvas.draw_round_rect(Rect::from_xywh(20.0, delay_y - 5.0, SETTINGS_W - 40.0, 42.0), 10.0, 10.0, &paint);
         paint.set_color(if self.config.auto_hide { COLOR_TEXT_PRI } else { COLOR_TEXT_SEC });
-        canvas.draw_str(&tr("hide_delay"), (35.0, delay_y + 21.0), &font, &paint);
+        fm.draw_text(canvas, &tr("hide_delay"), (35.0, delay_y + 21.0), 14.0, false, &paint);
         let delay_str = format!("{:.0}", self.config.auto_hide_delay);
         self.draw_button(canvas, 270.0, delay_y + 2.0, "-");
-        let (_, rect) = font.measure_str(&delay_str, None);
-        canvas.draw_str(&delay_str, (325.0 - rect.width() / 2.0, delay_y + 21.0), &font, &paint);
+        fm.draw_text_centered(canvas, &delay_str, 325.0, delay_y + 21.0, 14.0, false, &paint);
         self.draw_button(canvas, 345.0, delay_y + 2.0, "+");
 
         paint.set_color(COLOR_DANGER);
         let reset_str = tr("reset_defaults");
-        let (_, rect) = font.measure_str(&reset_str, None);
         let reset_y = delay_y + 60.0;
-        canvas.draw_str(&reset_str, ((SETTINGS_W - rect.width()) / 2.0, reset_y), &font, &paint);
+        fm.draw_text_centered(canvas, &reset_str, SETTINGS_W / 2.0, reset_y, 14.0, false, &paint);
     }
     fn draw_text_button_danger(&self, canvas: &skia_safe::Canvas, x: f32, y: f32, w: f32, h: f32, label: &str) {
+        let fm = FontManager::global();
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
         paint.set_color(COLOR_CARD_HIGHLIGHT);
         canvas.draw_round_rect(Rect::from_xywh(x, y, w, h), h/2.0, h/2.0, &paint);
-        let font = self.get_font(12.0, true);
         paint.set_color(COLOR_DANGER);
-        let (_, rect) = font.measure_str(label, None);
-        canvas.draw_str(label, (x + (w - rect.width()) / 2.0, y + 17.0), &font, &paint);
+        fm.draw_text_in_rect(canvas, label, x, y + 17.0, w, 12.0, true, &paint);
     }
     fn draw_text_button(&self, canvas: &skia_safe::Canvas, x: f32, y: f32, w: f32, h: f32, label: &str) {
+        let fm = FontManager::global();
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
         paint.set_color(COLOR_CARD_HIGHLIGHT);
         canvas.draw_round_rect(Rect::from_xywh(x, y, w, h), h/2.0, h/2.0, &paint);
-        let font = self.get_font(12.0, true);
         paint.set_color(COLOR_TEXT_PRI);
-        let (_, rect) = font.measure_str(label, None);
-        canvas.draw_str(label, (x + (w - rect.width()) / 2.0, y + 17.0), &font, &paint);
+        fm.draw_text_in_rect(canvas, label, x, y + 17.0, w, 12.0, true, &paint);
     }
     fn draw_button(&self, canvas: &skia_safe::Canvas, x: f32, y: f32, label: &str) {
+        let fm = FontManager::global();
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
         paint.set_color(COLOR_CARD_HIGHLIGHT);
         canvas.draw_round_rect(Rect::from_xywh(x, y, 28.0, 28.0), 14.0, 14.0, &paint);
         paint.set_color(COLOR_TEXT_PRI);
-        let font = self.get_font(20.0, false);
-        let (_, rect) = font.measure_str(label, None);
-        canvas.draw_str(label, (x + (28.0 - rect.width()) / 2.0, y + 20.0), &font, &paint);
+        fm.draw_text_in_rect(canvas, label, x, y + 20.0, 28.0, 20.0, false, &paint);
     }
     fn draw_switch(&self, canvas: &skia_safe::Canvas, x: f32, y: f32, pos: f32) {
         let mut paint = Paint::default();
@@ -319,24 +282,19 @@ impl SettingsApp {
         canvas.draw_round_rect(Rect::from_xywh(x + 2.0 + (pos * 22.0), y + 2.0, 22.0, 22.0), 11.0, 11.0, &paint);
     }
     fn draw_about(&self, canvas: &skia_safe::Canvas) {
+        let fm = FontManager::global();
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
         paint.set_color(COLOR_TEXT_PRI);
-        let font_title = self.get_font(28.0, true);
-        let (_, rect1) = font_title.measure_str("WinIsland", None);
-        canvas.draw_str("WinIsland", ((SETTINGS_W - rect1.width()) / 2.0, 160.0), &font_title, &paint);
-        let font_norm = self.get_font(14.0, false);
+        fm.draw_text_centered(canvas, "WinIsland", SETTINGS_W / 2.0, 160.0, 28.0, true, &paint);
         paint.set_color(COLOR_TEXT_SEC);
         let v_str = format!("Version {}", APP_VERSION);
-        let (_, rect2) = font_norm.measure_str(&v_str, None);
-        canvas.draw_str(&v_str, ((SETTINGS_W - rect2.width()) / 2.0, 195.0), &font_norm, &paint);
+        fm.draw_text_centered(canvas, &v_str, SETTINGS_W / 2.0, 195.0, 14.0, false, &paint);
         let a_str = format!("{} {}", tr("created_by"), APP_AUTHOR);
-        let (_, rect3) = font_norm.measure_str(&a_str, None);
-        canvas.draw_str(&a_str, ((SETTINGS_W - rect3.width()) / 2.0, 220.0), &font_norm, &paint);
+        fm.draw_text_centered(canvas, &a_str, SETTINGS_W / 2.0, 220.0, 14.0, false, &paint);
         paint.set_color(COLOR_ACCENT);
         let link_str = tr("visit_homepage");
-        let (_, rect4) = font_norm.measure_str(&link_str, None);
-        canvas.draw_str(&link_str, ((SETTINGS_W - rect4.width()) / 2.0, 280.0), &font_norm, &paint);
+        fm.draw_text_centered(canvas, &link_str, SETTINGS_W / 2.0, 280.0, 14.0, false, &paint);
     }
     fn handle_click(&mut self) {
         let (mx, my) = self.logical_mouse_pos;
@@ -395,13 +353,13 @@ impl SettingsApp {
                     .add_filter("Fonts", &["ttf", "otf"])
                     .pick_file() {
                     self.config.custom_font_path = Some(path.to_string_lossy().into_owned());
-                    self.refresh_custom_font_cache();
+                    FontManager::global().refresh_custom_font();
                     changed = true;
                 }
             }
             if self.config.custom_font_path.is_some() && Self::in_rect(lmx, content_my, 235.0, font_y + 3.0, 65.0, 26.0) {
                 self.config.custom_font_path = None;
-                self.refresh_custom_font_cache();
+                FontManager::global().refresh_custom_font();
                 changed = true;
             }
 
@@ -441,7 +399,7 @@ impl SettingsApp {
             if lmx >= cx - 100.0 && lmx <= cx + 100.0 && content_my >= reset_y - 24.0 && content_my <= reset_y + 12.0 {
                 self.config = AppConfig::default();
                 set_lang(if self.config.language == "auto" { "en" } else { &self.config.language });
-                self.refresh_custom_font_cache();
+                FontManager::global().refresh_custom_font();
                 changed = true;
             }
         } else if lmy >= 260.0 && lmy <= 300.0 && lmx >= cx - 100.0 && lmx <= cx + 100.0 {

@@ -1,5 +1,6 @@
 pub mod blur;
 pub mod color;
+pub mod font;
 pub mod mouse;
 pub mod physics;
 pub mod icon;

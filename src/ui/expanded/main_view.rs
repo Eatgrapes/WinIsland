@@ -1,126 +1,22 @@
 use skia_safe::{
-    Canvas, Paint, Color, Font, FontStyle, FontMgr, Rect, RRect,
-    Point, Data, Image, SamplingOptions, FilterMode, MipmapMode, Typeface,
+    Canvas, Paint, Color, FontStyle, Rect, RRect,
+    Point, Data, Image, SamplingOptions, FilterMode, MipmapMode,
     gradient_shader, TileMode
 };
 use crate::icons::arrows::draw_arrow_right;
 use crate::core::smtc::MediaInfo;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use crate::core::persistence::load_config;
+use crate::utils::font::FontManager;
 
 thread_local! {
     static IMG_CACHE: RefCell<Option<(String, Image)>> = RefCell::new(None);
-    static FONT_MGR: FontMgr = FontMgr::new();
-    static FALLBACK_CACHE: RefCell<HashMap<(char, u32), Typeface>> = RefCell::new(HashMap::new());
-    static TEXT_CACHE: RefCell<HashMap<String, (String, Vec<(String, Typeface)>)>> = RefCell::new(HashMap::new());
     static COLOR_CACHE: RefCell<HashMap<String, Vec<Color>>> = RefCell::new(HashMap::new());
     static VIZ_HEIGHTS: RefCell<[f32; 6]> = RefCell::new([3.0; 6]);
-    static CUSTOM_TYPEFACE: RefCell<Option<(String, Typeface)>> = RefCell::new(None);
-}
-
-fn style_to_key(style: FontStyle) -> u32 {
-    let weight = *style.weight() as u32;
-    let width = *style.width() as u32;
-    let slant = style.slant() as u32;
-    (weight << 16) | (width << 8) | slant
-}
-
-fn get_custom_typeface() -> Option<Typeface> {
-    let config = load_config();
-    if let Some(path) = config.custom_font_path {
-        CUSTOM_TYPEFACE.with(|cache| {
-            let mut cache_mut = cache.borrow_mut();
-            if let Some((ref cached_path, ref tf)) = *cache_mut {
-                if cached_path == &path {
-                    return Some(tf.clone());
-                }
-            }
-            if let Ok(data) = std::fs::read(&path) {
-                if let Some(tf) = FONT_MGR.with(|mgr| mgr.new_from_data(&data, None)) {
-                    *cache_mut = Some((path, tf.clone()));
-                    return Some(tf);
-                }
-            }
-            None
-        })
-    } else {
-        None
-    }
-}
-
-fn get_typeface_for_char(c: char, style: FontStyle) -> Typeface {
-    let s_key = style_to_key(style);
-    FALLBACK_CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        if cache.len() > 2000 { cache.clear(); }
-        if let Some(tf) = cache.get(&(c, s_key)) { return tf.clone(); }
-        
-        if let Some(tf) = get_custom_typeface() {
-            let mut glyphs = [0u16; 1];
-            tf.unichars_to_glyphs(&[c as i32], &mut glyphs);
-            if glyphs[0] != 0 {
-                cache.insert((c, s_key), tf.clone());
-                return tf;
-            }
-        }
-
-        let tf = FONT_MGR.with(|mgr| mgr.match_family_style_character("", style, &["zh-CN", "ja-JP", "en-US"], c as i32))
-            .unwrap_or_else(|| FONT_MGR.with(|mgr| mgr.legacy_make_typeface(None, style).unwrap()));
-        cache.insert((c, s_key), tf.clone());
-        tf
-    })
 }
 
 pub fn draw_text_cached(canvas: &Canvas, text: &str, pos: (f32, f32), size: f32, style: FontStyle, paint: &Paint, align_center: bool, max_w: f32) {
-    let cache_key = format!("{}-{}-{:?}-{}", text, max_w as i32, style, size as i32);
-    TEXT_CACHE.with(|cache| {
-        let mut cache_mut = cache.borrow_mut();
-        if cache_mut.len() > 500 { cache_mut.clear(); }
-        if !cache_mut.contains_key(&cache_key) {
-            let mut current_w = 0.0;
-            let mut truncated = String::new();
-            for c in text.chars() {
-                let tf = get_typeface_for_char(c, style);
-                let font = Font::from_typeface(tf, size);
-                let (w, _) = font.measure_str(&c.to_string(), None);
-                if current_w + w > max_w { truncated.push_str("..."); break; }
-                current_w += w; truncated.push(c);
-            }
-            let mut groups = Vec::new();
-            let mut current_group = String::new();
-            let mut last_tf: Option<Typeface> = None;
-            for c in truncated.chars() {
-                let tf = get_typeface_for_char(c, style);
-                if let Some(ref ltf) = last_tf {
-                    if ltf.unique_id() != tf.unique_id() {
-                        groups.push((current_group.clone(), ltf.clone()));
-                        current_group.clear();
-                    }
-                }
-                last_tf = Some(tf); current_group.push(c);
-            }
-            if let Some(ltf) = last_tf { groups.push((current_group, ltf)); }
-            cache_mut.insert(cache_key.clone(), (truncated, groups));
-        }
-        let (_, groups) = cache_mut.get(&cache_key).unwrap();
-        let mut total_width = 0.0;
-        if align_center {
-            for (s, tf) in groups {
-                let font = Font::from_typeface(tf.clone(), size);
-                let (w, _) = font.measure_str(s, None);
-                total_width += w;
-            }
-        }
-        let mut x = if align_center { pos.0 - total_width / 2.0 } else { pos.0 };
-        let y = pos.1.round();
-        for (s, tf) in groups {
-            let font = Font::from_typeface(tf.clone(), size);
-            canvas.draw_str(s, (x.round(), y), &font, paint);
-            let (w, _) = font.measure_str(s, None);
-            x += w;
-        }
-    });
+    FontManager::global().draw_text_cached(canvas, text, pos, size, style, paint, align_center, max_w);
 }
 
 pub fn get_cached_media_image(media: &MediaInfo) -> Option<Image> {
