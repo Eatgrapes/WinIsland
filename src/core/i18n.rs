@@ -17,90 +17,32 @@ static I18N: Lazy<Arc<RwLock<I18n>>> = Lazy::new(|| {
     Arc::new(RwLock::new(i18n))
 });
 
-const LANG_EN: &str = r#"
-tab_general=General
-tab_about=About
-global_scale=Global Scale
-base_width=Base Width
-base_height=Base Height
-expanded_width=Expanded Width
-expanded_height=Expanded Height
-adaptive_border=Adaptive Border
-motion_blur=Motion Blur
-custom_font=Custom Font
-font_select=Select
-font_reset=Reset
-start_boot=Start at Boot
-auto_hide=Auto Hide
-check_updates=Check for Updates
-update_interval=Update Interval (h)
-language=Language
-lang_name=English
-hide_delay=Hide Delay (s)
-reset_defaults=Reset to Defaults
-visit_homepage=Visit Project Homepage
-created_by=Created by
-music_settings_title=Music Settings
-smtc_control=SMTC Control
-show_lyrics=Show Lyrics
-lyrics_source=Lyrics Source
-lyrics_fallback=Fallback Source
-media_apps=MEDIA APPLICATIONS
-scan_apps=Scan Apps
-no_sessions=No sessions detected
-delete=Delete
-update_available_title=Update Available
-update_available_desc=A new version of WinIsland is available (Released: {}). Would you like to update now?
-update_failed_title=Update Failed
-update_failed_dl=Failed to download the new version.
-update_failed_save=Failed to save the new version.
-"#;
+fn lang_dir() -> std::path::PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("resources")
+        .join("in_app")
+        .join("lang")
+}
 
-const LANG_ZH: &str = r#"
-tab_general=常规设置
-tab_about=关于
-global_scale=全局缩放
-base_width=基础宽度
-base_height=基础高度
-expanded_width=展开宽度
-expanded_height=展开高度
-adaptive_border=自适应边框
-motion_blur=动态模糊
-custom_font=自定义字体
-font_select=选择
-font_reset=重置
-start_boot=开机启动
-auto_hide=自动隐藏
-check_updates=检查更新
-update_interval=检查更新间隔 (h)
-language=语言
-lang_name=中文
-hide_delay=隐藏延迟 (s)
-reset_defaults=恢复默认设置
-visit_homepage=访问项目主页
-created_by=作者
-music_settings_title=音乐设置
-smtc_control=SMTC 控制
-show_lyrics=显示歌词
-lyrics_source=歌词来源
-lyrics_fallback=备选来源
-media_apps=媒体应用程序
-scan_apps=扫描应用
-no_sessions=未检测到运行中的媒体
-delete=删除
-update_available_title=发现新版本
-update_available_desc=WinIsland 有新版本可用 (发布时间: {})。是否现在更新？
-update_failed_title=更新失败
-update_failed_dl=无法下载新版本。
-update_failed_save=无法保存新版本文件。
-"#;
+fn read_lang_file(lang: &str) -> Option<String> {
+    let path = lang_dir().join(format!("{}.lang", lang));
+    std::fs::read_to_string(path).ok()
+}
+
+const FALLBACK_EN: &str = include_str!("../../resources/in_app/lang/en.lang");
+const FALLBACK_ZH: &str = include_str!("../../resources/in_app/lang/zh.lang");
 
 impl I18n {
     pub fn load(&mut self, lang: &str) {
-        let content = match lang {
-            "zh" => LANG_ZH,
-            _ => LANG_EN,
-        };
+        let content = read_lang_file(lang).unwrap_or_else(|| {
+            match lang {
+                "zh" => FALLBACK_ZH.to_string(),
+                _ => FALLBACK_EN.to_string(),
+            }
+        });
         self.current_lang = lang.to_string();
         self.translations.clear();
         for line in content.lines() {
