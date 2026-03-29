@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use winit::window::Window;
 use crate::core::config::{PADDING, TOP_OFFSET};
 use crate::ui::expanded::main_view::{draw_main_page, get_media_palette, draw_visualizer, get_cached_media_image, draw_text_cached};
-use crate::ui::expanded::tools_view::draw_tools_page;
+use crate::ui::expanded::widget_view::draw_widget_page;
 use crate::core::smtc::MediaInfo;
 
 thread_local! {
@@ -26,8 +26,6 @@ pub fn draw_island(
     media: &MediaInfo,
     music_active: bool,
     global_scale: f32,
-    tool_hovers: &[f32; 15],
-    tool_presses: &[f32; 15],
     current_lyric: &str,
     old_lyric: &str,
     lyric_transition: f32,
@@ -78,22 +76,19 @@ pub fn draw_island(
             layer_paint.set_image_filter(filter.clone());
             canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&layer_paint));
         }
+
+        let page_shift = view_offset * current_w;
+
         canvas.save();
-        canvas.translate((-view_offset * current_w, 0.0));
+        canvas.translate((-page_shift, 0.0));
         draw_main_page(canvas, offset_x, offset_y, current_w, current_h, alpha, media, music_active, view_offset, global_scale, expansion_progress, viz_h_scale * global_scale);
         canvas.restore();
+
         canvas.save();
-        canvas.translate(((1.0 - view_offset) * current_w, 0.0));
-        draw_tools_page(canvas, offset_x, offset_y, current_w, current_h, alpha, view_offset, global_scale, tool_hovers, tool_presses);
+        canvas.translate((current_w - page_shift, 0.0));
+        draw_widget_page(canvas, offset_x, offset_y, current_w, current_h, alpha, global_scale);
         canvas.restore();
-        if view_offset > 0.01 && view_offset < 0.99 {
-            let transition_alpha = (view_offset * (1.0 - view_offset) * 4.0 * 0.4 * alpha as f32 / 255.0 * 255.0) as u8;
-            if transition_alpha > 0 {
-                let mut trans_paint = Paint::default();
-                trans_paint.set_color(Color::from_argb(transition_alpha, 0, 0, 0));
-                canvas.draw_rrect(rrect, &trans_paint);
-            }
-        }
+
         if blur_filter.is_some() { canvas.restore(); }
         canvas.restore();
     }

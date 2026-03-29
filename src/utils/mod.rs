@@ -1,3 +1,4 @@
+pub mod anim;
 pub mod blur;
 pub mod color;
 pub mod font;

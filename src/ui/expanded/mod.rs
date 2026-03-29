@@ -1,3 +1,2 @@
 pub mod main_view;
-pub mod tools_view;
-
+pub mod widget_view;

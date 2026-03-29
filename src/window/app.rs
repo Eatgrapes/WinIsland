@@ -30,7 +30,7 @@ pub struct App {
     audio: AudioProcessor,
     config: AppConfig,
     expanded: bool,
-    tools_view: bool,
+    widget_view: bool,
     visible: bool,
     border_weights: [f32; 4],
     target_border_weights: [f32; 4],
@@ -43,8 +43,6 @@ pub struct App {
     win_x: i32,
     win_y: i32,
     frame_count: u64,
-    tool_hovers: [f32; 15],
-    tool_presses: [f32; 15],
     last_media_title: String,
     last_media_playing: bool,
     last_playing_time: Instant,
@@ -71,7 +69,7 @@ impl Default for App {
             tray: None,
             config: config.clone(),
             expanded: false,
-            tools_view: false,
+            widget_view: false,
             visible: true,
             border_weights: [0.0; 4],
             target_border_weights: [0.0; 4],
@@ -86,8 +84,6 @@ impl Default for App {
             win_x: 0,
             win_y: 0,
             frame_count: 0,
-            tool_hovers: [0.0; 15],
-            tool_presses: [0.0; 15],
             last_media_title: String::new(),
             last_media_playing: false,
             last_playing_time: Instant::now(),
@@ -232,56 +228,46 @@ impl ApplicationHandler for App {
 
                         if state == ElementState::Pressed {
                             if self.expanded {
-                                let center_y = island_y + self.spring_h.value as f64 / 2.0;
-                                if !self.tools_view {
-                                    let btn_x = offset_x + self.spring_w.value as f64 - 20.0 * scale;
-                                    let dist_sq = (rel_x as f64 - btn_x).powi(2) + (rel_y as f64 - center_y).powi(2);
-                                    if dist_sq <= (25.0 * scale).powi(2) {
-                                        self.tools_view = true;
-                                        
-                                        return;
-                                    }
-                                } else {
-                                    let btn_x = offset_x + 20.0 * scale;
-                                    let dist_sq = (rel_x as f64 - btn_x).powi(2) + (rel_y as f64 - center_y).powi(2);
-                                    if dist_sq <= (25.0 * scale).powi(2) {
-                                        self.tools_view = false;
-                                        
-                                        return;
-                                    }
-                                    let grid_w = self.spring_w.value as f64 - 80.0 * scale;
-                                    let grid_h = self.spring_h.value as f64 - 40.0 * scale;
-                                    let x_step = grid_w / 5.0;
-                                    let y_step = grid_h / 3.0;
-                                    let start_x = offset_x + 40.0 * scale + x_step / 2.0;
-                                    let start_y = island_y + 20.0 * scale + y_step / 2.0;
-                                    let settings_cx = start_x + (0.0 * x_step);
-                                    let settings_cy = start_y + (0.0 * y_step);
-                                    let dist_sq_s = (rel_x as f64 - settings_cx).powi(2) + (rel_y as f64 - settings_cy).powi(2);
-                                    if dist_sq_s <= (28.0 * scale).powi(2) {
-                                        self.tool_presses[0] = 1.0;
+                                let view_val = self.spring_view.value as f64;
+                                let w = self.spring_w.value as f64;
+                                let h = self.spring_h.value as f64;
+                                let page_shift = view_val * w;
+
+                                if view_val > 0.5 {
+                                    let gear_x = offset_x + w - 28.0 * scale + w - page_shift;
+                                    let gear_y = island_y + h - 28.0 * scale;
+                                    let dist_sq = (rel_x as f64 - gear_x).powi(2) + (rel_y as f64 - gear_y).powi(2);
+                                    if dist_sq <= (20.0 * scale).powi(2) {
                                         let _ = std::process::Command::new(std::env::current_exe().unwrap())
                                             .arg("--settings")
                                             .spawn();
                                         return;
                                     }
-                                    let music_cx = start_x + (1.0 * x_step);
-                                    let music_cy = start_y + (0.0 * y_step);
-                                    let dist_sq_m = (rel_x as f64 - music_cx).powi(2) + (rel_y as f64 - music_cy).powi(2);
-                                    if dist_sq_m <= (28.0 * scale).powi(2) {
-                                        self.tool_presses[1] = 1.0;
-                                        let _ = std::process::Command::new(std::env::current_exe().unwrap())
-                                            .arg("--music-settings")
-                                            .spawn();
+
+                                    let arrow_x = offset_x + 12.0 * scale + w - page_shift;
+                                    let arrow_y = island_y + h / 2.0;
+                                    let adx = rel_x as f64 - arrow_x;
+                                    let ady = rel_y as f64 - arrow_y;
+                                    if adx * adx + ady * ady <= (20.0 * scale).powi(2) {
+                                        self.widget_view = false;
                                         return;
                                     }
                                 }
+
+                                if view_val < 0.5 {
+                                    let arrow_x = offset_x + w - 12.0 * scale;
+                                    let arrow_y = island_y + h / 2.0;
+                                    let adx = rel_x as f64 - arrow_x;
+                                    let ady = rel_y as f64 - arrow_y;
+                                    if adx * adx + ady * ady <= (20.0 * scale).powi(2) {
+                                        self.widget_view = true;
+                                        return;
+                                    }
+                                }
+
                                 if (rel_y as f64) < island_y + 40.0 * scale {
                                     self.expanded = false;
-                                    self.tools_view = false;
-                                    
-                                    
-                                    
+                                    self.widget_view = false;
                                 }
                             } else {
                                 if is_hovering_visible || is_on_hidden_handle {
@@ -362,8 +348,6 @@ impl ApplicationHandler for App {
                                 &media_info,
                                 music_active,
                                 self.config.global_scale,
-                                &self.tool_hovers,
-                                &self.tool_presses,
                                 &self.current_lyric_text,
                                 &self.old_lyric_text,
                                 self.lyric_transition,
@@ -392,11 +376,6 @@ impl ApplicationHandler for App {
                         Some(TrayAction::OpenSettings) => {
                             let _ = std::process::Command::new(std::env::current_exe().unwrap())
                                 .arg("--settings")
-                                .spawn();
-                        }
-                        Some(TrayAction::OpenMusicSettings) => {
-                            let _ = std::process::Command::new(std::env::current_exe().unwrap())
-                                .arg("--music-settings")
                                 .spawn();
                         }
                         Some(TrayAction::Exit) => {
@@ -555,7 +534,7 @@ impl ApplicationHandler for App {
 
             if self.expanded && !is_hovering_visible && is_left_button_pressed() {
                 self.expanded = false;
-                self.tools_view = false;
+                self.widget_view = false;
                 window.request_redraw();
             }
 
@@ -640,48 +619,11 @@ impl ApplicationHandler for App {
             let target_w = (if self.expanded { self.config.expanded_width } else { target_base_w }) * self.config.global_scale;
             let target_h = (if self.expanded { self.config.expanded_height } else { self.config.base_height }) * self.config.global_scale;
             let target_r = if self.expanded { 32.0 * self.config.global_scale } else { (self.config.base_height * self.config.global_scale) / 2.0 };
-            let target_view = if self.tools_view { 1.0 } else { 0.0 };
+            let target_view = if self.widget_view { 1.0 } else { 0.0 };
             self.spring_w.update_dt(target_w, 0.10, 0.68, dt);
             self.spring_h.update_dt(target_h, 0.10, 0.68, dt);
             self.spring_r.update_dt(target_r, 0.10, 0.68, dt);
             self.spring_view.update_dt(target_view, 0.12, 0.68, dt);
-
-            if self.expanded && self.tools_view {
-                let grid_w = self.spring_w.value - 80.0 * self.config.global_scale;
-                let grid_h = self.spring_h.value - 40.0 * self.config.global_scale;
-                let x_step = grid_w / 5.0;
-                let y_step = grid_h / 3.0;
-                let start_x = offset_x as f32 + 40.0 * self.config.global_scale + x_step / 2.0;
-                let start_y = island_y as f32 + 20.0 * self.config.global_scale + y_step / 2.0;
-                let bubble_r = 18.0 * self.config.global_scale;
-
-                for r in 0..3 {
-                    for c in 0..5 {
-                        let idx = r * 5 + c;
-                        let cx = start_x + (c as f32 * x_step);
-                        let cy = start_y + (r as f32 * y_step);
-                        let dx = rel_x as f32 - cx;
-                        let dy = rel_y as f32 - cy;
-                        let dist_sq = dx * dx + dy * dy;
-                        let is_hover = dist_sq < (bubble_r * 1.2).powi(2);
-                        
-                        let target = if is_hover { 1.0 } else { 0.0 };
-                        let diff = target - self.tool_hovers[idx];
-                        if diff.abs() > 0.001 {
-                            self.tool_hovers[idx] += diff * 0.15 * dt;
-                            window.request_redraw();
-                        } else {
-                            self.tool_hovers[idx] = target;
-                        }
-
-                        if self.tool_presses[idx] > 0.0 {
-                            self.tool_presses[idx] -= 0.1 * dt;
-                            if self.tool_presses[idx] < 0.0 { self.tool_presses[idx] = 0.0; }
-                            window.request_redraw();
-                        }
-                    }
-                }
-            }
 
             if self.expanded || music_active || self.spring_w.velocity.abs() > 0.001 || self.spring_h.velocity.abs() > 0.001 || self.spring_r.velocity.abs() > 0.001 || self.spring_view.velocity.abs() > 0.001 {
                 window.request_redraw();
