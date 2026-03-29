@@ -6,6 +6,7 @@ use windows::Media::Control::{
     GlobalSystemMediaTransportControlsSession,
 };
 use windows::Foundation::TypedEventHandler;
+use crate::core::persistence::{load_config, save_config};
 use crate::core::lyrics::{LyricLine, fetch_lyrics};
 
 #[derive(Clone, Debug)]
@@ -128,6 +129,35 @@ impl SmtcListener {
         self.info.lock().unwrap().clone()
     }
 
+    fn auto_allow_new_apps(mgr: &GlobalSystemMediaTransportControlsSessionManager, allowed: &Arc<Mutex<Vec<String>>>) {
+        if let Ok(sessions) = mgr.GetSessions() {
+            if let Ok(count) = sessions.Size() {
+                for i in 0..count {
+                    if let Ok(session) = sessions.GetAt(i) {
+                        if let Ok(pb_info) = session.GetPlaybackInfo() {
+                            if let Ok(playback_type) = pb_info.PlaybackType() {
+                                if let Ok(value) = playback_type.Value() {
+                                    if value == windows::Media::MediaPlaybackType::Music {
+                                        if let Ok(id) = session.SourceAppUserModelId() {
+                                            let app_id = id.to_string();
+                                            let mut apps = allowed.lock().unwrap();
+                                            if !apps.contains(&app_id) {
+                                                apps.push(app_id);
+                                                let mut config = load_config();
+                                                config.smtc_apps = apps.clone();
+                                                save_config(&config);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn get_target_session(mgr: &GlobalSystemMediaTransportControlsSessionManager, allowed: &[String]) -> Option<GlobalSystemMediaTransportControlsSession> {
         if allowed.is_empty() {
             return None;
@@ -207,6 +237,7 @@ impl SmtcListener {
             };
 
             let update_info = |mgr: &GlobalSystemMediaTransportControlsSessionManager, arc: &Arc<Mutex<MediaInfo>>, src: &Arc<Mutex<String>>, fb: &Arc<Mutex<bool>>, allowed: &Arc<Mutex<Vec<String>>>| {
+                Self::auto_allow_new_apps(mgr, allowed);
                 let apps = allowed.lock().unwrap().clone();
                 if let Some(session) = Self::get_target_session(mgr, &apps) {
                     let _ = Self::fetch_properties(&session, arc, src, fb);
