@@ -7,9 +7,9 @@ use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::platform::windows::WindowAttributesExtWindows;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use winit::window::{Window, WindowId, WindowLevel};
+use winit::window::{Window, WindowId, WindowLevel, WindowButtons};
 use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, GWL_STYLE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX};
+use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, GWL_STYLE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME};
 use crate::core::config::{AppConfig, PADDING, TOP_OFFSET, WINDOW_TITLE};
 use crate::core::persistence::load_config;
 use crate::core::render::draw_island;
@@ -136,6 +136,8 @@ impl ApplicationHandler for App {
                 .with_inner_size(PhysicalSize::new(self.os_w, self.os_h))
                 .with_transparent(true)
                 .with_decorations(false)
+                .with_resizable(false)
+                .with_enabled_buttons(WindowButtons::empty())
                 .with_window_level(WindowLevel::AlwaysOnTop)
                 .with_skip_taskbar(true)
                 .with_window_icon(get_app_icon());
@@ -148,7 +150,7 @@ impl ApplicationHandler for App {
                         let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
                         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_TOOLWINDOW.0 as isize);
                         let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
-                        SetWindowLongPtrW(hwnd, GWL_STYLE, style & !(WS_MAXIMIZEBOX.0 as isize));
+                        SetWindowLongPtrW(hwnd, GWL_STYLE, style & !(WS_MAXIMIZEBOX.0 as isize | WS_THICKFRAME.0 as isize));
                     }
                 }
             }
@@ -186,6 +188,11 @@ impl ApplicationHandler for App {
                         let is_light = theme == winit::window::Theme::Light;
                         if let Some(tray) = self.tray.as_mut() {
                             tray.update_theme(is_light);
+                        }
+                    }
+                    WindowEvent::Resized(_) => {
+                        if win.is_maximized() {
+                            win.set_maximized(false);
                         }
                     }
                     WindowEvent::CloseRequested => (),
