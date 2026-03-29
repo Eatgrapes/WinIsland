@@ -16,6 +16,8 @@ pub struct AppConfig {
     pub motion_blur: bool,
     pub smtc_enabled: bool,
     pub smtc_apps: Vec<String>,
+    #[serde(default = "default_smtc_known_apps")]
+    pub smtc_known_apps: Vec<String>,
     #[serde(default = "default_show_lyrics")]
     pub show_lyrics: bool,
     #[serde(default = "default_custom_font")]
@@ -46,6 +48,10 @@ pub struct AppConfig {
 
 fn default_show_lyrics() -> bool {
     true
+}
+
+fn default_smtc_known_apps() -> Vec<String> {
+    Vec::new()
 }
 
 fn default_custom_font() -> Option<String> {
@@ -108,6 +114,7 @@ impl Default for AppConfig {
             motion_blur: true,
             smtc_enabled: true,
             smtc_apps: Vec::new(),
+            smtc_known_apps: Vec::new(),
             show_lyrics: true,
             custom_font_path: None,
             auto_start: false,

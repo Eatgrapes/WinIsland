@@ -269,7 +269,7 @@ impl SettingsApp {
                 }
             }
         }
-        for app in &self.config.smtc_apps {
+        for app in &self.config.smtc_known_apps {
             if !self.detected_apps.contains(app) {
                 self.detected_apps.push(app.clone());
             }
@@ -715,6 +715,9 @@ impl SettingsApp {
                             self.config.smtc_apps.retain(|a| a != app);
                         } else {
                             self.config.smtc_apps.push(app.clone());
+                            if !self.config.smtc_known_apps.contains(app) {
+                                self.config.smtc_known_apps.push(app.clone());
+                            }
                         }
                         changed = true;
                     }
