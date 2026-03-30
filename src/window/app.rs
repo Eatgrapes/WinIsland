@@ -19,6 +19,7 @@ use crate::utils::mouse::{get_global_cursor_pos, is_point_in_rect, is_left_butto
 use crate::utils::physics::Spring;
 use crate::core::smtc::SmtcListener;
 use crate::core::audio::AudioProcessor;
+use crate::core::notification::NotificationListener;
 use crate::window::tray::{TrayAction, TrayManager};
 use crate::utils::icon::get_app_icon;
 
@@ -28,6 +29,7 @@ pub struct App {
     tray: Option<TrayManager>,
     smtc: SmtcListener,
     audio: AudioProcessor,
+    notification: NotificationListener,
     config: AppConfig,
     expanded: bool,
     tools_view: bool,
@@ -60,11 +62,18 @@ pub struct App {
     manually_hidden: bool,
     drag_has_moved: bool,
     last_frame_time: Instant,
+    notification_active: bool,
+    notification_timer: Instant,
 }
 
 impl Default for App {
     fn default() -> Self {
         let config = load_config();
+        let notification = NotificationListener::new();
+        if config.notification_enabled {
+            notification.set_excluded_apps(config.notification_excluded_apps.clone());
+            notification.init();
+        }
         Self {
             window: None,
             surface: None,
@@ -81,6 +90,7 @@ impl Default for App {
             spring_view: Spring::new(0.0),
             smtc: SmtcListener::new(config.lyrics_source.clone(), config.lyrics_fallback, config.smtc_apps.clone()),
             audio: AudioProcessor::new(),
+            notification,
             os_w: 0,
             os_h: 0,
             win_x: 0,
@@ -103,6 +113,8 @@ impl Default for App {
             manually_hidden: false,
             drag_has_moved: false,
             last_frame_time: Instant::now(),
+            notification_active: false,
+            notification_timer: Instant::now(),
         }
     }
 }
@@ -275,6 +287,16 @@ impl ApplicationHandler for App {
                                             .spawn();
                                         return;
                                     }
+                                    let notif_cx = start_x + (2.0 * x_step);
+                                    let notif_cy = start_y + (0.0 * y_step);
+                                    let dist_sq_n = (rel_x as f64 - notif_cx).powi(2) + (rel_y as f64 - notif_cy).powi(2);
+                                    if dist_sq_n <= (28.0 * scale).powi(2) {
+                                        self.tool_presses[2] = 1.0;
+                                        let _ = std::process::Command::new(std::env::current_exe().unwrap())
+                                            .arg("--notification-settings")
+                                            .spawn();
+                                        return;
+                                    }
                                 }
                                 if (rel_y as f64) < island_y + 40.0 * scale {
                                     self.expanded = false;
@@ -369,6 +391,8 @@ impl ApplicationHandler for App {
                                 self.lyric_transition,
                                 self.config.motion_blur,
                                 self.spring_hide.value,
+                                self.notification.get_current().as_ref(),
+                                self.notification_active,
                             );
                         }
                     }
@@ -399,6 +423,11 @@ impl ApplicationHandler for App {
                                 .arg("--music-settings")
                                 .spawn();
                         }
+                        Some(TrayAction::OpenNotificationSettings) => {
+                            let _ = std::process::Command::new(std::env::current_exe().unwrap())
+                                .arg("--notification-settings")
+                                .spawn();
+                        }
                         Some(TrayAction::Exit) => {
                             event_loop.exit();
                         }
@@ -417,6 +446,7 @@ impl ApplicationHandler for App {
                     self.smtc.set_lyrics_source(self.config.lyrics_source.clone());
                     self.smtc.set_lyrics_fallback(self.config.lyrics_fallback);
                     self.smtc.set_allowed_apps(self.config.smtc_apps.clone());
+                    self.notification.set_excluded_apps(self.config.notification_excluded_apps.clone());
 
                     let max_w = self.config.expanded_width.max(450.0);
                     let new_os_w = (max_w * self.config.global_scale + PADDING) as u32;
@@ -505,7 +535,30 @@ impl ApplicationHandler for App {
                 }
             }
 
-            let is_idle = !is_hovering_visible && !self.expanded && !music_active && !self.is_dragging;
+            if self.config.notification_enabled {
+                if let Some(_notif) = self.notification.get_current() {
+                    if !self.notification_active {
+                        self.notification_active = true;
+                        self.notification_timer = Instant::now();
+                        if self.auto_hidden && !self.manually_hidden {
+                            self.auto_hidden = false;
+                            self.spring_hide.velocity = -0.65;
+                        }
+                        window.request_redraw();
+                    }
+                }
+                
+                if self.notification_active {
+                    let notif_duration = self.config.notification_duration;
+                    if self.notification_timer.elapsed().as_secs_f32() > notif_duration {
+                        self.notification_active = false;
+                        self.notification.clear();
+                        window.request_redraw();
+                    }
+                }
+            }
+
+            let is_idle = !is_hovering_visible && !self.expanded && !music_active && !self.notification_active && !self.is_dragging;
             if !self.config.auto_hide {
                 self.auto_hidden = false;
                 self.idle_timer = Instant::now();
@@ -611,7 +664,33 @@ impl ApplicationHandler for App {
             }
 
             let is_currently_hidden = self.auto_hidden || self.manually_hidden || self.spring_hide.value > 0.1;
-            let target_base_w = if music_active && !self.expanded && !is_currently_hidden {
+            let target_base_w = if self.expanded {
+                self.config.expanded_width
+            } else if is_currently_hidden {
+                self.config.base_width
+            } else if self.notification_active {
+                let notif = self.notification.get_current();
+                let mut text_w = 0.0;
+                if let Some(ref n) = notif {
+                    for c in n.title.chars() {
+                        if c.is_ascii() {
+                            text_w += 7.0;
+                        } else {
+                            text_w += 12.0;
+                        }
+                    }
+                    for c in n.body.chars() {
+                        if c.is_ascii() {
+                            text_w += 5.5;
+                        } else {
+                            text_w += 10.0;
+                        }
+                    }
+                }
+                let min_w = self.config.base_width + 60.0;
+                let w: f32 = 80.0 + text_w;
+                w.clamp(min_w, 400.0)
+            } else if music_active {
                 let has_visible_lyrics = self.config.show_lyrics && (!self.current_lyric_text.is_empty() || (!self.old_lyric_text.is_empty() && self.lyric_transition < 1.0));
                 
                 if has_visible_lyrics {
@@ -637,7 +716,7 @@ impl ApplicationHandler for App {
             } else {
                 self.config.base_width
             };
-            let target_w = (if self.expanded { self.config.expanded_width } else { target_base_w }) * self.config.global_scale;
+            let target_w = target_base_w * self.config.global_scale;
             let target_h = (if self.expanded { self.config.expanded_height } else { self.config.base_height }) * self.config.global_scale;
             let target_r = if self.expanded { 32.0 * self.config.global_scale } else { (self.config.base_height * self.config.global_scale) / 2.0 };
             let target_view = if self.tools_view { 1.0 } else { 0.0 };

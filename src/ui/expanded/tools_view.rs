@@ -2,6 +2,7 @@ use skia_safe::{Canvas, Color, Paint};
 use crate::icons::arrows::draw_arrow_left;
 use crate::icons::settings::draw_settings_icon;
 use crate::icons::music::draw_music_icon;
+use crate::icons::notification::draw_notification_icon;
 pub fn draw_tools_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: u8, view_offset: f32, scale: f32, tool_hovers: &[f32; 15], tool_presses: &[f32; 15]) {
     let arrow_alpha = (alpha as f32 * (view_offset - 0.8).max(0.0) * 5.0).clamp(0.0, 255.0) as u8;
     if arrow_alpha > 0 {
@@ -29,8 +30,9 @@ fn draw_watch_grid_tools(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alph
             
             let is_settings = r == 0 && c == 0;
             let is_music = r == 0 && c == 1;
+            let is_notification = r == 0 && c == 2;
             
-            let final_alpha = if is_settings || is_music { alpha } else { (alpha as f32 * 0.2) as u8 };
+            let final_alpha = if is_settings || is_music || is_notification { alpha } else { (alpha as f32 * 0.2) as u8 };
             let hover_progress = tool_hovers[idx];
             let press_progress = tool_presses[idx];
             
@@ -39,6 +41,8 @@ fn draw_watch_grid_tools(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alph
                     draw_settings_icon(canvas, x, y, a, s);
                 } else if is_music {
                     draw_music_icon(canvas, x, y, a, s);
+                } else if is_notification {
+                    draw_notification_icon(canvas, x, y, a, s);
                 }
             }, scale);
         }

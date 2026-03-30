@@ -7,6 +7,7 @@ use crate::core::config::{PADDING, TOP_OFFSET};
 use crate::ui::expanded::main_view::{draw_main_page, get_media_palette, draw_visualizer, get_cached_media_image, draw_text_cached};
 use crate::ui::expanded::tools_view::draw_tools_page;
 use crate::core::smtc::MediaInfo;
+use crate::core::notification::NotificationInfo;
 
 thread_local! {
     static SK_SURFACE: RefCell<Option<SkSurface>> = RefCell::new(None);
@@ -33,6 +34,8 @@ pub fn draw_island(
     lyric_transition: f32,
     use_blur: bool,
     hide_progress: f32,
+    notification: Option<&NotificationInfo>,
+    notification_active: bool,
 ) {
     let mut buffer = surface.buffer_mut().unwrap();
     let mut sk_surface = SK_SURFACE.with(|cell| {
@@ -194,6 +197,44 @@ pub fn draw_island(
             }
         }
     }
+    
+    if notification_active && mini_alpha_f > 0.01 && current_w > 45.0 * global_scale {
+        let alpha = (mini_alpha_f * 255.0) as u8;
+        
+        if let Some(notif) = notification {
+            let space_left = offset_x + 10.0 * global_scale;
+            let space_right = offset_x + current_w - 10.0 * global_scale;
+            let available_w = space_right - space_left;
+            
+            canvas.save();
+            let clip_rect = Rect::from_xywh(space_left, offset_y, available_w, current_h);
+            canvas.clip_rect(clip_rect, ClipOp::Intersect, true);
+            
+            let mut text_paint = Paint::default();
+            text_paint.set_anti_alias(true);
+            text_paint.set_color(Color::from_argb(alpha, 255, 255, 255));
+            
+            let title_y = offset_y + current_h / 2.0 - 2.0 * global_scale;
+            let body_y = offset_y + current_h / 2.0 + 10.0 * global_scale;
+            
+            if !notif.title.is_empty() {
+                let mut title_paint = Paint::default();
+                title_paint.set_anti_alias(true);
+                title_paint.set_color(Color::from_argb(alpha, 255, 255, 255));
+                draw_text_cached(canvas, &notif.title, (space_left, title_y), 11.0 * global_scale, skia_safe::FontStyle::bold(), &title_paint, false, available_w);
+            }
+            
+            if !notif.body.is_empty() {
+                let mut body_paint = Paint::default();
+                body_paint.set_anti_alias(true);
+                body_paint.set_color(Color::from_argb((alpha as f32 * 0.7) as u8, 255, 255, 255));
+                draw_text_cached(canvas, &notif.body, (space_left, body_y), 9.0 * global_scale, skia_safe::FontStyle::normal(), &body_paint, false, available_w);
+            }
+            
+            canvas.restore();
+        }
+    }
+    
     canvas.restore(); 
     let info = skia_safe::ImageInfo::new(skia_safe::ISize::new(os_w as i32, os_h as i32), skia_safe::ColorType::BGRA8888, skia_safe::AlphaType::Premul, None);
     let dst_row_bytes = (os_w * 4) as usize;

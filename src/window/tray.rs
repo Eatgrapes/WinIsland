@@ -7,6 +7,7 @@ pub struct TrayManager {
     toggle_item: MenuItem,
     settings_item: MenuItem,
     music_item: MenuItem,
+    notification_item: MenuItem,
     quit_item: MenuItem,
     is_light: bool,
 }
@@ -17,10 +18,12 @@ impl TrayManager {
         let toggle_item = MenuItem::new("Hide", true, None);
         let settings_item = MenuItem::new("Settings", true, None);
         let music_item = MenuItem::new("Music Settings", true, None);
+        let notification_item = MenuItem::new("Notification Settings", true, None);
         let quit_item = MenuItem::new("Exit", true, None);
         let _ = menu.append(&toggle_item);
         let _ = menu.append(&settings_item);
         let _ = menu.append(&music_item);
+        let _ = menu.append(&notification_item);
         let _ = menu.append(&quit_item);
         
         let tray = TrayIconBuilder::new()
@@ -34,6 +37,7 @@ impl TrayManager {
             toggle_item,
             settings_item,
             music_item,
+            notification_item,
             quit_item,
             is_light,
         }
@@ -75,6 +79,8 @@ impl TrayAction {
             Some(TrayAction::OpenSettings)
         } else if id == tray.music_item.id() {
             Some(TrayAction::OpenMusicSettings)
+        } else if id == tray.notification_item.id() {
+            Some(TrayAction::OpenNotificationSettings)
         } else if id == tray.quit_item.id() {
             Some(TrayAction::Exit)
         } else {
@@ -86,6 +92,7 @@ pub enum TrayAction {
     ToggleVisibility,
     OpenSettings,
     OpenMusicSettings,
+    OpenNotificationSettings,
     Exit,
 }
 

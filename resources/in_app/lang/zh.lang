@@ -1,5 +1,17 @@
 tab_general=常规设置
 tab_about=关于
+notification_settings_title=通知设置
+notification_enabled=启用通知
+notification_show_app=显示应用名称
+notification_duration=显示时长 (s)
+notification_guide_title=设置指南
+notification_guide_step1=1. 打开 Windows 设置
+notification_guide_step2=2. 在 WinIsland 中启用通知访问权限
+notification_guide_step3=3. 在 Windows 设置中，前往 系统 > 通知和操作
+notification_guide_step4=4. 关闭将在灵动岛上显示通知的应用
+notification_excluded_apps=排除的应用
+notification_no_excluded=无排除应用
+open_notification_settings=打开 Windows 设置
 global_scale=全局缩放
 base_width=基础宽度
 base_height=基础高度

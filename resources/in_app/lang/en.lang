@@ -1,5 +1,17 @@
 tab_general=General
 tab_about=About
+notification_settings_title=Notification Settings
+notification_enabled=Enable Notifications
+notification_show_app=Show App Name
+notification_duration=Display Duration (s)
+notification_guide_title=SETUP GUIDE
+notification_guide_step1=1. Open Windows Settings
+notification_guide_step2=2. Enable notification access in WinIsland
+notification_guide_step3=3. In Windows Settings, go to System > Notifications & actions
+notification_guide_step4=4. Close the apps will show notifications on Dynamic Island
+notification_excluded_apps=Excluded Apps
+notification_no_excluded=No excluded apps
+open_notification_settings=Open Windows Settings
 global_scale=Global Scale
 base_width=Base Width
 base_height=Base Height

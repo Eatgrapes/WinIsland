@@ -42,6 +42,30 @@ pub struct AppConfig {
     pub position_x_offset: i32,
     #[serde(default = "default_position_y_offset")]
     pub position_y_offset: i32,
+    #[serde(default = "default_notification_enabled")]
+    pub notification_enabled: bool,
+    #[serde(default = "default_notification_show_app_name")]
+    pub notification_show_app_name: bool,
+    #[serde(default = "default_notification_duration")]
+    pub notification_duration: f32,
+    #[serde(default = "default_notification_excluded_apps")]
+    pub notification_excluded_apps: Vec<String>,
+}
+
+fn default_notification_enabled() -> bool {
+    false
+}
+
+fn default_notification_show_app_name() -> bool {
+    true
+}
+
+fn default_notification_duration() -> f32 {
+    5.0
+}
+
+fn default_notification_excluded_apps() -> Vec<String> {
+    Vec::new()
 }
 
 fn default_show_lyrics() -> bool {
@@ -121,6 +145,10 @@ impl Default for AppConfig {
             lyrics_delay: 0.0,
             position_x_offset: 0,
             position_y_offset: 0,
+            notification_enabled: false,
+            notification_show_app_name: true,
+            notification_duration: 5.0,
+            notification_excluded_apps: Vec::new(),
         }
     }
 }

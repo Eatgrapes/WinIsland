@@ -14,6 +14,7 @@ pub enum ClickResult {
     SectionButton(usize),
     Label(usize),
     AppItem(usize),
+    // Add new click result types here as needed
 }
 
 fn in_rect(mx: f32, my: f32, x: f32, y: f32, w: f32, h: f32) -> bool {
