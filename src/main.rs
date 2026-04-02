@@ -20,10 +20,6 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     if args.iter().any(|arg| arg == "--settings") {
         crate::window::settings::run_settings(config);
-    } else if args.iter().any(|arg| arg == "--music-settings") {
-        crate::window::music_settings::run_music_settings(config);
-    } else if args.iter().any(|arg| arg == "--notification-settings") {
-        crate::window::notification_settings::run_notification_settings(config);
     } else {
         unsafe {
             let _ = CreateMutexW(None, true, w!("Local\\WinIsland_SingleInstance_Mutex"));

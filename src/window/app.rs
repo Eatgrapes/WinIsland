@@ -7,9 +7,9 @@ use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::platform::windows::WindowAttributesExtWindows;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use winit::window::{Window, WindowId, WindowLevel};
+use winit::window::{Window, WindowId, WindowLevel, WindowButtons};
 use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, GWL_STYLE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX};
+use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, GWL_STYLE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME};
 use crate::core::config::{AppConfig, PADDING, TOP_OFFSET, WINDOW_TITLE};
 use crate::core::persistence::load_config;
 use crate::core::render::draw_island;
@@ -32,7 +32,7 @@ pub struct App {
     notification: NotificationListener,
     config: AppConfig,
     expanded: bool,
-    tools_view: bool,
+    widget_view: bool,
     visible: bool,
     border_weights: [f32; 4],
     target_border_weights: [f32; 4],
@@ -45,8 +45,6 @@ pub struct App {
     win_x: i32,
     win_y: i32,
     frame_count: u64,
-    tool_hovers: [f32; 15],
-    tool_presses: [f32; 15],
     last_media_title: String,
     last_media_playing: bool,
     last_playing_time: Instant,
@@ -64,14 +62,18 @@ pub struct App {
     last_frame_time: Instant,
     notification_active: bool,
     notification_timer: Instant,
+    notification_initialized: bool,
+    notification_transition: f32,
+    last_notification_id: u32,
 }
 
 impl Default for App {
     fn default() -> Self {
         let config = load_config();
         let notification = NotificationListener::new();
-        if config.notification_enabled {
-            notification.set_excluded_apps(config.notification_excluded_apps.clone());
+        let notification_initialized = config.notification_enabled;
+        
+        if notification_initialized {
             notification.init();
         }
         Self {
@@ -80,7 +82,7 @@ impl Default for App {
             tray: None,
             config: config.clone(),
             expanded: false,
-            tools_view: false,
+            widget_view: false,
             visible: true,
             border_weights: [0.0; 4],
             target_border_weights: [0.0; 4],
@@ -96,8 +98,6 @@ impl Default for App {
             win_x: 0,
             win_y: 0,
             frame_count: 0,
-            tool_hovers: [0.0; 15],
-            tool_presses: [0.0; 15],
             last_media_title: String::new(),
             last_media_playing: false,
             last_playing_time: Instant::now(),
@@ -115,6 +115,9 @@ impl Default for App {
             last_frame_time: Instant::now(),
             notification_active: false,
             notification_timer: Instant::now(),
+            notification_initialized,
+            notification_transition: 0.0,
+            last_notification_id: 0,
         }
     }
 }
@@ -152,6 +155,8 @@ impl ApplicationHandler for App {
                 .with_inner_size(PhysicalSize::new(self.os_w, self.os_h))
                 .with_transparent(true)
                 .with_decorations(false)
+                .with_resizable(false)
+                .with_enabled_buttons(WindowButtons::empty())
                 .with_window_level(WindowLevel::AlwaysOnTop)
                 .with_skip_taskbar(true)
                 .with_window_icon(get_app_icon());
@@ -164,7 +169,7 @@ impl ApplicationHandler for App {
                         let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
                         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_TOOLWINDOW.0 as isize);
                         let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
-                        SetWindowLongPtrW(hwnd, GWL_STYLE, style & !(WS_MAXIMIZEBOX.0 as isize));
+                        SetWindowLongPtrW(hwnd, GWL_STYLE, style & !(WS_MAXIMIZEBOX.0 as isize | WS_THICKFRAME.0 as isize));
                     }
                 }
             }
@@ -202,6 +207,11 @@ impl ApplicationHandler for App {
                         let is_light = theme == winit::window::Theme::Light;
                         if let Some(tray) = self.tray.as_mut() {
                             tray.update_theme(is_light);
+                        }
+                    }
+                    WindowEvent::Resized(_) => {
+                        if win.is_maximized() {
+                            win.set_maximized(false);
                         }
                     }
                     WindowEvent::CloseRequested => (),
@@ -244,66 +254,46 @@ impl ApplicationHandler for App {
 
                         if state == ElementState::Pressed {
                             if self.expanded {
-                                let center_y = island_y + self.spring_h.value as f64 / 2.0;
-                                if !self.tools_view {
-                                    let btn_x = offset_x + self.spring_w.value as f64 - 20.0 * scale;
-                                    let dist_sq = (rel_x as f64 - btn_x).powi(2) + (rel_y as f64 - center_y).powi(2);
-                                    if dist_sq <= (25.0 * scale).powi(2) {
-                                        self.tools_view = true;
-                                        
-                                        return;
-                                    }
-                                } else {
-                                    let btn_x = offset_x + 20.0 * scale;
-                                    let dist_sq = (rel_x as f64 - btn_x).powi(2) + (rel_y as f64 - center_y).powi(2);
-                                    if dist_sq <= (25.0 * scale).powi(2) {
-                                        self.tools_view = false;
-                                        
-                                        return;
-                                    }
-                                    let grid_w = self.spring_w.value as f64 - 80.0 * scale;
-                                    let grid_h = self.spring_h.value as f64 - 40.0 * scale;
-                                    let x_step = grid_w / 5.0;
-                                    let y_step = grid_h / 3.0;
-                                    let start_x = offset_x + 40.0 * scale + x_step / 2.0;
-                                    let start_y = island_y + 20.0 * scale + y_step / 2.0;
-                                    let settings_cx = start_x + (0.0 * x_step);
-                                    let settings_cy = start_y + (0.0 * y_step);
-                                    let dist_sq_s = (rel_x as f64 - settings_cx).powi(2) + (rel_y as f64 - settings_cy).powi(2);
-                                    if dist_sq_s <= (28.0 * scale).powi(2) {
-                                        self.tool_presses[0] = 1.0;
+                                let view_val = self.spring_view.value as f64;
+                                let w = self.spring_w.value as f64;
+                                let h = self.spring_h.value as f64;
+                                let page_shift = view_val * w;
+
+                                if view_val > 0.5 {
+                                    let gear_x = offset_x + w - 28.0 * scale + w - page_shift;
+                                    let gear_y = island_y + h - 28.0 * scale;
+                                    let dist_sq = (rel_x as f64 - gear_x).powi(2) + (rel_y as f64 - gear_y).powi(2);
+                                    if dist_sq <= (20.0 * scale).powi(2) {
                                         let _ = std::process::Command::new(std::env::current_exe().unwrap())
                                             .arg("--settings")
                                             .spawn();
                                         return;
                                     }
-                                    let music_cx = start_x + (1.0 * x_step);
-                                    let music_cy = start_y + (0.0 * y_step);
-                                    let dist_sq_m = (rel_x as f64 - music_cx).powi(2) + (rel_y as f64 - music_cy).powi(2);
-                                    if dist_sq_m <= (28.0 * scale).powi(2) {
-                                        self.tool_presses[1] = 1.0;
-                                        let _ = std::process::Command::new(std::env::current_exe().unwrap())
-                                            .arg("--music-settings")
-                                            .spawn();
-                                        return;
-                                    }
-                                    let notif_cx = start_x + (2.0 * x_step);
-                                    let notif_cy = start_y + (0.0 * y_step);
-                                    let dist_sq_n = (rel_x as f64 - notif_cx).powi(2) + (rel_y as f64 - notif_cy).powi(2);
-                                    if dist_sq_n <= (28.0 * scale).powi(2) {
-                                        self.tool_presses[2] = 1.0;
-                                        let _ = std::process::Command::new(std::env::current_exe().unwrap())
-                                            .arg("--notification-settings")
-                                            .spawn();
+
+                                    let arrow_x = offset_x + 12.0 * scale + w - page_shift;
+                                    let arrow_y = island_y + h / 2.0;
+                                    let adx = rel_x as f64 - arrow_x;
+                                    let ady = rel_y as f64 - arrow_y;
+                                    if adx * adx + ady * ady <= (20.0 * scale).powi(2) {
+                                        self.widget_view = false;
                                         return;
                                     }
                                 }
+
+                                if view_val < 0.5 {
+                                    let arrow_x = offset_x + w - 12.0 * scale;
+                                    let arrow_y = island_y + h / 2.0;
+                                    let adx = rel_x as f64 - arrow_x;
+                                    let ady = rel_y as f64 - arrow_y;
+                                    if adx * adx + ady * ady <= (20.0 * scale).powi(2) {
+                                        self.widget_view = true;
+                                        return;
+                                    }
+                                }
+
                                 if (rel_y as f64) < island_y + 40.0 * scale {
                                     self.expanded = false;
-                                    self.tools_view = false;
-                                    
-                                    
-                                    
+                                    self.widget_view = false;
                                 }
                             } else {
                                 if is_hovering_visible || is_on_hidden_handle {
@@ -324,9 +314,6 @@ impl ApplicationHandler for App {
                                         self.idle_timer = Instant::now();
                                     } else {
                                         self.expanded = true;
-                                        
-                                        
-                                        
                                     }
                                 } else {
                                     if self.spring_hide.value > 0.3 {
@@ -384,8 +371,6 @@ impl ApplicationHandler for App {
                                 &media_info,
                                 music_active,
                                 self.config.global_scale,
-                                &self.tool_hovers,
-                                &self.tool_presses,
                                 &self.current_lyric_text,
                                 &self.old_lyric_text,
                                 self.lyric_transition,
@@ -393,6 +378,8 @@ impl ApplicationHandler for App {
                                 self.spring_hide.value,
                                 self.notification.get_current().as_ref(),
                                 self.notification_active,
+                                self.notification_transition,
+                                self.config.notification_show_app_name,
                             );
                         }
                     }
@@ -418,16 +405,6 @@ impl ApplicationHandler for App {
                                 .arg("--settings")
                                 .spawn();
                         }
-                        Some(TrayAction::OpenMusicSettings) => {
-                            let _ = std::process::Command::new(std::env::current_exe().unwrap())
-                                .arg("--music-settings")
-                                .spawn();
-                        }
-                        Some(TrayAction::OpenNotificationSettings) => {
-                            let _ = std::process::Command::new(std::env::current_exe().unwrap())
-                                .arg("--notification-settings")
-                                .spawn();
-                        }
                         Some(TrayAction::Exit) => {
                             event_loop.exit();
                         }
@@ -447,6 +424,11 @@ impl ApplicationHandler for App {
                     self.smtc.set_lyrics_fallback(self.config.lyrics_fallback);
                     self.smtc.set_allowed_apps(self.config.smtc_apps.clone());
                     self.notification.set_excluded_apps(self.config.notification_excluded_apps.clone());
+                    
+                    if self.config.notification_enabled && !self.notification_initialized {
+                        self.notification.init();
+                        self.notification_initialized = true;
+                    }
 
                     let max_w = self.config.expanded_width.max(450.0);
                     let new_os_w = (max_w * self.config.global_scale + PADDING) as u32;
@@ -536,14 +518,24 @@ impl ApplicationHandler for App {
             }
 
             if self.config.notification_enabled {
-                if let Some(_notif) = self.notification.get_current() {
+                if let Some(notif) = self.notification.get_current() {
                     if !self.notification_active {
                         self.notification_active = true;
                         self.notification_timer = Instant::now();
+                        self.notification_transition = 0.0;
+                        self.last_notification_id = notif.id;
                         if self.auto_hidden && !self.manually_hidden {
                             self.auto_hidden = false;
                             self.spring_hide.velocity = -0.65;
                         }
+                        if !self.config.notification_show_overview && !self.expanded {
+                            self.expanded = true;
+                        }
+                        window.request_redraw();
+                    } else if notif.id != self.last_notification_id {
+                        self.last_notification_id = notif.id;
+                        self.notification_transition = 0.0;
+                        self.notification_timer = Instant::now();
                         window.request_redraw();
                     }
                 }
@@ -552,9 +544,21 @@ impl ApplicationHandler for App {
                     let notif_duration = self.config.notification_duration;
                     if self.notification_timer.elapsed().as_secs_f32() > notif_duration {
                         self.notification_active = false;
+                        self.notification_transition = 0.0;
                         self.notification.clear();
+                        if self.expanded && !self.widget_view {
+                            self.expanded = false;
+                        }
                         window.request_redraw();
                     }
+                }
+                
+                if self.notification_active && self.notification_transition < 1.0 {
+                    self.notification_transition += 0.028 * dt;
+                    if self.notification_transition > 1.0 {
+                        self.notification_transition = 1.0;
+                    }
+                    window.request_redraw();
                 }
             }
 
@@ -573,7 +577,6 @@ impl ApplicationHandler for App {
                         self.idle_timer = Instant::now();
                         self.spring_hide.velocity = -0.45;
                     } else if !self.expanded && !music_active {
-                        // Let idle_timer expire
                     }
                 } else if is_idle && !self.manually_hidden {
                     if self.idle_timer.elapsed().as_secs_f32() > self.config.auto_hide_delay {
@@ -608,7 +611,7 @@ impl ApplicationHandler for App {
 
             if self.expanded && !is_hovering_visible && is_left_button_pressed() {
                 self.expanded = false;
-                self.tools_view = false;
+                self.widget_view = false;
                 window.request_redraw();
             }
 
@@ -672,24 +675,17 @@ impl ApplicationHandler for App {
                 let notif = self.notification.get_current();
                 let mut text_w = 0.0;
                 if let Some(ref n) = notif {
-                    for c in n.title.chars() {
+                    for c in n.app_name.chars() {
                         if c.is_ascii() {
                             text_w += 7.0;
                         } else {
                             text_w += 12.0;
                         }
                     }
-                    for c in n.body.chars() {
-                        if c.is_ascii() {
-                            text_w += 5.5;
-                        } else {
-                            text_w += 10.0;
-                        }
-                    }
                 }
-                let min_w = self.config.base_width + 60.0;
-                let w: f32 = 80.0 + text_w;
-                w.clamp(min_w, 400.0)
+                let min_w = self.config.base_width;
+                let w: f32 = 40.0 + text_w;
+                w.max(min_w)
             } else if music_active {
                 let has_visible_lyrics = self.config.show_lyrics && (!self.current_lyric_text.is_empty() || (!self.old_lyric_text.is_empty() && self.lyric_transition < 1.0));
                 
@@ -719,48 +715,11 @@ impl ApplicationHandler for App {
             let target_w = target_base_w * self.config.global_scale;
             let target_h = (if self.expanded { self.config.expanded_height } else { self.config.base_height }) * self.config.global_scale;
             let target_r = if self.expanded { 32.0 * self.config.global_scale } else { (self.config.base_height * self.config.global_scale) / 2.0 };
-            let target_view = if self.tools_view { 1.0 } else { 0.0 };
+            let target_view = if self.widget_view { 1.0 } else { 0.0 };
             self.spring_w.update_dt(target_w, 0.10, 0.68, dt);
             self.spring_h.update_dt(target_h, 0.10, 0.68, dt);
             self.spring_r.update_dt(target_r, 0.10, 0.68, dt);
             self.spring_view.update_dt(target_view, 0.12, 0.68, dt);
-
-            if self.expanded && self.tools_view {
-                let grid_w = self.spring_w.value - 80.0 * self.config.global_scale;
-                let grid_h = self.spring_h.value - 40.0 * self.config.global_scale;
-                let x_step = grid_w / 5.0;
-                let y_step = grid_h / 3.0;
-                let start_x = offset_x as f32 + 40.0 * self.config.global_scale + x_step / 2.0;
-                let start_y = island_y as f32 + 20.0 * self.config.global_scale + y_step / 2.0;
-                let bubble_r = 18.0 * self.config.global_scale;
-
-                for r in 0..3 {
-                    for c in 0..5 {
-                        let idx = r * 5 + c;
-                        let cx = start_x + (c as f32 * x_step);
-                        let cy = start_y + (r as f32 * y_step);
-                        let dx = rel_x as f32 - cx;
-                        let dy = rel_y as f32 - cy;
-                        let dist_sq = dx * dx + dy * dy;
-                        let is_hover = dist_sq < (bubble_r * 1.2).powi(2);
-                        
-                        let target = if is_hover { 1.0 } else { 0.0 };
-                        let diff = target - self.tool_hovers[idx];
-                        if diff.abs() > 0.001 {
-                            self.tool_hovers[idx] += diff * 0.15 * dt;
-                            window.request_redraw();
-                        } else {
-                            self.tool_hovers[idx] = target;
-                        }
-
-                        if self.tool_presses[idx] > 0.0 {
-                            self.tool_presses[idx] -= 0.1 * dt;
-                            if self.tool_presses[idx] < 0.0 { self.tool_presses[idx] = 0.0; }
-                            window.request_redraw();
-                        }
-                    }
-                }
-            }
 
             if self.expanded || music_active || self.spring_w.velocity.abs() > 0.001 || self.spring_h.velocity.abs() > 0.001 || self.spring_r.velocity.abs() > 0.001 || self.spring_view.velocity.abs() > 0.001 {
                 window.request_redraw();

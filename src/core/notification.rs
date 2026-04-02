@@ -1,49 +1,61 @@
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Instant, Duration};
-use windows::Media::Control::{
-    GlobalSystemMediaTransportControlsSessionManager,
-};
-use windows::UI::Notifications::Management::{
-    UserNotificationListener,
-    UserNotificationListenerAccessStatus,
-    NotificationKinds,
-};
-use windows::Foundation::TypedEventHandler;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::PathBuf;
+use std::collections::HashSet;
+use windows::UI::Notifications::Management::UserNotificationListener;
+use windows::UI::Notifications::Management::UserNotificationListenerAccessStatus;
+use windows::UI::Notifications::NotificationKinds;
 
-#[derive(Clone, Debug)]
-pub struct NotificationInfo {
-    pub app_name: String,
-    pub title: String,
-    pub body: String,
-    pub timestamp: Instant,
+fn get_log_path() -> PathBuf {
+    let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
+    path.push("WinIsland");
+    std::fs::create_dir_all(&path).ok();
+    path.push("notification.log");
+    path
 }
 
-impl Default for NotificationInfo {
-    fn default() -> Self {
-        Self {
-            app_name: String::new(),
-            title: String::new(),
-            body: String::new(),
-            timestamp: Instant::now(),
+fn log(msg: &str) {
+    let path = get_log_path();
+    match OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        Ok(mut file) => {
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let _ = writeln!(file, "[{}] {}", timestamp, msg);
+        }
+        Err(e) => {
+            eprintln!("[Notification] Failed to open log file: {:?}", e);
         }
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct NotificationInfo {
+    pub id: u32,
+    pub app_name: String,
+    pub title: String,
+    pub body: String,
+    pub timestamp: u64,
+}
+
 pub struct NotificationListener {
     current: Arc<Mutex<Option<NotificationInfo>>>,
-    active: Arc<AtomicBool>,
-    has_permission: Arc<Mutex<bool>>,
     excluded_apps: Arc<Mutex<Vec<String>>>,
+    processed_ids: Arc<Mutex<HashSet<u32>>>,
 }
 
 impl NotificationListener {
     pub fn new() -> Self {
         Self {
             current: Arc::new(Mutex::new(None)),
-            active: Arc::new(AtomicBool::new(true)),
-            has_permission: Arc::new(Mutex::new(false)),
             excluded_apps: Arc::new(Mutex::new(Vec::new())),
+            processed_ids: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -51,8 +63,185 @@ impl NotificationListener {
         *self.excluded_apps.lock().unwrap() = apps;
     }
 
-    pub fn get_permission_status(&self) -> bool {
-        *self.has_permission.lock().unwrap()
+    pub fn init(&self) {
+        let current = self.current.clone();
+        let excluded_apps = self.excluded_apps.clone();
+        let processed_ids = self.processed_ids.clone();
+        
+        std::thread::spawn(move || {
+            log("Starting notification init...");
+            
+            let listener = match UserNotificationListener::Current() {
+                Ok(l) => {
+                    log("Got listener");
+                    l
+                }
+                Err(e) => {
+                    log(&format!("Failed to get listener: {:?}", e));
+                    return;
+                }
+            };
+            
+            log("Requesting access...");
+            let access = match listener.RequestAccessAsync() {
+                Ok(async_op) => {
+                    log("Got async op");
+                    match async_op.get() {
+                        Ok(status) => {
+                            log(&format!("Access status: {:?}", status));
+                            status
+                        }
+                        Err(e) => {
+                            log(&format!("Failed to get access: {:?}", e));
+                            return;
+                        }
+                    }
+                }
+                Err(e) => {
+                    log(&format!("Failed to request access: {:?}", e));
+                    return;
+                }
+            };
+            
+            if access != UserNotificationListenerAccessStatus::Allowed {
+                log("Access denied or not allowed");
+                return;
+            }
+            
+            log("Access granted! Starting polling mode...");
+            
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                
+                match listener.GetNotificationsAsync(NotificationKinds::Toast) {
+                    Ok(async_op) => {
+                        match async_op.get() {
+                            Ok(notifications) => {
+                                let count = notifications.Size().unwrap_or(0);
+                                
+                                {
+                                    let mut processed = processed_ids.lock().unwrap();
+                                    let current_ids: HashSet<u32> = (0..count)
+                                        .filter_map(|i| {
+                                            notifications.GetAt(i).ok().and_then(|n| n.Id().ok())
+                                        })
+                                        .collect();
+                                    
+                                    let removed_ids: Vec<u32> = processed
+                                        .difference(&current_ids)
+                                        .copied()
+                                        .collect();
+                                    
+                                    for id in removed_ids {
+                                        processed.remove(&id);
+                                    }
+                                }
+                                
+                                for i in 0..count {
+                                    if let Ok(notif) = notifications.GetAt(i) {
+                                        if let Ok(notif_id) = notif.Id() {
+                                            let already_processed = {
+                                                let processed = processed_ids.lock().unwrap();
+                                                processed.contains(&notif_id)
+                                            };
+                                            
+                                            if already_processed {
+                                                continue;
+                                            }
+                                            
+                                            if let Ok(app_notif) = notif.Notification() {
+                                                let mut notif_info = NotificationInfo {
+                                                    id: notif_id,
+                                                    app_name: String::new(),
+                                                    title: String::new(),
+                                                    body: String::new(),
+                                                    timestamp: std::time::SystemTime::now()
+                                                        .duration_since(std::time::UNIX_EPOCH)
+                                                        .unwrap_or_default()
+                                                        .as_secs(),
+                                                };
+                                                
+                                                if let Ok(app_info) = notif.AppInfo() {
+                                                    if let Ok(display_info) = app_info.DisplayInfo() {
+                                                        if let Ok(display_name) = display_info.DisplayName() {
+                                                            let name = display_name.to_string();
+                                                            if !name.is_empty() {
+                                                                notif_info.app_name = name;
+                                                            }
+                                                        }
+                                                    }
+                                                    if notif_info.app_name.is_empty() {
+                                                        if let Ok(app_user_model_id) = app_info.AppUserModelId() {
+                                                            let aumid = app_user_model_id.to_string();
+                                                            if let Some(last_part) = aumid.split('!').last() {
+                                                                notif_info.app_name = last_part.to_string();
+                                                            } else if !aumid.is_empty() {
+                                                                notif_info.app_name = aumid;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                if notif_info.app_name.is_empty() {
+                                                    notif_info.app_name = "Unknown App".to_string();
+                                                }
+                                                
+                                                if let Ok(visual) = app_notif.Visual() {
+                                                    if let Ok(bindings) = visual.Bindings() {
+                                                        let binding_count = bindings.Size().unwrap_or(0);
+                                                        for j in 0..binding_count {
+                                                            if let Ok(binding) = bindings.GetAt(j) {
+                                                                if let Ok(text_elements) = binding.GetTextElements() {
+                                                                    let text_count = text_elements.Size().unwrap_or(0);
+                                                                    for k in 0..text_count {
+                                                                        if let Ok(text_elem) = text_elements.GetAt(k) {
+                                                                            if let Ok(text) = text_elem.Text() {
+                                                                                let text_str = text.to_string();
+                                                                                if k == 0 && notif_info.title.is_empty() {
+                                                                                    notif_info.title = text_str;
+                                                                                } else if k == 1 && notif_info.body.is_empty() {
+                                                                                    notif_info.body = text_str;
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                log(&format!("New notification: id={}, title='{}', body='{}'", 
+                                                    notif_id, notif_info.title, notif_info.body));
+                                                
+                                                if !notif_info.title.is_empty() || !notif_info.body.is_empty() {
+                                                    let excluded = excluded_apps.lock().unwrap();
+                                                    if !excluded.contains(&notif_info.app_name) {
+                                                        let mut current = current.lock().unwrap();
+                                                        *current = Some(notif_info);
+                                                    }
+                                                }
+                                                
+                                                {
+                                                    let mut processed = processed_ids.lock().unwrap();
+                                                    processed.insert(notif_id);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log(&format!("GetNotificationsAsync get failed: {:?}", e));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log(&format!("GetNotificationsAsync failed: {:?}", e));
+                    }
+                }
+            }
+        });
     }
 
     pub fn get_current(&self) -> Option<NotificationInfo> {
@@ -62,147 +251,17 @@ impl NotificationListener {
     pub fn clear(&self) {
         *self.current.lock().unwrap() = None;
     }
-
-    pub fn request_access(&self) -> bool {
-        let listener = match UserNotificationListener::new() {
-            Ok(l) => l,
-            Err(_) => return false,
-        };
-
-        let result = match listener.RequestAccessAsync() {
-            Ok(op) => match op.get() {
-                Ok(status) => status,
-                Err(_) => return false,
-            },
-            Err(_) => return false,
-        };
-
-        let has_access = result == UserNotificationListenerAccessStatus::Allowed;
-        *self.has_permission.lock().unwrap() = has_access;
-        has_access
-    }
-
-    fn parse_notification(notification: &windows::UI::Notifications::Notification) -> Option<NotificationInfo> {
-        let visual = notification.Visual()?;
-        let bindings = visual.Bindings()?;
-        
-        let mut title = String::new();
-        let mut body = String::new();
-        
-        if let Ok(count) = bindings.Size() {
-            for i in 0..count {
-                if let Ok(binding) = bindings.GetAt(i) {
-                    if let Ok(template) = binding.Template() {
-                        let template_name = template.to_string();
-                        if template_name.contains("ToastText") || template_name.contains("ToastGeneric") {
-                            if let Ok(texts) = binding.GetTextElements() {
-                                if let Ok(text_count) = texts.Size() {
-                                    for j in 0..text_count {
-                                        if let Ok(text_elem) = texts.GetAt(j) {
-                                            if let Ok(text) = text_elem.Text() {
-                                                let text_str = text.to_string();
-                                                if j == 0 {
-                                                    title = text_str;
-                                                } else if j == 1 {
-                                                    body = text_str;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+    
+    pub fn exclude_app(&self, app_name: String) {
+        let mut excluded = self.excluded_apps.lock().unwrap();
+        if !excluded.contains(&app_name) {
+            excluded.push(app_name);
         }
-
-        if title.is_empty() && body.is_empty() {
-            return None;
-        }
-
-        let app_name = if let Ok(app_info) = notification.AppInfo() {
-            if let Ok(display_name) = app_info.DisplayInfo() {
-                if let Ok(name) = display_name.DisplayName() {
-                    name.to_string()
-                } else {
-                    String::new()
-                }
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
-
-        Some(NotificationInfo {
-            app_name,
-            title,
-            body,
-            timestamp: Instant::now(),
-        })
-    }
-
-    pub fn init(&self) {
-        let current_clone = self.current.clone();
-        let active_clone = self.active.clone();
-        let has_permission_clone = self.has_permission.clone();
-        let excluded_apps_clone = self.excluded_apps.clone();
-
-        std::thread::spawn(move || {
-            let listener = match UserNotificationListener::new() {
-                Ok(l) => l,
-                Err(_) => return,
-            };
-
-            let access_result = match listener.RequestAccessAsync() {
-                Ok(op) => match op.get() {
-                    Ok(status) => status,
-                    Err(_) => {
-                        *has_permission_clone.lock().unwrap() = false;
-                        return;
-                    }
-                },
-                Err(_) => {
-                    *has_permission_clone.lock().unwrap() = false;
-                    return;
-                }
-            };
-
-            let has_access = access_result == UserNotificationListenerAccessStatus::Allowed;
-            *has_permission_clone.lock().unwrap() = has_access;
-
-            if !has_access {
-                return;
-            }
-
-            let current_for_handler = current_clone.clone();
-            let excluded_for_handler = excluded_apps_clone.clone();
-            let handler = TypedEventHandler::new(move |_, args: &Option<windows::UI::Notifications::NotificationChangedEventArgs>| {
-                if let Some(event_args) = args {
-                    if let Ok(notification) = event_args.Notification() {
-                        if let Some(info) = Self::parse_notification(&notification) {
-                            let excluded = excluded_for_handler.lock().unwrap();
-                            if !excluded.iter().any(|e| info.app_name.contains(e) || e.contains(&info.app_name)) {
-                                *current_for_handler.lock().unwrap() = Some(info);
-                            }
-                        }
-                    }
-                }
-                Ok(())
-            });
-
-            let _ = listener.NotificationChanged(&handler);
-
-            while active_clone.load(Ordering::Relaxed) {
-                std::thread::sleep(Duration::from_millis(500));
-            }
-        });
     }
 }
 
-impl Drop for NotificationListener {
-    fn drop(&mut self) {
-        self.active.store(false, Ordering::Relaxed);
+impl Default for NotificationListener {
+    fn default() -> Self {
+        Self::new()
     }
 }

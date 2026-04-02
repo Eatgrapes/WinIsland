@@ -1,0 +1,256 @@
+   Compiling toml_edit v0.20.2
+   Compiling icu_collections v2.1.1
+   Compiling icu_locale_core v2.1.1
+   Compiling muda v0.15.3
+   Compiling icu_provider v2.1.1
+   Compiling tray-icon v0.19.3
+   Compiling icu_normalizer v2.1.1
+   Compiling icu_properties v2.1.2
+   Compiling toml v0.8.2
+   Compiling idna_adapter v1.2.1
+   Compiling idna v1.1.0
+   Compiling half v2.7.1
+   Compiling ravif v0.12.0
+   Compiling url v2.5.8
+   Compiling tiff v0.10.3
+   Compiling exr v1.74.0
+   Compiling ureq v2.12.1
+   Compiling skia-safe v0.93.1
+   Compiling image v0.25.9
+error[E0583]: file not found for module `blur`
+ --> src\utils\mod.rs:2:1
+  |
+2 | pub mod blur;
+  | ^^^^^^^^^^^^^
+  |
+  = help: to create the module `blur`, create file "src\utils\blur.rs" or "src\utils\blur\mod.rs"
+  = note: if there is a `mod blur` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0583]: file not found for module `font`
+ --> src\utils\mod.rs:4:1
+  |
+4 | pub mod font;
+  | ^^^^^^^^^^^^^
+  |
+  = help: to create the module `font`, create file "src\utils\font.rs" or "src\utils\font\mod.rs"
+  = note: if there is a `mod font` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0583]: file not found for module `mouse`
+ --> src\utils\mod.rs:5:1
+  |
+5 | pub mod mouse;
+  | ^^^^^^^^^^^^^^
+  |
+  = help: to create the module `mouse`, create file "src\utils\mouse.rs" or "src\utils\mouse\mod.rs"
+  = note: if there is a `mod mouse` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0583]: file not found for module `physics`
+ --> src\utils\mod.rs:6:1
+  |
+6 | pub mod physics;
+  | ^^^^^^^^^^^^^^^^
+  |
+  = help: to create the module `physics`, create file "src\utils\physics.rs" or "src\utils\physics\mod.rs"
+  = note: if there is a `mod physics` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0583]: file not found for module `icon`
+ --> src\utils\mod.rs:7:1
+  |
+7 | pub mod icon;
+  | ^^^^^^^^^^^^^
+  |
+  = help: to create the module `icon`, create file "src\utils\icon.rs" or "src\utils\icon\mod.rs"
+  = note: if there is a `mod icon` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0583]: file not found for module `autostart`
+ --> src\utils\mod.rs:8:1
+  |
+8 | pub mod autostart;
+  | ^^^^^^^^^^^^^^^^^^
+  |
+  = help: to create the module `autostart`, create file "src\utils\autostart.rs" or "src\utils\autostart\mod.rs"
+  = note: if there is a `mod autostart` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0583]: file not found for module `updater`
+ --> src\utils\mod.rs:9:1
+  |
+9 | pub mod updater;
+  | ^^^^^^^^^^^^^^^^
+  |
+  = help: to create the module `updater`, create file "src\utils\updater.rs" or "src\utils\updater\mod.rs"
+  = note: if there is a `mod updater` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0583]: file not found for module `music`
+ --> src\icons\mod.rs:2:1
+  |
+2 | pub mod music;
+  | ^^^^^^^^^^^^^^
+  |
+  = help: to create the module `music`, create file "src\icons\music.rs" or "src\icons\music\mod.rs"
+  = note: if there is a `mod music` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0583]: file not found for module `notification`
+ --> src\icons\mod.rs:3:1
+  |
+3 | pub mod notification;
+  | ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: to create the module `notification`, create file "src\icons\notification.rs" or "src\icons\notification\mod.rs"
+  = note: if there is a `mod notification` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0583]: file not found for module `ui`
+ --> src\main.rs:6:1
+  |
+6 | mod ui;
+  | ^^^^^^^
+  |
+  = help: to create the module `ui`, create file "src\ui.rs" or "src\ui\mod.rs"
+  = note: if there is a `mod ui` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0433]: failed to resolve: could not find `expanded` in `ui`
+ --> src\core\render.rs:7:16
+  |
+7 | use crate::ui::expanded::main_view::{draw_main_page, get_media_palette, draw_visualizer, get_cached_media_image,...
+  |                ^^^^^^^^ could not find `expanded` in `ui`
+
+error[E0433]: failed to resolve: could not find `expanded` in `ui`
+ --> src\core\render.rs:8:16
+  |
+8 | use crate::ui::expanded::widget_view::draw_widget_page;
+  |                ^^^^^^^^ could not find `expanded` in `ui`
+
+warning: unused import: `windows::Storage::Streams::DataReader`
+ --> src\core\notification.rs:5:5
+  |
+5 | use windows::Storage::Streams::DataReader;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0599]: no function or associated item named `new` found for struct `UserNotificationListener` in the current scope
+   --> src\core\notification.rs:37:60
+    |
+ 37 |             let listener = match UserNotificationListener::new() {
+    |                                                            ^^^ function or associated item not found in `UserNotificationListener`
+    |
+note: if you're trying to build a new `UserNotificationListener` consider using one of the following associated functions:
+      UserNotificationListener::Current
+      UserNotificationListener::IUserNotificationListenerStatics
+   --> C:\Users\39587\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-0.58.0\src\Windows\UI\Notifications\Management\mod.rs:85:5
+    |
+ 85 |     pub fn Current() -> windows_core::Result<UserNotificationListener> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+ 92 |     pub fn IUserNotificationListenerStatics<R, F: FnOnce(&IUserNotificationListenerStatics) -> windows_core::Result<R>>(callback: F) -> windows_core::Result<R> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: there is a method `ne` with a similar name, but with different arguments
+   --> C:\Users\39587\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib/rustlib/src/rust\library\core\src\cmp.rs:264:5
+    |
+264 |     fn ne(&self, other: &Rhs) -> bool {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0282]: type annotations needed
+  --> src\core\notification.rs:37:17
+   |
+37 |             let listener = match UserNotificationListener::new() {
+   |                 ^^^^^^^^
+...
+42 |             let access = match listener.request_access_async() {
+   |                                -------- type must be known at this point
+   |
+help: consider giving `listener` an explicit type
+   |
+37 |             let listener: /* Type */ = match UserNotificationListener::new() {
+   |                         ++++++++++++
+
+error[E0282]: type annotations needed
+  --> src\core\notification.rs:43:39
+   |
+43 |                 Ok(async_op) => match async_op.get() {
+   |                                       ^^^^^^^^ cannot infer type
+
+error[E0282]: type annotations needed for `&std::option::Option<_>`
+  --> src\core\notification.rs:56:65
+   |
+56 |             let handler = TypedEventHandler::new(move |_sender, args| {
+   |                                                                 ^^^^
+57 |                 if let Some(args) = args {
+58 |                     if let Ok(notification) = args.UserNotification() {
+   |                                               ---- type must be known at this point
+   |
+help: consider giving this closure parameter an explicit type, where the placeholders `_` are specified
+   |
+56 |             let handler = TypedEventHandler::new(move |_sender, args: &std::option::Option<T>| {
+   |                                                                     +++++++++++++++++++++++++
+
+error[E0282]: type annotations needed
+  --> src\core\notification.rs:59:47
+   |
+59 |                         if let Ok(app_info) = notification.AppInfo() {
+   |                                               ^^^^^^^^^^^^ cannot infer type
+
+error[E0282]: type annotations needed
+  --> src\core\notification.rs:60:51
+   |
+60 | ...                   if let Ok(app_name) = app_info.DisplayInfo() {
+   |                                             ^^^^^^^^ cannot infer type
+
+error[E0282]: type annotations needed
+  --> src\core\notification.rs:61:51
+   |
+61 | ...                   if let Ok(name) = app_name.DisplayName() {
+   |                                         ^^^^^^^^ cannot infer type
+
+error[E0282]: type annotations needed
+  --> src\core\notification.rs:62:52
+   |
+62 | ...                   let name_str = name.to_string();
+   |                                      ^^^^ cannot infer type
+
+error[E0282]: type annotations needed
+  --> src\core\notification.rs:81:62
+   |
+81 | ...                   if let Ok(content) = toast.Content() {
+   |                                            ^^^^^ cannot infer type
+
+error[E0282]: type annotations needed
+  --> src\core\notification.rs:82:69
+   |
+82 | ...   if let Ok(text_nodes) = content.GetElementsByTagName(&windows::core::HSTRING::from("text")) {
+   |                               ^^^^^^^ cannot infer type
+
+error[E0282]: type annotations needed
+  --> src\core\notification.rs:84:61
+   |
+84 | ...                   for i in 0..text_nodes.Length().unwrap_or(0) {
+   |                                   ^^^^^^^^^^ cannot infer type
+
+error[E0282]: type annotations needed
+  --> src\core\notification.rs:86:75
+   |
+86 | ...                   if let Ok(text) = node.InnerText() {
+   |                                         ^^^^ cannot infer type
+
+error[E0282]: type annotations needed
+  --> src\core\notification.rs:87:72
+   |
+87 | ...                   texts.push(text.to_string());
+   |                                  ^^^^ cannot infer type
+
+error[E0282]: type annotations needed
+   --> src\window\app.rs:555:21
+    |
+555 |                 let diff_y = self.drag_start_py - py;
+    |                     ^^^^^^
+556 |                 if diff_y.abs() > 3 {
+    |                    ------ type must be known at this point
+    |
+help: consider giving `diff_y` an explicit type
+    |
+555 |                 let diff_y: /* Type */ = self.drag_start_py - py;
+    |                           ++++++++++++
+
+Some errors have detailed explanations: E0282, E0433, E0583, E0599.
+For more information about an error, try `rustc --explain E0282`.
+warning: `WinIsland` (bin "WinIsland") generated 1 warning
+error: could not compile `WinIsland` (bin "WinIsland") due to 26 previous errors; 1 warning emitted

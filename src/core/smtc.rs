@@ -141,11 +141,24 @@ impl SmtcListener {
                                     if value == windows::Media::MediaPlaybackType::Music {
                                         if let Ok(id) = session.SourceAppUserModelId() {
                                             let app_id = id.to_string();
-                                            let mut apps = allowed.lock().unwrap();
-                                            if !apps.contains(&app_id) {
-                                                apps.push(app_id);
-                                                let mut config = load_config();
-                                                config.smtc_apps = apps.clone();
+                                            let mut config = load_config();
+                                            let mut changed = false;
+
+                                            if !config.smtc_known_apps.contains(&app_id) {
+                                                let is_first_run = config.smtc_known_apps.is_empty();
+                                                config.smtc_known_apps.push(app_id.clone());
+                                                
+                                                if is_first_run && !config.smtc_apps.contains(&app_id) {
+                                                    config.smtc_apps.push(app_id.clone());
+                                                    let mut apps = allowed.lock().unwrap();
+                                                    if !apps.contains(&app_id) {
+                                                        apps.push(app_id);
+                                                    }
+                                                }
+                                                changed = true;
+                                            }
+
+                                            if changed {
                                                 save_config(&config);
                                             }
                                         }

@@ -1,4 +1,5 @@
 use crate::core::config::WINDOW_TITLE;
+use crate::core::i18n::tr;
 use tray_icon::menu::{Menu, MenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
@@ -6,8 +7,6 @@ pub struct TrayManager {
     tray: TrayIcon,
     toggle_item: MenuItem,
     settings_item: MenuItem,
-    music_item: MenuItem,
-    notification_item: MenuItem,
     quit_item: MenuItem,
     is_light: bool,
 }
@@ -15,17 +14,13 @@ pub struct TrayManager {
 impl TrayManager {
     pub fn new(is_light: bool) -> Self {
         let menu = Menu::new();
-        let toggle_item = MenuItem::new("Hide", true, None);
-        let settings_item = MenuItem::new("Settings", true, None);
-        let music_item = MenuItem::new("Music Settings", true, None);
-        let notification_item = MenuItem::new("Notification Settings", true, None);
-        let quit_item = MenuItem::new("Exit", true, None);
+        let toggle_item = MenuItem::new(&tr("tray_hide"), true, None);
+        let settings_item = MenuItem::new(&tr("tray_settings"), true, None);
+        let quit_item = MenuItem::new(&tr("tray_exit"), true, None);
         let _ = menu.append(&toggle_item);
         let _ = menu.append(&settings_item);
-        let _ = menu.append(&music_item);
-        let _ = menu.append(&notification_item);
         let _ = menu.append(&quit_item);
-        
+
         let tray = TrayIconBuilder::new()
             .with_tooltip(WINDOW_TITLE)
             .with_menu(Box::new(menu))
@@ -36,8 +31,6 @@ impl TrayManager {
             tray,
             toggle_item,
             settings_item,
-            music_item,
-            notification_item,
             quit_item,
             is_light,
         }
@@ -52,9 +45,9 @@ impl TrayManager {
 
     pub fn update_item_text(&self, visible: bool) {
         if visible {
-            self.toggle_item.set_text("Hide");
+            self.toggle_item.set_text(&tr("tray_hide"));
         } else {
-            self.toggle_item.set_text("Show");
+            self.toggle_item.set_text(&tr("tray_show"));
         }
     }
 
@@ -77,10 +70,6 @@ impl TrayAction {
             Some(TrayAction::ToggleVisibility)
         } else if id == tray.settings_item.id() {
             Some(TrayAction::OpenSettings)
-        } else if id == tray.music_item.id() {
-            Some(TrayAction::OpenMusicSettings)
-        } else if id == tray.notification_item.id() {
-            Some(TrayAction::OpenNotificationSettings)
         } else if id == tray.quit_item.id() {
             Some(TrayAction::Exit)
         } else {
@@ -91,8 +80,5 @@ impl TrayAction {
 pub enum TrayAction {
     ToggleVisibility,
     OpenSettings,
-    OpenMusicSettings,
-    OpenNotificationSettings,
     Exit,
 }
-
