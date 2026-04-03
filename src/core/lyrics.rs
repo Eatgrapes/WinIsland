@@ -28,24 +28,50 @@ pub fn fetch_lyrics(title: &str, artist: &str, duration_secs: u64, source: &str,
 }
 
 fn fetch_lyrics_163(title: &str, artist: &str) -> Option<Arc<Vec<LyricLine>>> {
-    let query = format!("{} {}", title, artist);
-    let url = format!("https://music.163.com/api/search/get/web?s={}&type=1&offset=0&total=true&limit=1", url_encode(&query));
+    if let Some(r) = fetch_lyrics_163_inner(title, artist) { return Some(r); }
+    fetch_lyrics_163_inner(title, "")
+}
+
+fn fetch_lyrics_163_inner(title: &str, artist: &str) -> Option<Arc<Vec<LyricLine>>> {
+    let query = if artist.is_empty() { title.to_string() } else { format!("{} {}", title, artist) };
+    let url = format!("https://music.163.com/api/search/get/web?s={}&type=1&offset=0&total=true&limit=10", url_encode(&query));
 
     let res = ureq::get(&url)
         .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
         .call()
         .ok()?;
-        
-    let json: Value = res.into_json().ok()?;
-    
-    let song_id = json.get("result")?
-        .get("songs")?
-        .as_array()?
-        .get(0)?
-        .get("id")?
-        .as_i64()?;
 
-    let lyric_url = format!("https://music.163.com/api/song/lyric?id={}&lv=1&kv=1&tv=-1", song_id);
+    let json: Value = res.into_json().ok()?;
+
+    let songs = json.get("result")?.get("songs")?.as_array()?;
+    if songs.is_empty() { return None; }
+
+    let artist_lower = artist.to_lowercase();
+    let mut song_id: Option<i64> = None;
+
+    if !artist_lower.is_empty() {
+        for s in songs {
+            if let Some(artists) = s.get("artists").and_then(|a| a.as_array()) {
+                for a in artists {
+                    if let Some(name) = a.get("name").and_then(|n| n.as_str()) {
+                        if name.to_lowercase() == artist_lower {
+                            song_id = s.get("id").and_then(|id| id.as_i64());
+                            break;
+                        }
+                    }
+                }
+            }
+            if song_id.is_some() { break; }
+        }
+    }
+
+    if song_id.is_none() {
+        song_id = songs.first()?.get("id")?.as_i64();
+    }
+
+    let id = song_id?;
+
+    let lyric_url = format!("https://music.163.com/api/song/lyric?id={}&lv=1&kv=1&tv=-1", id);
     
     let lyric_res = ureq::get(&lyric_url)
         .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
@@ -61,6 +87,11 @@ fn fetch_lyrics_163(title: &str, artist: &str) -> Option<Arc<Vec<LyricLine>>> {
 }
 
 fn fetch_lyrics_lrclib(title: &str, artist: &str, duration_secs: u64) -> Option<Arc<Vec<LyricLine>>> {
+    if let Some(r) = fetch_lyrics_lrclib_inner(title, artist, duration_secs) { return Some(r); }
+    fetch_lyrics_lrclib_search(title, artist)
+}
+
+fn fetch_lyrics_lrclib_inner(title: &str, artist: &str, duration_secs: u64) -> Option<Arc<Vec<LyricLine>>> {
     let url = format!(
         "https://lrclib.net/api/get?track_name={}&artist_name={}&duration={}",
         url_encode(title),
@@ -78,6 +109,27 @@ fn fetch_lyrics_lrclib(title: &str, artist: &str, duration_secs: u64) -> Option<
 
     let lines = parse_lyrics(synced, "");
     if lines.is_empty() { None } else { Some(Arc::new(lines)) }
+}
+
+fn fetch_lyrics_lrclib_search(title: &str, artist: &str) -> Option<Arc<Vec<LyricLine>>> {
+    let query = if artist.is_empty() { title.to_string() } else { format!("{} {}", title, artist) };
+    let url = format!("https://lrclib.net/api/search?q={}", url_encode(&query));
+
+    let res = ureq::get(&url)
+        .set("User-Agent", &format!("WinIsland/{} ({})", APP_VERSION, APP_HOMEPAGE))
+        .call()
+        .ok()?;
+
+    let json: Value = res.into_json().ok()?;
+    let arr = json.as_array()?;
+
+    for item in arr {
+        if let Some(synced) = item.get("syncedLyrics").and_then(|s| s.as_str()) {
+            let lines = parse_lyrics(synced, "");
+            if !lines.is_empty() { return Some(Arc::new(lines)); }
+        }
+    }
+    None
 }
 
 fn parse_lyrics(lrc: &str, tlrc: &str) -> Vec<LyricLine> {
