@@ -21,6 +21,7 @@ use crate::core::smtc::SmtcListener;
 use crate::core::audio::AudioProcessor;
 use crate::window::tray::{TrayAction, TrayManager};
 use crate::utils::icon::get_app_icon;
+use crate::ui::expanded::main_view::get_progress_bar_rect;
 
 pub struct App {
     window: Option<Arc<Window>>,
@@ -62,6 +63,10 @@ pub struct App {
     last_mon_pos: (i32, i32),
     lyric_scroll_offset: f32,
     lyric_scroll_pause: f32,
+    seeking_progress: bool,
+    seeking_bar_left: f32,
+    seeking_bar_right: f32,
+    seeking_duration_ms: u64,
 }
 
 impl Default for App {
@@ -107,6 +112,10 @@ impl Default for App {
             last_mon_pos: (0, 0),
             lyric_scroll_offset: 0.0,
             lyric_scroll_pause: 0.0,
+            seeking_progress: false,
+            seeking_bar_left: 0.0,
+            seeking_bar_right: 0.0,
+            seeking_duration_ms: 0,
         }
     }
 }
@@ -263,6 +272,28 @@ impl ApplicationHandler for App {
                                 let h = self.spring_h.value as f64;
                                 let page_shift = view_val * w;
 
+                                if view_val < 0.5 {
+                                    let media = self.smtc.get_info();
+                                    if let Some((bar_left, bar_right, bar_top, bar_hit_h)) = get_progress_bar_rect(
+                                        offset_x as f32, island_y as f32, w as f32, &media,
+                                        self.config.smtc_enabled && !media.title.is_empty(),
+                                        self.config.global_scale
+                                    ) {
+                                        let click_x = rel_x as f32 - (page_shift as f32);
+                                        let click_y = rel_y as f32;
+                                        if click_x >= bar_left && click_x <= bar_right && click_y >= bar_top && click_y <= bar_top + bar_hit_h {
+                                            let ratio = ((click_x - bar_left) / (bar_right - bar_left)).clamp(0.0, 1.0);
+                                            let seek_ms = (ratio as f64 * media.duration_secs as f64 * 1000.0) as u64;
+                                            self.smtc.request_seek(seek_ms);
+                                            self.seeking_progress = true;
+                                            self.seeking_bar_left = bar_left;
+                                            self.seeking_bar_right = bar_right;
+                                            self.seeking_duration_ms = media.duration_secs * 1000;
+                                            return;
+                                        }
+                                    }
+                                }
+
                                 if view_val > 0.5 {
                                     let gear_x = offset_x + w - 28.0 * scale + w - page_shift;
                                     let gear_y = island_y + h - 28.0 * scale;
@@ -308,6 +339,10 @@ impl ApplicationHandler for App {
                                 }
                             }
                         } else if state == ElementState::Released {
+                            if self.seeking_progress {
+                                self.seeking_progress = false;
+                                return;
+                            }
                             if self.is_dragging {
                                 self.is_dragging = false;
                                 if !self.drag_has_moved {
@@ -555,6 +590,17 @@ impl ApplicationHandler for App {
                 } else if !self.manually_hidden && !is_idle {
                     self.idle_timer = Instant::now();
                 }
+            }
+
+            // Handle dragging on the progress bar while mouse is held
+            if self.seeking_progress && is_left_button_pressed() {
+                let click_x = rel_x as f32;
+                let ratio = ((click_x - self.seeking_bar_left) / (self.seeking_bar_right - self.seeking_bar_left)).clamp(0.0, 1.0);
+                let seek_ms = (ratio as f64 * self.seeking_duration_ms as f64) as u64;
+                self.smtc.request_seek(seek_ms);
+                window.request_redraw();
+            } else if self.seeking_progress {
+                self.seeking_progress = false;
             }
 
             if self.is_dragging {

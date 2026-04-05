@@ -22,6 +22,7 @@ pub struct MediaInfo {
     pub lyrics: Option<Arc<Vec<LyricLine>>>,
     pub last_smtc_pos: u64,
     pub duration_secs: u64,
+    pub duration_ms: u64,
 }
 
 impl Default for MediaInfo {
@@ -38,6 +39,7 @@ impl Default for MediaInfo {
             lyrics: None,
             last_smtc_pos: 0,
             duration_secs: 0,
+            duration_ms: 0,
         }
     }
 }
@@ -73,6 +75,7 @@ pub struct SmtcListener {
     lyrics_source: Arc<Mutex<String>>,
     lyrics_fallback: Arc<Mutex<bool>>,
     allowed_apps: Arc<Mutex<Vec<String>>>,
+    seek_request: Arc<Mutex<Option<u64>>>,
 }
 
 impl SmtcListener {
@@ -83,6 +86,7 @@ impl SmtcListener {
             lyrics_source: Arc::new(Mutex::new(source)),
             lyrics_fallback: Arc::new(Mutex::new(fallback)),
             allowed_apps: Arc::new(Mutex::new(allowed)),
+            seek_request: Arc::new(Mutex::new(None)),
         };
         listener.init();
         listener
@@ -128,6 +132,10 @@ impl SmtcListener {
 
     pub fn get_info(&self) -> MediaInfo {
         self.info.lock().unwrap().clone()
+    }
+
+    pub fn request_seek(&self, position_ms: u64) {
+        *self.seek_request.lock().unwrap() = Some(position_ms);
     }
 
     fn auto_allow_new_apps(mgr: &GlobalSystemMediaTransportControlsSessionManager, allowed: &Arc<Mutex<Vec<String>>>) {
@@ -189,21 +197,18 @@ impl SmtcListener {
                         } else {
                             continue;
                         }
+                        if !Self::is_music_session(&session) {
+                            continue;
+                        }
                         if let Ok(pb_info) = session.GetPlaybackInfo() {
-                            if let Ok(playback_type) = pb_info.PlaybackType() {
-                                if let Ok(value) = playback_type.Value() {
-                                    if value == windows::Media::MediaPlaybackType::Music {
-                                        if let Ok(status) = pb_info.PlaybackStatus() {
-                                            if status == windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
-                                                return Some(session);
-                                            }
-                                        }
-                                        if audio_session.is_none() {
-                                            audio_session = Some(session);
-                                        }
-                                    }
+                            if let Ok(status) = pb_info.PlaybackStatus() {
+                                if status == windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
+                                    return Some(session);
                                 }
                             }
+                        }
+                        if audio_session.is_none() {
+                            audio_session = Some(session);
                         }
                     }
                 }
@@ -221,18 +226,25 @@ impl SmtcListener {
             } else {
                 return None;
             }
-            if let Ok(pb_info) = session.GetPlaybackInfo() {
-                if let Ok(playback_type) = pb_info.PlaybackType() {
-                    if let Ok(value) = playback_type.Value() {
-                        if value == windows::Media::MediaPlaybackType::Video {
-                            return None;
-                        }
+            if Self::is_music_session(&session) {
+                return Some(session);
+            }
+        }
+        None
+    }
+
+    /// Returns true only if the session explicitly reports MediaPlaybackType::Music.
+    fn is_music_session(session: &GlobalSystemMediaTransportControlsSession) -> bool {
+        if let Ok(pb_info) = session.GetPlaybackInfo() {
+            if let Ok(playback_type) = pb_info.PlaybackType() {
+                if let Ok(value) = playback_type.Value() {
+                    if value == windows::Media::MediaPlaybackType::Video {
+                        return false;
                     }
                 }
             }
-            return Some(session);
         }
-        None
+        true
     }
 
     fn init(&self) {
@@ -241,6 +253,7 @@ impl SmtcListener {
         let source_clone = self.lyrics_source.clone();
         let fallback_clone = self.lyrics_fallback.clone();
         let allowed_clone = self.allowed_apps.clone();
+        let seek_clone = self.seek_request.clone();
         std::thread::spawn(move || {
             let manager = match GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
                 Ok(op) => match op.get() {
@@ -292,6 +305,19 @@ impl SmtcListener {
                     last_manager_refresh = Instant::now();
                 }
 
+                if let Some(seek_pos) = seek_clone.lock().unwrap().take() {
+                    let apps = allowed_clone.lock().unwrap().clone();
+                    if let Some(session) = Self::get_target_session(&current_manager, &apps) {
+                        let ticks = seek_pos as i64 * 10_000;
+                        let _ = session.TryChangePlaybackPositionAsync(ticks);
+                        if let Ok(mut info) = info_clone.lock() {
+                            info.position_ms = seek_pos;
+                            info.last_update = Instant::now();
+                            info.last_smtc_pos = seek_pos;
+                        }
+                    }
+                }
+
                 update_info(&current_manager, &info_clone, &source_clone, &fallback_clone, &allowed_clone);
                 std::thread::sleep(Duration::from_millis(300));
             }
@@ -299,18 +325,38 @@ impl SmtcListener {
     }
 
     fn fetch_properties(session: &GlobalSystemMediaTransportControlsSession, info_arc: &Arc<Mutex<MediaInfo>>, source: &Arc<Mutex<String>>, fallback: &Arc<Mutex<bool>>) -> windows::core::Result<()> {
+        if !Self::is_music_session(session) {
+            if let Ok(mut info) = info_arc.lock() {
+                if !info.title.is_empty() {
+                    *info = MediaInfo::default();
+                }
+            }
+            return Ok(());
+        }
+
         let props = session.TryGetMediaPropertiesAsync()?.get()?;
         let pb_info = session.GetPlaybackInfo()?;
         let is_playing = pb_info.PlaybackStatus()? == windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing;
 
         let smtc_pos = if let Ok(tl) = session.GetTimelineProperties() {
             if let Ok(pos) = tl.Position() {
-                (pos.Duration / 10000) as u64
+                let raw = pos.Duration;
+                if raw > 0 { (raw / 10_000) as u64 } else { 0 }
             } else { 0 }
         } else { 0 };
 
         let duration_secs = if let Ok(tl) = session.GetTimelineProperties() {
-            if let Ok(end) = tl.EndTime() { (end.Duration / 10_000_000) as u64 } else { 0 }
+            if let Ok(end) = tl.EndTime() {
+                let raw = end.Duration;
+                if raw > 0 { (raw / 10_000_000) as u64 } else { 0 }
+            } else { 0 }
+        } else { 0 };
+
+        let duration_ms_from_tl = if let Ok(tl) = session.GetTimelineProperties() {
+            if let Ok(end) = tl.EndTime() {
+                let raw = end.Duration;
+                if raw > 0 { (raw / 10_000) as u64 } else { 0 }
+            } else { 0 }
         } else { 0 };
 
         let new_title = props.Title()?.to_string();
@@ -326,6 +372,7 @@ impl SmtcListener {
                 info.artist = new_artist.clone();
                 info.album = new_album.clone();
                 info.duration_secs = duration_secs;
+                info.duration_ms = duration_ms_from_tl;
                 info.lyrics = None;
                 info.thumbnail = None;
                 info.position_ms = smtc_pos;
@@ -352,7 +399,9 @@ impl SmtcListener {
                 true
             } else if smtc_changed && diff_with_extrapolated > 2000 {
                 true
-            } else if smtc_pos > 0 && info.position_ms == 0 && is_playing {
+            } else if smtc_pos > 0 && info.position_ms == 0 {
+                true
+            } else if smtc_changed && !is_playing {
                 true
             } else {
                 false
@@ -366,6 +415,7 @@ impl SmtcListener {
             info.last_smtc_pos = smtc_pos;
             info.is_playing = is_playing;
             info.duration_secs = duration_secs;
+            info.duration_ms = duration_ms_from_tl;
         }
 
         if should_fetch_thumbnail {

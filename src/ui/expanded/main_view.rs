@@ -13,6 +13,22 @@ thread_local! {
     static IMG_CACHE: RefCell<Option<(String, Image)>> = RefCell::new(None);
     static COLOR_CACHE: RefCell<HashMap<String, Vec<Color>>> = RefCell::new(HashMap::new());
     static VIZ_HEIGHTS: RefCell<[f32; 6]> = RefCell::new([3.0; 6]);
+    static PROGRESS_SMOOTH: RefCell<f32> = RefCell::new(0.0);
+}
+
+pub fn get_progress_bar_rect(ox: f32, oy: f32, w: f32, _media: &MediaInfo, music_active: bool, scale: f32) -> Option<(f32, f32, f32, f32)> {
+    if !music_active { return None; }
+    let img_size = 72.0 * scale;
+    let img_x = ox + 24.0 * scale;
+    let img_y = oy + 24.0 * scale;
+    let bar_y = img_y + img_size + 18.0 * scale;
+    let time_w = 32.0 * scale;
+    let bar_full_left = img_x;
+    let bar_full_right = img_x + w - 48.0 * scale;
+    let bar_left = bar_full_left + time_w + 4.0 * scale;
+    let bar_right = bar_full_right - time_w - 4.0 * scale;
+    let hit_h = 16.0 * scale;
+    Some((bar_left, bar_right, bar_y - hit_h / 2.0, hit_h))
 }
 
 pub fn draw_text_cached(canvas: &Canvas, text: &str, pos: (f32, f32), size: f32, style: FontStyle, paint: &Paint, align_center: bool, max_w: f32) {
@@ -91,7 +107,79 @@ pub fn draw_main_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: 
     draw_text_cached(canvas, title, (text_x, title_y), 15.0 * scale, FontStyle::bold(), &text_paint, false, max_text_w);
     text_paint.set_color(Color::from_argb((alpha as f32 * 0.6) as u8, 255, 255, 255));
     draw_text_cached(canvas, artist, (text_x, title_y + 22.0 * scale), 15.0 * scale, FontStyle::normal(), &text_paint, false, max_text_w);
-    
+
+    if music_active {
+        let bar_y = img_y + img_size + 18.0 * scale;
+        let time_font_size = 10.0 * scale;
+        let time_w = 32.0 * scale;
+
+        let current_pos_ms = if media.is_playing {
+            media.position_ms + media.last_update.elapsed().as_millis() as u64
+        } else {
+            media.position_ms
+        };
+        let duration_ms = if media.duration_ms > 0 {
+            media.duration_ms
+        } else if media.duration_secs > 0 {
+            media.duration_secs * 1000
+        } else {
+            0
+        };
+        let current_pos_ms = if duration_ms > 0 { current_pos_ms.min(duration_ms) } else { current_pos_ms };
+        let raw_progress = if duration_ms > 0 { current_pos_ms as f32 / duration_ms as f32 } else { 0.0 };
+
+        let progress = PROGRESS_SMOOTH.with(|cell| {
+            let mut smooth = cell.borrow_mut();
+            let diff = (raw_progress - *smooth).abs();
+            if diff > 0.3 {
+                *smooth = raw_progress;
+            } else {
+                *smooth += (raw_progress - *smooth) * 0.15;
+            }
+            *smooth
+        });
+
+        let elapsed_secs = (current_pos_ms / 1000) as u32;
+        let elapsed_str = format!("{}:{:02}", elapsed_secs / 60, elapsed_secs % 60);
+        let remaining_str = if duration_ms > 0 {
+            let remaining_secs = (duration_ms.saturating_sub(current_pos_ms) / 1000) as u32;
+            format!("-{}:{:02}", remaining_secs / 60, remaining_secs % 60)
+        } else {
+            "--:--".to_string()
+        };
+
+        let bar_full_left = img_x;
+        let bar_full_right = img_x + w - 48.0 * scale;
+
+        let bar_left = bar_full_left + time_w + 4.0 * scale;
+        let bar_right = bar_full_right - time_w - 4.0 * scale;
+        let bar_total_w = bar_right - bar_left;
+        let bar_h = 5.5 * scale;
+        let bar_center_y = bar_y;
+        let bar_radius = bar_h / 2.0;
+
+        let text_baseline_y = bar_center_y + time_font_size * 0.3 + bar_h * 0.1;
+
+        let mut time_paint = Paint::default();
+        time_paint.set_anti_alias(true);
+        time_paint.set_color(Color::from_argb((alpha as f32 * 0.5) as u8, 255, 255, 255));
+        draw_text_cached(canvas, &elapsed_str, (bar_full_left, text_baseline_y), time_font_size, FontStyle::normal(), &time_paint, false, time_w);
+        draw_text_cached(canvas, &remaining_str, (bar_full_right - time_w, text_baseline_y), time_font_size, FontStyle::normal(), &time_paint, false, time_w);
+
+        let mut track_paint = Paint::default();
+        track_paint.set_anti_alias(true);
+        track_paint.set_color(Color::from_argb((alpha as f32 * 0.25) as u8, 255, 255, 255));
+        let track_rect = Rect::from_xywh(bar_left, bar_center_y - bar_h / 2.0, bar_total_w, bar_h);
+        canvas.draw_round_rect(track_rect, bar_radius, bar_radius, &track_paint);
+
+        let filled_w = (bar_total_w * progress).max(bar_h);
+        let mut fill_paint = Paint::default();
+        fill_paint.set_anti_alias(true);
+        fill_paint.set_color(Color::from_argb(alpha, 255, 255, 255));
+        let fill_rect = Rect::from_xywh(bar_left, bar_center_y - bar_h / 2.0, filled_w, bar_h);
+        canvas.draw_round_rect(fill_rect, bar_radius, bar_radius, &fill_paint);
+    }
+
     let viz_x_offset = 17.0 + (45.0 - 17.0) * expansion_progress;
     draw_visualizer(canvas, ox + w - viz_x_offset * scale, title_y - 4.0 * scale, alpha, music_active && media.is_playing, &palette, &media.spectrum, scale, viz_h_scale, (0.6, 0.08));
 }
