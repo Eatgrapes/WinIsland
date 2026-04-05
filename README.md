@@ -6,7 +6,7 @@
 
 English | [简体中文](./README-zh.md)
 > [!WARNING]
-> IT'S WIP, Mistakes may occur sometimes
+> IT'S WIP, Mistakes may occur sometimes.
 
 This is a project that can display **Dynamic Island** on Windows.
 
