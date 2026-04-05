@@ -127,7 +127,7 @@ impl Default for AppConfig {
             base_width: 120.0,
             base_height: 27.0,
             expanded_width: 360.0,
-            expanded_height: 190.0,
+            expanded_height: 210.0,
             adaptive_border: false,
             motion_blur: true,
             smtc_enabled: true,

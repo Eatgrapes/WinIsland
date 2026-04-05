@@ -76,6 +76,7 @@ pub struct SmtcListener {
     lyrics_fallback: Arc<Mutex<bool>>,
     allowed_apps: Arc<Mutex<Vec<String>>>,
     seek_request: Arc<Mutex<Option<u64>>>,
+    toggle_request: Arc<AtomicBool>,
 }
 
 impl SmtcListener {
@@ -87,6 +88,7 @@ impl SmtcListener {
             lyrics_fallback: Arc::new(Mutex::new(fallback)),
             allowed_apps: Arc::new(Mutex::new(allowed)),
             seek_request: Arc::new(Mutex::new(None)),
+            toggle_request: Arc::new(AtomicBool::new(false)),
         };
         listener.init();
         listener
@@ -136,6 +138,10 @@ impl SmtcListener {
 
     pub fn request_seek(&self, position_ms: u64) {
         *self.seek_request.lock().unwrap() = Some(position_ms);
+    }
+
+    pub fn request_toggle_play(&self) {
+        self.toggle_request.store(true, Ordering::Relaxed);
     }
 
     fn auto_allow_new_apps(mgr: &GlobalSystemMediaTransportControlsSessionManager, allowed: &Arc<Mutex<Vec<String>>>) {
@@ -254,6 +260,7 @@ impl SmtcListener {
         let fallback_clone = self.lyrics_fallback.clone();
         let allowed_clone = self.allowed_apps.clone();
         let seek_clone = self.seek_request.clone();
+        let toggle_clone = self.toggle_request.clone();
         std::thread::spawn(move || {
             let manager = match GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
                 Ok(op) => match op.get() {
@@ -314,6 +321,21 @@ impl SmtcListener {
                             info.position_ms = seek_pos;
                             info.last_update = Instant::now();
                             info.last_smtc_pos = seek_pos;
+                        }
+                    }
+                }
+
+                if toggle_clone.swap(false, Ordering::Relaxed) {
+                    let apps = allowed_clone.lock().unwrap().clone();
+                    if let Some(session) = Self::get_target_session(&current_manager, &apps) {
+                        if let Ok(pb_info) = session.GetPlaybackInfo() {
+                            if let Ok(status) = pb_info.PlaybackStatus() {
+                                if status == windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
+                                    let _ = session.TryPauseAsync();
+                                } else {
+                                    let _ = session.TryPlayAsync();
+                                }
+                            }
                         }
                     }
                 }

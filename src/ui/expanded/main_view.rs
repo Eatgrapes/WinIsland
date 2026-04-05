@@ -1,9 +1,10 @@
 use skia_safe::{
     Canvas, Paint, Color, FontStyle, Rect, RRect,
-    Point, Data, Image, SamplingOptions, FilterMode, MipmapMode,
-    gradient_shader, TileMode
+    Data, Image, SamplingOptions, FilterMode, MipmapMode,
+    gradient_shader, TileMode, Point
 };
 use crate::icons::arrows::draw_arrow_right;
+use crate::icons::controls::{draw_play_button, draw_pause_button};
 use crate::core::smtc::MediaInfo;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -14,6 +15,17 @@ thread_local! {
     static COLOR_CACHE: RefCell<HashMap<String, Vec<Color>>> = RefCell::new(HashMap::new());
     static VIZ_HEIGHTS: RefCell<[f32; 6]> = RefCell::new([3.0; 6]);
     static PROGRESS_SMOOTH: RefCell<f32> = RefCell::new(0.0);
+    static PAUSE_ANIM: RefCell<f32> = RefCell::new(0.0);
+}
+
+pub fn get_pause_btn_rect(ox: f32, oy: f32, w: f32, _h: f32, scale: f32) -> (f32, f32, f32, f32) {
+    let img_size = 72.0 * scale;
+    let img_y = oy + 24.0 * scale;
+    let bar_y = img_y + img_size + 18.0 * scale;
+    let btn_cy = bar_y + 35.0 * scale;
+    let hit = 40.0 * scale;
+    let btn_cx = ox + w / 2.0;
+    (btn_cx - hit / 2.0, btn_cy - hit / 2.0, hit, hit)
 }
 
 pub fn get_progress_bar_rect(ox: f32, oy: f32, w: f32, _media: &MediaInfo, music_active: bool, scale: f32) -> Option<(f32, f32, f32, f32)> {
@@ -178,6 +190,34 @@ pub fn draw_main_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: 
         fill_paint.set_color(Color::from_argb(alpha, 255, 255, 255));
         let fill_rect = Rect::from_xywh(bar_left, bar_center_y - bar_h / 2.0, filled_w, bar_h);
         canvas.draw_round_rect(fill_rect, bar_radius, bar_radius, &fill_paint);
+
+        let pause_t = PAUSE_ANIM.with(|cell| {
+            let mut v = cell.borrow_mut();
+            let target = if media.is_playing { 1.0_f32 } else { 0.0 };
+            *v += (target - *v) * 0.12;
+            if (*v - target).abs() < 0.005 { *v = target; }
+            *v
+        });
+
+        let btn_cx = ox + w / 2.0;
+        let btn_cy = bar_center_y + bar_h / 2.0 + 35.0 * scale;
+
+        if pause_t > 0.99 {
+            draw_pause_button(canvas, btn_cx, btn_cy, alpha, scale);
+        } else if pause_t < 0.01 {
+            draw_play_button(canvas, btn_cx, btn_cy, alpha, scale);
+        } else {
+            let pause_alpha = (alpha as f32 * pause_t) as u8;
+            let play_alpha = (alpha as f32 * (1.0 - pause_t)) as u8;
+
+            if pause_alpha > 0 {
+                draw_pause_button(canvas, btn_cx, btn_cy, pause_alpha, scale);
+            }
+
+            if play_alpha > 0 {
+                draw_play_button(canvas, btn_cx, btn_cy, play_alpha, scale);
+            }
+        }
     }
 
     let viz_x_offset = 17.0 + (45.0 - 17.0) * expansion_progress;

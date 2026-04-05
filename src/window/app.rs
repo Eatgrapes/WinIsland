@@ -21,7 +21,7 @@ use crate::core::smtc::SmtcListener;
 use crate::core::audio::AudioProcessor;
 use crate::window::tray::{TrayAction, TrayManager};
 use crate::utils::icon::get_app_icon;
-use crate::ui::expanded::main_view::get_progress_bar_rect;
+use crate::ui::expanded::main_view::{get_progress_bar_rect, get_pause_btn_rect};
 
 pub struct App {
     window: Option<Arc<Window>>,
@@ -274,15 +274,27 @@ impl ApplicationHandler for App {
 
                                 if view_val < 0.5 {
                                     let media = self.smtc.get_info();
+                                    let music_on = self.config.smtc_enabled && !media.title.is_empty()
+                                        && (media.is_playing || self.last_playing_time.elapsed() < Duration::from_secs(5));
+
+                                    let (bx, by, bw, bh) = get_pause_btn_rect(
+                                        offset_x as f32, island_y as f32, w as f32, h as f32,
+                                        self.config.global_scale
+                                    );
+                                    let cx = rel_x as f32 - (page_shift as f32);
+                                    let cy = rel_y as f32;
+                                    if music_on && cx >= bx && cx <= bx + bw && cy >= by && cy <= by + bh {
+                                        self.smtc.request_toggle_play();
+                                        return;
+                                    }
+
                                     if let Some((bar_left, bar_right, bar_top, bar_hit_h)) = get_progress_bar_rect(
                                         offset_x as f32, island_y as f32, w as f32, &media,
-                                        self.config.smtc_enabled && !media.title.is_empty(),
+                                        music_on,
                                         self.config.global_scale
                                     ) {
-                                        let click_x = rel_x as f32 - (page_shift as f32);
-                                        let click_y = rel_y as f32;
-                                        if click_x >= bar_left && click_x <= bar_right && click_y >= bar_top && click_y <= bar_top + bar_hit_h {
-                                            let ratio = ((click_x - bar_left) / (bar_right - bar_left)).clamp(0.0, 1.0);
+                                        if cx >= bar_left && cx <= bar_right && cy >= bar_top && cy <= bar_top + bar_hit_h {
+                                            let ratio = ((cx - bar_left) / (bar_right - bar_left)).clamp(0.0, 1.0);
                                             let seek_ms = (ratio as f64 * media.duration_secs as f64 * 1000.0) as u64;
                                             self.smtc.request_seek(seek_ms);
                                             self.seeking_progress = true;
