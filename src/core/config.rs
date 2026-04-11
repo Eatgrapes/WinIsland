@@ -14,6 +14,8 @@ pub struct AppConfig {
     pub expanded_height: f32,
     pub adaptive_border: bool,
     pub motion_blur: bool,
+    #[serde(default = "default_island_style")]
+    pub island_style: String,
     pub smtc_enabled: bool,
     pub smtc_apps: Vec<String>,
     #[serde(default = "default_smtc_known_apps")]
@@ -50,6 +52,10 @@ pub struct AppConfig {
     pub position_y_offset: i32,
     #[serde(default = "default_monitor_index")]
     pub monitor_index: i32,
+}
+
+fn default_island_style() -> String {
+    "default".to_string()
 }
 
 fn default_show_lyrics() -> bool {
@@ -130,6 +136,7 @@ impl Default for AppConfig {
             expanded_height: 200.0,
             adaptive_border: false,
             motion_blur: true,
+            island_style: "default".to_string(),
             smtc_enabled: true,
             smtc_apps: Vec::new(),
             smtc_known_apps: Vec::new(),

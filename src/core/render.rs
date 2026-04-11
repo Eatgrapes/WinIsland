@@ -7,6 +7,7 @@ use crate::core::config::{PADDING, TOP_OFFSET};
 use crate::ui::expanded::main_view::{draw_main_page, get_media_palette, draw_visualizer, get_cached_media_image, draw_text_cached};
 use crate::ui::expanded::widget_view::draw_widget_page;
 use crate::core::smtc::MediaInfo;
+use crate::utils::glass::get_glass_background;
 
 thread_local! {
     static SK_SURFACE: RefCell<Option<SkSurface>> = RefCell::new(None);
@@ -32,6 +33,9 @@ pub fn draw_island(
     use_blur: bool,
     hide_progress: f32,
     lyric_scroll_offset: f32,
+    island_style: &str,
+    win_x: i32,
+    win_y: i32,
 ) {
     let mut buffer = surface.buffer_mut().unwrap();
     let mut sk_surface = SK_SURFACE.with(|cell| {
@@ -59,10 +63,26 @@ pub fn draw_island(
     let blur_filter = if has_blur { image_filters::blur(sigmas, None, None, None) } else { None };
     canvas.save();
     canvas.clip_rrect(rrect, ClipOp::Intersect, true);
-    let mut bg_paint = Paint::default();
-    bg_paint.set_color(Color::BLACK);
-    bg_paint.set_anti_alias(true);
-    canvas.draw_rrect(rrect, &bg_paint);
+
+    if island_style == "glass" {
+        let screen_x = win_x + offset_x as i32;
+        let screen_y = win_y + offset_y as i32;
+        if let Some(bg_img) = get_glass_background(screen_x, screen_y, current_w as u32, current_h as u32, 40.0 * global_scale) {
+            let mut paint = Paint::default();
+            paint.set_anti_alias(true);
+            let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
+            canvas.draw_image_rect_with_sampling_options(&bg_img, None, rect, sampling, &paint);
+        }
+        let mut overlay = Paint::default();
+        overlay.set_color(Color::from_argb(120, 0, 0, 0));
+        overlay.set_anti_alias(true);
+        canvas.draw_rrect(rrect, &overlay);
+    } else {
+        let mut bg_paint = Paint::default();
+        bg_paint.set_color(Color::BLACK);
+        bg_paint.set_anti_alias(true);
+        canvas.draw_rrect(rrect, &bg_paint);
+    }
 
     let expanded_alpha_f = (expansion_progress.powf(2.0)).clamp(0.0, 1.0) * (1.0 - hide_progress);
     let mini_alpha_f = (1.0 - expansion_progress * 1.5).clamp(0.0, 1.0) * (1.0 - hide_progress);

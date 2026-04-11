@@ -32,6 +32,7 @@ enum PopupKind {
     LyricsSource,
     Language,
     Monitor,
+    IslandStyle,
 }
 
 struct PopupState {
@@ -158,6 +159,14 @@ impl SettingsApp {
         items.push(SettingsItem::GroupStart);
         items.push(SettingsItem::RowSwitch { label: tr("adaptive_border"), on: self.config.adaptive_border, enabled: true });
         items.push(SettingsItem::RowSwitch { label: tr("motion_blur"), on: self.config.motion_blur, enabled: true });
+        items.push(SettingsItem::RowSourceSelect {
+            label: tr("island_style"),
+            options: vec![
+                (tr("style_default"), self.config.island_style == "default"),
+                (tr("style_glass"), self.config.island_style == "glass"),
+            ],
+            enabled: true,
+        });
         items.push(SettingsItem::RowFontPicker {
             label: tr("custom_font"),
             btn_label: tr("font_select"),
@@ -565,6 +574,9 @@ impl SettingsApp {
                             PopupKind::Monitor => {
                                 self.config.monitor_index = value.parse::<i32>().unwrap_or(0);
                             }
+                            PopupKind::IslandStyle => {
+                                self.config.island_style = value;
+                            }
                         }
                         save_config(&self.config);
                         break;
@@ -696,6 +708,16 @@ impl SettingsApp {
                             button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
                             options: monitors,
                             values,
+                            selected_idx,
+                            hover_idx: None,
+                        });
+                    } else if label == &tr("island_style") {
+                        let selected_idx = if self.config.island_style == "glass" { 1 } else { 0 };
+                        self.popup = Some(PopupState {
+                            kind: PopupKind::IslandStyle,
+                            button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+                            options: vec![tr("style_default"), tr("style_glass")],
+                            values: vec!["default".to_string(), "glass".to_string()],
                             selected_idx,
                             hover_idx: None,
                         });

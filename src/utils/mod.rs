@@ -2,6 +2,7 @@ pub mod anim;
 pub mod blur;
 pub mod color;
 pub mod font;
+pub mod glass;
 pub mod mouse;
 pub mod physics;
 pub mod icon;

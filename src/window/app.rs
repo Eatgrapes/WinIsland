@@ -22,6 +22,7 @@ use crate::core::audio::AudioProcessor;
 use crate::window::tray::{TrayAction, TrayManager};
 use crate::utils::icon::get_app_icon;
 use crate::ui::expanded::main_view::{get_progress_bar_rect, get_pause_btn_rect, get_prev_btn_rect, get_next_btn_rect, trigger_pause_click, trigger_prev_click, trigger_next_click, trigger_cover_flip, set_progress_hover};
+use crate::utils::glass::set_glass_hwnd;
 
 pub struct App {
     window: Option<Arc<Window>>,
@@ -182,6 +183,7 @@ impl ApplicationHandler for App {
                         let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
                         SetWindowLongPtrW(hwnd, GWL_STYLE, style & !(WS_MAXIMIZEBOX.0 as isize | WS_THICKFRAME.0 as isize));
                     }
+                    set_glass_hwnd(win32_handle.hwnd.get() as isize);
                 }
             }
 
@@ -454,6 +456,9 @@ impl ApplicationHandler for App {
                                 self.config.motion_blur,
                                 self.spring_hide.value,
                                 self.lyric_scroll_offset,
+                                &self.config.island_style,
+                                self.win_x,
+                                self.win_y,
                             );
                         }
                     }
