@@ -459,6 +459,7 @@ impl ApplicationHandler for App {
                                 &self.config.island_style,
                                 self.win_x,
                                 self.win_y,
+                                self.config.font_size,
                             );
                         }
                     }

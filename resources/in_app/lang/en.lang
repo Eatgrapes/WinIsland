@@ -15,6 +15,7 @@ expanded_height=Expanded Height
 position_x_offset=X Offset (px)
 position_y_offset=Y Offset (px)
 monitor=Display
+font_size=Font Size (px)
 adaptive_border=Adaptive Border
 motion_blur=Motion Blur
 island_style=Island Style
