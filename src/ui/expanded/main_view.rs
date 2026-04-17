@@ -156,7 +156,7 @@ pub fn get_media_palette(media: &MediaInfo) -> Vec<Color> {
     }
 }
 
-pub fn draw_main_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: u8, media: &MediaInfo, music_active: bool, view_offset: f32, scale: f32, expansion_progress: f32, viz_h_scale: f32, use_blur: bool) {
+pub fn draw_main_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: u8, media: &MediaInfo, music_active: bool, view_offset: f32, scale: f32, expansion_progress: f32, viz_h_scale: f32, use_blur: bool, font_size: f32) {
     let arrow_alpha = (alpha as f32 * (1.0 - view_offset * 5.0).clamp(0.0, 1.0)) as u8;
     if arrow_alpha > 0 {
         draw_arrow_right(canvas, ox + w - 12.0 * scale, oy + h / 2.0, arrow_alpha, scale);
@@ -268,7 +268,7 @@ pub fn draw_main_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: 
     let artist = if !music_active || media.artist.is_empty() { "Unknown Artist" } else { &media.artist };
     
     text_paint.set_color(Color::from_argb(alpha, 255, 255, 255));
-    let title_font_size = 15.0 * scale;
+    let title_font_size = if font_size > 0.0 { font_size * scale } else { 15.0 * scale };
     let title_style = FontStyle::bold();
 
     TITLE_SCROLL.with(|cell| {
@@ -278,7 +278,7 @@ pub fn draw_main_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: 
 
     text_paint.set_color(Color::from_argb((alpha as f32 * 0.6) as u8, 255, 255, 255));
     let artist_y = title_y + 22.0 * scale;
-    let artist_font_size = 15.0 * scale;
+    let artist_font_size = if font_size > 0.0 { font_size * scale } else { 15.0 * scale };
     let artist_style = FontStyle::normal();
 
     ARTIST_SCROLL.with(|cell| {
@@ -288,7 +288,7 @@ pub fn draw_main_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: 
 
     if music_active {
         let bar_y = img_y + img_size + 18.0 * scale;
-        let time_font_size = 10.0 * scale;
+        let time_font_size = if font_size > 0.0 { font_size * 0.67 * scale } else { 10.0 * scale };
         let time_w = 36.0 * scale;
 
         let current_pos_ms = if media.is_playing {

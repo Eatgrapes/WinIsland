@@ -52,6 +52,8 @@ pub struct AppConfig {
     pub position_y_offset: i32,
     #[serde(default = "default_monitor_index")]
     pub monitor_index: i32,
+    #[serde(default = "default_font_size")]
+    pub font_size: f32,
 }
 
 fn default_island_style() -> String {
@@ -126,6 +128,10 @@ fn default_monitor_index() -> i32 {
     0
 }
 
+fn default_font_size() -> f32 {
+    0.0
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -156,6 +162,7 @@ impl Default for AppConfig {
             position_x_offset: 0,
             position_y_offset: 0,
             monitor_index: 0,
+            font_size: 0.0,
         }
     }
 }

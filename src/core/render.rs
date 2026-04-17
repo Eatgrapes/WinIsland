@@ -36,6 +36,7 @@ pub fn draw_island(
     island_style: &str,
     win_x: i32,
     win_y: i32,
+    font_size: f32,
 ) {
     let mut buffer = surface.buffer_mut().unwrap();
     let mut sk_surface = SK_SURFACE.with(|cell| {
@@ -102,7 +103,7 @@ pub fn draw_island(
 
         canvas.save();
         canvas.translate((-page_shift, 0.0));
-        draw_main_page(canvas, offset_x, offset_y, current_w, current_h, alpha, media, music_active, view_offset, global_scale, expansion_progress, viz_h_scale * global_scale, use_blur);
+        draw_main_page(canvas, offset_x, offset_y, current_w, current_h, alpha, media, music_active, view_offset, global_scale, expansion_progress, viz_h_scale * global_scale, use_blur, font_size);
         canvas.restore();
 
         canvas.save();
@@ -149,6 +150,7 @@ pub fn draw_island(
             let alpha = (alpha as f32 * lyric_fade_f) as u8;
 
             if alpha > 0 {
+                let lyric_font_sz = if font_size > 0.0 { font_size * 0.8 * global_scale } else { 12.0 * global_scale };
                 let space_left = offset_x + 30.0 * global_scale;
                 let space_right = offset_x + current_w - 29.0 * global_scale;
                 let available_w = space_right - space_left;
@@ -178,7 +180,7 @@ pub fn draw_island(
                         }
 
                         let text_y = offset_y + current_h / 2.0 + 4.0 * global_scale - (10.0 * global_scale * lyric_transition);
-                        draw_text_cached(canvas, old_lyric, (text_x, text_y), 12.0 * global_scale, skia_safe::FontStyle::normal(), &text_paint, text_centered, text_max_w);
+                        draw_text_cached(canvas, old_lyric, (text_x, text_y), lyric_font_sz, skia_safe::FontStyle::normal(), &text_paint, text_centered, text_max_w);
                     }
 
                     if !current_lyric.is_empty() {
@@ -193,7 +195,7 @@ pub fn draw_island(
                         }
 
                         let text_y = offset_y + current_h / 2.0 + 4.0 * global_scale + (10.0 * global_scale * (1.0 - lyric_transition));
-                        draw_text_cached(canvas, current_lyric, (text_x, text_y), 12.0 * global_scale, skia_safe::FontStyle::normal(), &text_paint, text_centered, text_max_w);
+                        draw_text_cached(canvas, current_lyric, (text_x, text_y), lyric_font_sz, skia_safe::FontStyle::normal(), &text_paint, text_centered, text_max_w);
                     }
                 } else {
                     let text_y = offset_y + current_h / 2.0 + 4.0 * global_scale;
@@ -203,14 +205,14 @@ pub fn draw_island(
                         let progress = lyric_transition * 2.0;
                         let fade_alpha = (alpha as f32 * (1.0 - progress)) as u8;
                         text_paint.set_color(Color::from_argb(fade_alpha, 255, 255, 255));
-                        draw_text_cached(canvas, old_lyric, (text_x, text_y), 12.0 * global_scale, skia_safe::FontStyle::normal(), &text_paint, text_centered, text_max_w);
+                        draw_text_cached(canvas, old_lyric, (text_x, text_y), lyric_font_sz, skia_safe::FontStyle::normal(), &text_paint, text_centered, text_max_w);
                     } else if lyric_transition >= 0.5 && !current_lyric.is_empty() {
                         let mut text_paint = Paint::default();
                         text_paint.set_anti_alias(true);
                         let progress = (lyric_transition - 0.5) * 2.0;
                         let fade_alpha = (alpha as f32 * progress) as u8;
                         text_paint.set_color(Color::from_argb(fade_alpha, 255, 255, 255));
-                        draw_text_cached(canvas, current_lyric, (text_x, text_y), 12.0 * global_scale, skia_safe::FontStyle::normal(), &text_paint, text_centered, text_max_w);
+                        draw_text_cached(canvas, current_lyric, (text_x, text_y), lyric_font_sz, skia_safe::FontStyle::normal(), &text_paint, text_centered, text_max_w);
                     }
                 }
                 canvas.restore();

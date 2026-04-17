@@ -141,6 +141,7 @@ impl SettingsApp {
             SettingsItem::RowStepper { label: tr("expanded_height"), value: self.config.expanded_height.to_string(), enabled: true },
             SettingsItem::RowStepper { label: tr("position_x_offset"), value: self.config.position_x_offset.to_string(), enabled: true },
             SettingsItem::RowStepper { label: tr("position_y_offset"), value: self.config.position_y_offset.to_string(), enabled: true },
+            SettingsItem::RowStepper { label: tr("font_size"), value: format!("{:.0}", self.config.font_size), enabled: true },
         ];
         {
             let monitors = self.get_monitor_list();
@@ -651,6 +652,10 @@ impl SettingsApp {
                             changed = true;
                         } else if l == tr("position_y_offset") {
                             if is_dec { self.config.position_y_offset -= 5; } else { self.config.position_y_offset += 5; }
+                            changed = true;
+                        } else if l == tr("font_size") {
+                            if is_dec { self.config.font_size = (self.config.font_size - 1.0).max(0.0); }
+                            else { self.config.font_size = (self.config.font_size + 1.0).min(30.0); }
                             changed = true;
                         } else if l == tr("hide_delay") {
                             if is_dec { self.config.auto_hide_delay = (self.config.auto_hide_delay - 1.0).max(1.0); }

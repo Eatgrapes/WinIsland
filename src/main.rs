@@ -27,8 +27,12 @@ fn main() {
                 return;
             }
         }
+
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let _guard = runtime.enter();
+
         crate::utils::updater::start_update_checker();
-        
+
         let event_loop = EventLoop::new().unwrap();
         let mut app = App::default();
         event_loop.run_app(&mut app).unwrap();
