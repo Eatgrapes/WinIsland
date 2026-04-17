@@ -188,7 +188,20 @@ impl ApplicationHandler for App {
             }
 
             self.window = Some(window.clone());
-            if let Some(monitor) = Self::get_target_monitor(&window, self.config.monitor_index) {
+            
+            let mut monitor_opt = None;
+            for _ in 0..10 {
+                if let Some(monitor) = Self::get_target_monitor(&window, self.config.monitor_index) {
+                    let size = monitor.size();
+                    if size.width > 0 && size.height > 0 {
+                        monitor_opt = Some(monitor);
+                        break;
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+
+            if let Some(monitor) = monitor_opt {
                 let mon_size = monitor.size();
                 let mon_pos = monitor.position();
                 self.last_mon_size = (mon_size.width, mon_size.height);
@@ -528,13 +541,15 @@ impl ApplicationHandler for App {
                     if let Some(monitor) = Self::get_target_monitor(window, self.config.monitor_index) {
                         let mon_size = monitor.size();
                         let mon_pos = monitor.position();
-                        self.last_mon_size = (mon_size.width, mon_size.height);
-                        self.last_mon_pos = (mon_pos.x, mon_pos.y);
-                        let center_x = mon_pos.x + (mon_size.width as i32) / 2;
-                        let top_y = mon_pos.y + TOP_OFFSET;
-                        self.win_x = center_x - (self.os_w as i32) / 2 + self.config.position_x_offset;
-                        self.win_y = top_y - (PADDING / 2.0) as i32 + self.config.position_y_offset;
-                        window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+                        if mon_size.width > 0 && mon_size.height > 0 {
+                            self.last_mon_size = (mon_size.width, mon_size.height);
+                            self.last_mon_pos = (mon_pos.x, mon_pos.y);
+                            let center_x = mon_pos.x + (mon_size.width as i32) / 2;
+                            let top_y = mon_pos.y + TOP_OFFSET;
+                            self.win_x = center_x - (self.os_w as i32) / 2 + self.config.position_x_offset;
+                            self.win_y = top_y - (PADDING / 2.0) as i32 + self.config.position_y_offset;
+                            window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+                        }
                     }
                 } else if let Some(monitor) = Self::get_target_monitor(window, self.config.monitor_index) {
                     let mon_size = monitor.size();
@@ -542,13 +557,15 @@ impl ApplicationHandler for App {
                     let cur_mon_size = (mon_size.width, mon_size.height);
                     let cur_mon_pos = (mon_pos.x, mon_pos.y);
                     if cur_mon_size != self.last_mon_size || cur_mon_pos != self.last_mon_pos {
-                        self.last_mon_size = cur_mon_size;
-                        self.last_mon_pos = cur_mon_pos;
-                        let center_x = mon_pos.x + (mon_size.width as i32) / 2;
-                        let top_y = mon_pos.y + TOP_OFFSET;
-                        self.win_x = center_x - (self.os_w as i32) / 2 + self.config.position_x_offset;
-                        self.win_y = top_y - (PADDING / 2.0) as i32 + self.config.position_y_offset;
-                        window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+                        if cur_mon_size.0 > 0 && cur_mon_size.1 > 0 {
+                            self.last_mon_size = cur_mon_size;
+                            self.last_mon_pos = cur_mon_pos;
+                            let center_x = mon_pos.x + (mon_size.width as i32) / 2;
+                            let top_y = mon_pos.y + TOP_OFFSET;
+                            self.win_x = center_x - (self.os_w as i32) / 2 + self.config.position_x_offset;
+                            self.win_y = top_y - (PADDING / 2.0) as i32 + self.config.position_y_offset;
+                            window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+                        }
                     }
                 }
             }
