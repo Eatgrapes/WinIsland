@@ -28,7 +28,7 @@ once_cell = "1.19"
 winres = "0.1"
 
 [profile.release]
-lto = true           # 完整跨 crate 优化
-codegen-units = 1    # 单一 codegen 单元 — 最大优化机会
-panic = "abort"      # 无展开开销 — 更小、更快
-strip = true         # 移除所有符号 — 更小的二进制文件
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
