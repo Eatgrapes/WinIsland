@@ -55,4 +55,13 @@ impl AnimPool {
         }
         changed
     }
+
+    pub fn is_animating(&self) -> bool {
+        for v in self.values.values() {
+            if (v.target - v.value).abs() > 0.005 {
+                return true;
+            }
+        }
+        false
+    }
 }

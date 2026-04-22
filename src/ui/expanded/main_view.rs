@@ -3,6 +3,7 @@ use skia_safe::{
     Data, Image, SamplingOptions, FilterMode, MipmapMode,
     gradient_shader, TileMode, Point, image_filters
 };
+use skia_safe::canvas::SrcRectConstraint;
 use crate::icons::arrows::draw_arrow_right;
 use crate::icons::controls::{draw_play_button, draw_pause_button, draw_control_triangle};
 use crate::core::smtc::MediaInfo;
@@ -27,6 +28,7 @@ thread_local! {
     static COVER_FLIP_ANIM: RefCell<Option<std::time::Instant>> = RefCell::new(None);
     static COVER_FLIP_OLD_IMG: RefCell<Option<Image>> = RefCell::new(None);
     static PROGRESS_HOVER: RefCell<(bool, f32)> = RefCell::new((false, 0.0));
+    static COVER_ROTATION: RefCell<f32> = RefCell::new(0.0);
 }
 
 pub fn trigger_pause_click(current_is_playing: bool) {
@@ -108,7 +110,7 @@ pub fn get_next_btn_rect(ox: f32, oy: f32, w: f32, _h: f32, scale: f32) -> (f32,
 pub fn get_progress_bar_rect(ox: f32, oy: f32, w: f32, _media: &MediaInfo, music_active: bool, scale: f32) -> Option<(f32, f32, f32, f32)> {
     if !music_active { return None; }
     let img_size = 72.0 * scale;
-    let img_x = ox + 24.0 * scale;
+    let img_x = ox + 28.0 * scale;
     let img_y = oy + 24.0 * scale;
     let bar_y = img_y + img_size + 18.0 * scale;
     let time_w = 36.0 * scale;
@@ -125,14 +127,19 @@ pub fn draw_text_cached(canvas: &Canvas, text: &str, pos: (f32, f32), size: f32,
 }
 
 pub fn get_cached_media_image(media: &MediaInfo) -> Option<Image> {
+    get_cached_media_image_with_key(media).map(|(img, _)| img)
+}
+
+pub fn get_cached_media_image_with_key(media: &MediaInfo) -> Option<(Image, String)> {
     if media.title.is_empty() { return None; }
     let cache_key = format!("{}-{}", media.title, media.album);
-    let mut result = None;
+    
+    let mut result: Option<(Image, String)> = None;
     IMG_CACHE.with(|cache| {
         let mut cache_mut = cache.borrow_mut();
         if let Some((key, img)) = cache_mut.as_ref() {
             if key == &cache_key {
-                result = Some(img.clone());
+                result = Some((img.clone(), key.clone()));
                 return;
             }
         }
@@ -140,32 +147,56 @@ pub fn get_cached_media_image(media: &MediaInfo) -> Option<Image> {
             let data = Data::new_copy(&**bytes_arc);
             if let Some(image) = Image::from_encoded(data) {
                 *cache_mut = Some((cache_key.clone(), image.clone()));
-                result = Some(image);
+                result = Some((image, cache_key));
             }
         }
     });
+    if result.is_none() {
+        COVER_FLIP_OLD_IMG.with(|cell| {
+            if let Some(old_img) = cell.borrow().as_ref() {
+                result = Some((old_img.clone(), "old_cover".to_string()));
+            }
+        });
+    }
     result
 }
 
 pub fn get_media_palette(media: &MediaInfo) -> Vec<Color> {
-    if let Some(img) = get_cached_media_image(media) {
-        let cache_key = format!("{}-{}", media.title, media.album);
+    if let Some((img, cache_key)) = get_cached_media_image_with_key(media) {
         get_palette_from_image(&img, &cache_key)
     } else {
         vec![Color::from_rgb(180, 180, 180), Color::from_rgb(100, 100, 100)]
     }
 }
 
-pub fn draw_main_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: u8, media: &MediaInfo, music_active: bool, view_offset: f32, scale: f32, expansion_progress: f32, viz_h_scale: f32, use_blur: bool, font_size: f32) {
+pub fn clear_cover_cache() {
+    IMG_CACHE.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
+    COVER_FLIP_OLD_IMG.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
+}
+
+pub fn draw_main_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: u8, media: &MediaInfo, music_active: bool, view_offset: f32, scale: f32, expansion_progress: f32, viz_h_scale: f32, use_blur: bool, font_size: f32, cover_shape: &str, cover_rotate: bool, dt: f32) -> bool {
     let arrow_alpha = (alpha as f32 * (1.0 - view_offset * 5.0).clamp(0.0, 1.0)) as u8;
     if arrow_alpha > 0 {
         draw_arrow_right(canvas, ox + w - 12.0 * scale, oy + h / 2.0, arrow_alpha, scale);
     }
-    let img_size = 72.0 * scale;
-    let img_x = ox + 24.0 * scale;
-    let img_y = oy + 24.0 * scale;
-    let image_to_draw = if music_active { get_cached_media_image(media) } else { None };
-    let cache_key = if music_active { format!("{}-{}", media.title, media.album) } else { "none".to_string() };
+    let base_img_size = 72.0 * scale;
+    let (img_size, img_x, img_y) = if cover_shape == "circle" {
+        let s = base_img_size * 1.08;
+        let x = ox + 28.0 * scale - (s - base_img_size) / 2.0;
+        let y = oy + 24.0 * scale - (s - base_img_size) / 2.0;
+        (s, x, y)
+    } else {
+        (base_img_size, ox + 28.0 * scale, oy + 24.0 * scale)
+    };
+    let (image_to_draw, cache_key) = if music_active { 
+        get_cached_media_image_with_key(media).map(|(img, key)| (Some(img), key)).unwrap_or((None, "none".to_string()))
+    } else { 
+        (None, "none".to_string()) 
+    };
     let palette = if let Some(ref img) = image_to_draw {
         get_palette_from_image(img, &cache_key)
     } else {
@@ -235,6 +266,23 @@ pub fn draw_main_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: 
     let img_cx = img_x + img_size / 2.0;
     let img_cy = img_y + img_size / 2.0;
     canvas.translate((img_cx, img_cy));
+    
+    let is_rotating = cover_rotate && cover_shape == "circle" && effective_is_playing;
+    let rotation_angle = COVER_ROTATION.with(|cell| {
+        let mut angle = cell.borrow_mut();
+        if is_rotating {
+            *angle += 0.5 * dt;
+            if *angle >= 360.0 {
+                *angle -= 360.0;
+            }
+        }
+        *angle
+    });
+    
+    if cover_rotate && cover_shape == "circle" {
+        canvas.rotate(rotation_angle, None);
+    }
+    
     canvas.scale((cover_scale * flip_scale_x, cover_scale));
     canvas.translate((-img_cx, -img_cy));
 
@@ -244,14 +292,35 @@ pub fn draw_main_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: 
         canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&blur_paint));
     }
 
-    canvas.clip_rrect(RRect::new_rect_xy(Rect::from_xywh(img_x, img_y, img_size, img_size), 14.0 * scale, 14.0 * scale), skia_safe::ClipOp::Intersect, true);
+    if cover_shape == "circle" {
+        canvas.clip_rrect(RRect::new_rect_xy(Rect::from_xywh(img_x, img_y, img_size, img_size), img_size / 2.0, img_size / 2.0), skia_safe::ClipOp::Intersect, true);
+    } else {
+        canvas.clip_rrect(RRect::new_rect_xy(Rect::from_xywh(img_x, img_y, img_size, img_size), 14.0 * scale, 14.0 * scale), skia_safe::ClipOp::Intersect, true);
+    }
     if let Some(img) = cover_img {
         let mut img_paint = Paint::default();
         img_paint.set_anti_alias(true);
         let final_alpha = (alpha as f32 * cover_brightness) / 255.0;
         img_paint.set_alpha_f(final_alpha);
+        let img_w = img.width() as f32;
+        let img_h = img.height() as f32;
+        let src_rect = if img_w > 0.0 && img_h > 0.0 {
+            let aspect = img_w / img_h;
+            let src: Rect = if aspect > 1.0 {
+                let crop_w = img_h;
+                let offset_x = (img_w - crop_w) / 2.0;
+                Rect::from_xywh(offset_x, 0.0, crop_w, img_h)
+            } else {
+                let crop_h = img_w;
+                let offset_y = (img_h - crop_h) / 2.0;
+                Rect::from_xywh(0.0, offset_y, img_w, crop_h)
+            };
+            Some(src)
+        } else {
+            None
+        };
         canvas.draw_image_rect_with_sampling_options(
-            &img, None, Rect::from_xywh(img_x, img_y, img_size, img_size),
+            &img, src_rect.as_ref().map(|r| (r, SrcRectConstraint::Fast)), Rect::from_xywh(img_x, img_y, img_size, img_size),
             SamplingOptions::new(FilterMode::Linear, MipmapMode::Linear), &img_paint
         );
     } else {
@@ -548,6 +617,8 @@ pub fn draw_main_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: 
 
     let viz_x_offset = 17.0 + (45.0 - 17.0) * expansion_progress;
     draw_visualizer(canvas, ox + w - viz_x_offset * scale, title_y - 4.0 * scale, alpha, music_active && media.is_playing, &palette, &media.spectrum, scale, viz_h_scale, (0.6, 0.08));
+    
+    is_rotating
 }
 
 pub fn draw_visualizer(canvas: &Canvas, x: f32, y: f32, alpha: u8, is_playing: bool, palette: &[Color], spectrum: &[f32; 6], w_scale: f32, h_scale: f32, smooth_factors: (f32, f32)) {

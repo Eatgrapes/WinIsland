@@ -1,3 +1,5 @@
 /target
 .idea/
 /.claude/
+*.exe
+!resources/*.exe

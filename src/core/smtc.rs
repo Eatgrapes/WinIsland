@@ -511,6 +511,7 @@ fn fetch_properties(
 
         let smtc_changed = smtc_pos != info.last_smtc_pos;
         let diff_with_extrapolated = (smtc_pos as i64 - current_extrapolated as i64).abs();
+        let diff_from_last = (smtc_pos as i64 - info.position_ms as i64).abs();
 
         let should_sync = if song_changed {
             true
@@ -520,7 +521,7 @@ fn fetch_properties(
             true
         } else if smtc_pos > 0 && info.position_ms == 0 {
             true
-        } else if smtc_changed && !is_playing {
+        } else if smtc_changed && !is_playing && diff_from_last > 500 {
             true
         } else {
             false
@@ -543,10 +544,19 @@ fn fetch_properties(
         let session_clone = session.clone();
         let title_clone = new_title.clone();
         let artist_clone = new_artist.clone();
+        let is_song_change = should_fetch_lyrics;
         tokio::task::spawn_blocking(move || {
-            for _ in 0..10 {
-                let res = (|| -> windows::core::Result<Vec<u8>> {
+            if is_song_change {
+                std::thread::sleep(Duration::from_millis(800));
+            }
+            for attempt in 0..10 {
+                let res = (|| -> windows::core::Result<(String, String, Vec<u8>)> {
                     let props = session_clone.TryGetMediaPropertiesAsync()?.get()?;
+                    let fetched_title = props.Title()?.to_string();
+                    let fetched_artist = props.Artist()?.to_string();
+                    if fetched_title != title_clone || fetched_artist != artist_clone {
+                        return Err(windows::core::Error::new(windows::core::HRESULT(-2), "Stale properties"));
+                    }
                     let thumb_ref = props.Thumbnail()?;
                     let stream = thumb_ref.OpenReadAsync()?.get()?;
                     let size = stream.Size()?;
@@ -558,10 +568,10 @@ fn fetch_properties(
                     let reader = windows::Storage::Streams::DataReader::FromBuffer(&res_buffer)?;
                     let mut bytes = vec![0u8; size as usize];
                     reader.ReadBytes(&mut bytes)?;
-                    Ok(bytes)
+                    Ok((fetched_title, fetched_artist, bytes))
                 })();
 
-                if let Ok(bytes) = res {
+                if let Ok((_t, _a, bytes)) = res {
                     use std::collections::hash_map::DefaultHasher;
                     use std::hash::{Hash, Hasher};
                     let mut hasher = DefaultHasher::new();
@@ -580,7 +590,8 @@ fn fetch_properties(
                     }
                     return;
                 }
-                std::thread::sleep(Duration::from_millis(500));
+                let delay = if attempt < 3 { 300 } else { 500 };
+                std::thread::sleep(Duration::from_millis(delay));
             }
         });
     }
