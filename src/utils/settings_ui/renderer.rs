@@ -390,12 +390,12 @@ pub fn draw_items(canvas: &Canvas, items: &[SettingsItem], start_y: f32, width: 
                 let mut label_p = Paint::default();
                 label_p.set_anti_alias(true);
                 label_p.set_color(theme.text_sec);
-                fm.draw_text(canvas, &tr("font_preview_default"), (row_x + 8.0, y + 16.0), 11.0, false, &label_p);
+                fm.draw_text_with_default_font(canvas, &tr("font_preview_default"), (row_x + 8.0, y + 16.0), 11.0, false, &label_p);
                 
                 label_p.set_color(theme.text_pri);
                 let default_samples = ["Hello World", "你好世界", "こんにちは"];
                 for (si, sample) in default_samples.iter().enumerate() {
-                    fm.draw_text(canvas, sample, (row_x + 8.0, y + 36.0 + si as f32 * 18.0), 14.0, false, &label_p);
+                    fm.draw_text_with_default_font(canvas, sample, (row_x + 8.0, y + 36.0 + si as f32 * 18.0), 14.0, false, &label_p);
                 }
 
                 if *has_custom_font {
