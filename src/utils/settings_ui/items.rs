@@ -22,6 +22,7 @@ pub const POPUP_ITEM_H: f32 = 28.0;
 pub const POPUP_MENU_R: f32 = 8.0;
 pub const POPUP_MENU_PAD: f32 = 4.0;
 
+#[derive(Clone)]
 pub enum SettingsItem {
     PageTitle {
         text: String,
@@ -72,6 +73,9 @@ pub enum SettingsItem {
     Spacer {
         height: f32,
     },
+    FontPreview {
+        has_custom_font: bool,
+    },
 }
 
 impl SettingsItem {
@@ -83,6 +87,7 @@ impl SettingsItem {
             SettingsItem::CenterLink { .. } => 40.0,
             SettingsItem::CenterText { .. } => 35.0,
             SettingsItem::Spacer { height } => *height,
+            SettingsItem::FontPreview { .. } => 120.0,
             _ => ROW_HEIGHT,
         }
     }
@@ -97,4 +102,17 @@ impl SettingsItem {
             SettingsItem::RowLabel { .. }
         )
     }
+}
+
+pub fn get_row_item(items: &[SettingsItem], row_idx: usize) -> Option<&SettingsItem> {
+    let mut count = 0;
+    for item in items {
+        if item.is_row() {
+            if count == row_idx {
+                return Some(item);
+            }
+            count += 1;
+        }
+    }
+    None
 }

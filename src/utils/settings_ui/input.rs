@@ -38,6 +38,7 @@ pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f
                         return ClickResult::StepperInc(idx);
                     }
                 }
+                idx += 1;
             }
             SettingsItem::RowSwitch { enabled, .. } => {
                 if *enabled {
@@ -49,6 +50,7 @@ pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f
                     }
                 }
                 switch_idx += 1;
+                idx += 1;
             }
             SettingsItem::RowFontPicker { reset_label, .. } => {
                 let cy = y + ROW_HEIGHT / 2.0;
@@ -64,6 +66,7 @@ pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f
                         return ClickResult::FontReset(idx);
                     }
                 }
+                idx += 1;
             }
             SettingsItem::RowSourceSelect { enabled, .. } => {
                 if *enabled {
@@ -74,11 +77,18 @@ pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f
                         return ClickResult::SourceButton(idx);
                     }
                 }
+                idx += 1;
             }
             SettingsItem::RowAppItem { enabled, .. } => {
-                if *enabled && in_rect(mx, my, CONTENT_PADDING, y, content_w, ROW_HEIGHT) {
-                    return ClickResult::AppItem(idx);
+                if *enabled {
+                    if in_rect(mx, my, CONTENT_PADDING, y, content_w, ROW_HEIGHT) {
+                        return ClickResult::AppItem(idx);
+                    }
                 }
+                idx += 1;
+            }
+            SettingsItem::RowLabel { .. } => {
+                idx += 1;
             }
             SettingsItem::CenterLink { .. } => {
                 if mx >= width / 2.0 - 100.0 && mx <= width / 2.0 + 100.0
@@ -86,11 +96,11 @@ pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f
                 {
                     return ClickResult::CenterLink(idx);
                 }
+                idx += 1;
             }
             _ => {}
         }
         y += item.height();
-        idx += 1;
     }
     ClickResult::None
 }
