@@ -19,6 +19,13 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
     if args.iter().any(|arg| arg == "--settings") {
+        unsafe {
+            let _ = CreateMutexW(None, true, w!("Local\\WinIsland_Settings_Mutex"));
+            if GetLastError() == ERROR_ALREADY_EXISTS {
+                crate::window::settings::bring_settings_to_front();
+                return;
+            }
+        }
         crate::window::settings::run_settings(config);
     } else {
         unsafe {
@@ -27,8 +34,12 @@ fn main() {
                 return;
             }
         }
+
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let _guard = runtime.enter();
+
         crate::utils::updater::start_update_checker();
-        
+
         let event_loop = EventLoop::new().unwrap();
         let mut app = App::default();
         event_loop.run_app(&mut app).unwrap();

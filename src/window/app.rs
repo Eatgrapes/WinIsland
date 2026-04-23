@@ -12,12 +12,13 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, GWL_STYLE, WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE, WS_MAXIMIZEBOX, WS_THICKFRAME};
 use crate::core::config::{AppConfig, PADDING, TOP_OFFSET, WINDOW_TITLE};
 use crate::core::persistence::load_config;
-use crate::core::render::draw_island;
+use crate::core::render::{draw_island, get_mini_control_rects};
 use crate::utils::blur::calculate_blur_sigmas;
 use crate::utils::color::get_island_border_weights;
 use crate::utils::mouse::{get_global_cursor_pos, is_point_in_rect, is_left_button_pressed};
 use crate::utils::physics::Spring;
 use crate::core::smtc::SmtcListener;
+use crate::utils::backdrop::try_enable_mica;
 use crate::core::audio::AudioProcessor;
 use crate::window::tray::{TrayAction, TrayManager};
 use crate::utils::icon::get_app_icon;
@@ -184,11 +185,27 @@ impl ApplicationHandler for App {
                         SetWindowLongPtrW(hwnd, GWL_STYLE, style & !(WS_MAXIMIZEBOX.0 as isize | WS_THICKFRAME.0 as isize));
                     }
                     set_glass_hwnd(win32_handle.hwnd.get() as isize);
+                    if self.config.island_style == "mica" {
+                        try_enable_mica(hwnd);
+                    }
                 }
             }
 
             self.window = Some(window.clone());
-            if let Some(monitor) = Self::get_target_monitor(&window, self.config.monitor_index) {
+            
+            let mut monitor_opt = None;
+            for _ in 0..10 {
+                if let Some(monitor) = Self::get_target_monitor(&window, self.config.monitor_index) {
+                    let size = monitor.size();
+                    if size.width > 0 && size.height > 0 {
+                        monitor_opt = Some(monitor);
+                        break;
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+
+            if let Some(monitor) = monitor_opt {
                 let mon_size = monitor.size();
                 let mon_pos = monitor.position();
                 self.last_mon_size = (mon_size.width, mon_size.height);
@@ -276,8 +293,7 @@ impl ApplicationHandler for App {
 
                                 if view_val < 0.5 {
                                     let media = self.smtc.get_info();
-                                    let music_on = self.config.smtc_enabled && !media.title.is_empty()
-                                        && (media.is_playing || self.last_playing_time.elapsed() < Duration::from_secs(5));
+                                    let music_on = self.config.smtc_enabled && !media.title.is_empty();
 
                                     let (bx, by, bw, bh) = get_pause_btn_rect(
                                         offset_x as f32, island_y as f32, w as f32, h as f32,
@@ -368,6 +384,45 @@ impl ApplicationHandler for App {
                                     self.widget_view = false;
                                 }
                             } else {
+                                let media = self.smtc.get_info();
+                                let music_on = self.config.smtc_enabled && !media.title.is_empty();
+                                
+                                if music_on {
+                                    let w = self.spring_w.value;
+                                    let h = self.spring_h.value;
+                                    let (prev_rect, play_rect, next_rect) = get_mini_control_rects(w, h, self.config.global_scale);
+                                    
+                                    let cx = rel_x as f32;
+                                    let cy = rel_y as f32;
+                                    
+                                    let mut hit_control = false;
+                                    if let Some((px, py, pw, ph)) = prev_rect {
+                                        if cx >= px && cx <= px + pw && cy >= py && cy <= py + ph {
+                                            self.smtc.request_prev();
+                                            hit_control = true;
+                                        }
+                                    }
+                                    if !hit_control {
+                                        if let Some((px, py, pw, ph)) = play_rect {
+                                            if cx >= px && cx <= px + pw && cy >= py && cy <= py + ph {
+                                                self.smtc.request_toggle_play();
+                                                hit_control = true;
+                                            }
+                                        }
+                                    }
+                                    if !hit_control {
+                                        if let Some((px, py, pw, ph)) = next_rect {
+                                            if cx >= px && cx <= px + pw && cy >= py && cy <= py + ph {
+                                                self.smtc.request_next();
+                                                hit_control = true;
+                                            }
+                                        }
+                                    }
+                                    if hit_control {
+                                        return;
+                                    }
+                                }
+                                
                                 if is_hovering_visible || is_on_hidden_handle {
                                     self.is_dragging = true;
                                     self.drag_start_py = py;
@@ -408,6 +463,7 @@ impl ApplicationHandler for App {
                     }
                     WindowEvent::RedrawRequested => {
                         if let Some(surface) = self.surface.as_mut() {
+                            let dt = (self.last_frame_time.elapsed().as_secs_f32() * 60.0).clamp(0.1, 3.0);
                             let sigmas = if self.config.motion_blur {
                                 calculate_blur_sigmas(
                                     self.spring_w.velocity,
@@ -429,14 +485,10 @@ impl ApplicationHandler for App {
                             media_info.spectrum = self.audio.get_spectrum();
                             let mut music_active = false;
                             if self.config.smtc_enabled && !media_info.title.is_empty() {
-                                if media_info.is_playing {
-                                    music_active = true;
-                                } else if self.last_playing_time.elapsed() < Duration::from_secs(5) {
-                                    music_active = true;
-                                }
+                                music_active = true;
                             }
 
-                            draw_island(
+                            let widget_animating = draw_island(
                                 surface,
                                 self.spring_w.value,
                                 self.spring_h.value,
@@ -459,7 +511,17 @@ impl ApplicationHandler for App {
                                 &self.config.island_style,
                                 self.win_x,
                                 self.win_y,
+                                self.config.font_size,
+                                &self.config.mini_cover_shape,
+                                &self.config.expanded_cover_shape,
+                                self.config.cover_rotate,
+                                dt,
                             );
+                            if widget_animating {
+                                if let Some(win) = &self.window {
+                                    win.request_redraw();
+                                }
+                            }
                         }
                     }
                     _ => (),
@@ -491,17 +553,28 @@ impl ApplicationHandler for App {
                     }
                 }
             }
-            if self.frame_count % 60 == 0 {
+            if self.frame_count % 30 == 0 {
                 let current_config = load_config();
                 if current_config != self.config {
                     let old_scale = self.config.global_scale;
                     let old_max_w = self.config.expanded_width;
                     let old_max_h = self.config.expanded_height;
+                    let old_style = self.config.island_style.clone();
+                    let old_mini_shape = self.config.mini_cover_shape.clone();
+                    let old_expanded_shape = self.config.expanded_cover_shape.clone();
 
                     self.config = current_config;
                     self.smtc.set_lyrics_source(self.config.lyrics_source.clone());
                     self.smtc.set_lyrics_fallback(self.config.lyrics_fallback);
                     self.smtc.set_allowed_apps(self.config.smtc_apps.clone());
+
+                    if old_style != self.config.island_style {
+                        crate::utils::backdrop::clear_dynamic_bg_cache();
+                    }
+                    
+                    if old_mini_shape != self.config.mini_cover_shape || old_expanded_shape != self.config.expanded_cover_shape {
+                        crate::ui::expanded::main_view::clear_cover_cache();
+                    }
 
                     let max_w = self.config.expanded_width.max(450.0);
                     let new_os_w = (max_w * self.config.global_scale + PADDING) as u32;
@@ -527,13 +600,15 @@ impl ApplicationHandler for App {
                     if let Some(monitor) = Self::get_target_monitor(window, self.config.monitor_index) {
                         let mon_size = monitor.size();
                         let mon_pos = monitor.position();
-                        self.last_mon_size = (mon_size.width, mon_size.height);
-                        self.last_mon_pos = (mon_pos.x, mon_pos.y);
-                        let center_x = mon_pos.x + (mon_size.width as i32) / 2;
-                        let top_y = mon_pos.y + TOP_OFFSET;
-                        self.win_x = center_x - (self.os_w as i32) / 2 + self.config.position_x_offset;
-                        self.win_y = top_y - (PADDING / 2.0) as i32 + self.config.position_y_offset;
-                        window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+                        if mon_size.width > 0 && mon_size.height > 0 {
+                            self.last_mon_size = (mon_size.width, mon_size.height);
+                            self.last_mon_pos = (mon_pos.x, mon_pos.y);
+                            let center_x = mon_pos.x + (mon_size.width as i32) / 2;
+                            let top_y = mon_pos.y + TOP_OFFSET;
+                            self.win_x = center_x - (self.os_w as i32) / 2 + self.config.position_x_offset;
+                            self.win_y = top_y - (PADDING / 2.0) as i32 + self.config.position_y_offset;
+                            window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+                        }
                     }
                 } else if let Some(monitor) = Self::get_target_monitor(window, self.config.monitor_index) {
                     let mon_size = monitor.size();
@@ -541,13 +616,15 @@ impl ApplicationHandler for App {
                     let cur_mon_size = (mon_size.width, mon_size.height);
                     let cur_mon_pos = (mon_pos.x, mon_pos.y);
                     if cur_mon_size != self.last_mon_size || cur_mon_pos != self.last_mon_pos {
-                        self.last_mon_size = cur_mon_size;
-                        self.last_mon_pos = cur_mon_pos;
-                        let center_x = mon_pos.x + (mon_size.width as i32) / 2;
-                        let top_y = mon_pos.y + TOP_OFFSET;
-                        self.win_x = center_x - (self.os_w as i32) / 2 + self.config.position_x_offset;
-                        self.win_y = top_y - (PADDING / 2.0) as i32 + self.config.position_y_offset;
-                        window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+                        if cur_mon_size.0 > 0 && cur_mon_size.1 > 0 {
+                            self.last_mon_size = cur_mon_size;
+                            self.last_mon_pos = cur_mon_pos;
+                            let center_x = mon_pos.x + (mon_size.width as i32) / 2;
+                            let top_y = mon_pos.y + TOP_OFFSET;
+                            self.win_x = center_x - (self.os_w as i32) / 2 + self.config.position_x_offset;
+                            self.win_y = top_y - (PADDING / 2.0) as i32 + self.config.position_y_offset;
+                            window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+                        }
                     }
                 }
             }
@@ -596,22 +673,23 @@ impl ApplicationHandler for App {
                 self.last_media_playing = media.is_playing;
                 if self.last_media_playing {
                     self.last_playing_time = Instant::now();
-                    music_active = true;
-                } else if self.last_playing_time.elapsed() < Duration::from_secs(5) {
-                    music_active = true;
                 }
+                music_active = true;
                 if media.title != self.last_media_title {
                     self.last_media_title = media.title.clone();
+                    crate::ui::expanded::main_view::trigger_cover_flip();
+                    crate::utils::backdrop::clear_dynamic_bg_cache();
                     window.request_redraw();
                 }
             }
 
-            let is_idle = !is_hovering_visible && !self.expanded && !music_active && !self.is_dragging;
+            let is_paused_idle = music_active && !media.is_playing;
+            let is_idle = !is_hovering_visible && !self.expanded && !self.is_dragging && (!music_active || is_paused_idle);
             if !self.config.auto_hide {
                 self.auto_hidden = false;
                 self.idle_timer = Instant::now();
             } else {
-                if music_active && self.auto_hidden && !self.manually_hidden {
+                if media.is_playing && self.auto_hidden && !self.manually_hidden {
                     self.auto_hidden = false;
                     self.idle_timer = Instant::now();
                     self.spring_hide.velocity = -0.65;
@@ -722,7 +800,8 @@ impl ApplicationHandler for App {
                 }
             }
 
-            let current_lyric_opt = if self.config.show_lyrics { media.current_lyric((self.config.lyrics_delay * 1000.0) as i64) } else { None };
+            let is_paused = music_active && !media.is_playing;
+            let current_lyric_opt = if self.config.show_lyrics && !is_paused { media.current_lyric((self.config.lyrics_delay * 1000.0) as i64) } else { None };
             if let Some(lyric) = current_lyric_opt {
                 if lyric != self.current_lyric_text {
                     self.old_lyric_text = self.current_lyric_text.clone();
@@ -731,7 +810,7 @@ impl ApplicationHandler for App {
                     self.lyric_scroll_offset = 0.0;
                     self.lyric_scroll_pause = 0.0;
                 }
-            } else if !self.current_lyric_text.is_empty() {
+            } else if !is_paused && !self.current_lyric_text.is_empty() {
                 self.old_lyric_text = self.current_lyric_text.clone();
                 self.current_lyric_text = String::new();
                 self.lyric_transition = 0.0;
@@ -773,7 +852,7 @@ impl ApplicationHandler for App {
                             let available_text_w = (fixed_w - 59.0) * self.config.global_scale;
                             let full_text_w = text_w * self.config.global_scale;
                             let overflow = full_text_w - available_text_w;
-                            if overflow > 0.0 && self.lyric_transition >= 1.0 {
+                            if overflow > 0.0 && self.lyric_transition >= 1.0 && !is_paused {
                                 if self.lyric_scroll_offset < overflow {
                                     if self.lyric_scroll_pause > 0.0 {
                                         self.lyric_scroll_pause -= dt / 60.0;
@@ -829,7 +908,7 @@ impl ApplicationHandler for App {
             self.spring_r.update_dt(target_r, 0.10, 0.68, dt);
             self.spring_view.update_dt(target_view, 0.12, 0.68, dt);
 
-            if self.expanded || music_active || self.spring_w.velocity.abs() > 0.001 || self.spring_h.velocity.abs() > 0.001 || self.spring_r.velocity.abs() > 0.001 || self.spring_view.velocity.abs() > 0.001 {
+            if self.expanded || (music_active && media.is_playing) || self.spring_w.velocity.abs() > 0.001 || self.spring_h.velocity.abs() > 0.001 || self.spring_r.velocity.abs() > 0.001 || self.spring_view.velocity.abs() > 0.001 {
                 window.request_redraw();
             }
             let elapsed = frame_start.elapsed();

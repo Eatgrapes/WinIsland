@@ -2,10 +2,17 @@ use std::fs;
 use std::path::{PathBuf};
 use serde::{Deserialize, Serialize};
 use std::process::Command;
-use std::io::Read;
 use windows::core::PCWSTR;
 use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_OKCANCEL, MB_ICONINFORMATION, MB_TOPMOST, MB_SETFOREGROUND, IDOK, IDYES};
 use crate::core::i18n::tr;
+use once_cell::sync::Lazy;
+
+static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap()
+});
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VersionInfo {
@@ -24,11 +31,37 @@ pub fn get_app_dir() -> PathBuf {
     path
 }
 
-fn do_check(app_dir: &PathBuf) {
+pub fn start_update_checker() {
+    tokio::spawn(async move {
+        let app_dir = get_app_dir();
+        let mut last_check = tokio::time::Instant::now();
+
+        // Initial check
+        if crate::core::persistence::load_config().check_for_updates {
+            do_check(&app_dir).await;
+        }
+
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            let config = crate::core::persistence::load_config();
+            if !config.check_for_updates {
+                continue;
+            }
+
+            let interval_secs = config.update_check_interval * 3600.0;
+            if last_check.elapsed().as_secs_f32() >= interval_secs {
+                do_check(&app_dir).await;
+                last_check = tokio::time::Instant::now();
+            }
+        }
+    });
+}
+
+async fn do_check(app_dir: &PathBuf) {
     let local_json_path = app_dir.join("version_info.json");
-    
-    let remote_json_str = match ureq::get(UPDATE_URL_JSON).call() {
-        Ok(resp) => match resp.into_string() {
+
+    let remote_json_str = match HTTP_CLIENT.get(UPDATE_URL_JSON).send().await {
+        Ok(resp) => match resp.text().await {
             Ok(s) => s,
             Err(_) => return,
         },
@@ -58,86 +91,46 @@ fn do_check(app_dir: &PathBuf) {
     }
 
     if needs_update {
-        let title: Vec<u16> = format!("{}\0", tr("update_available_title")).encode_utf16().collect();
-        let text: Vec<u16> = tr("update_available_desc").replace("{}", &remote_info.timestamp).add_null().encode_utf16().collect();
-        
-        let result = unsafe {
+        let title_w: Vec<u16> = format!("{}\0", tr("update_available_title")).encode_utf16().collect();
+        let text_w: Vec<u16> = tr("update_available_desc").replace("{}", &remote_info.timestamp).add_null().encode_utf16().collect();
+
+        let result = tokio::task::spawn_blocking(move || unsafe {
             MessageBoxW(
                 None,
-                PCWSTR(text.as_ptr()),
-                PCWSTR(title.as_ptr()),
+                PCWSTR(title_w.as_ptr()),
+                PCWSTR(text_w.as_ptr()),
                 MB_OKCANCEL | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND
             )
-        };
+        }).await;
 
-        if result == IDOK || result == IDYES {
-            perform_update(remote_json_str, app_dir.clone());
+        if let Ok(r) = result {
+            if r == IDOK || r == IDYES {
+                perform_update(remote_json_str, app_dir.clone()).await;
+            }
         }
     }
 }
 
-pub fn start_update_checker() {
-    std::thread::spawn(move || {
-        let app_dir = get_app_dir();
-        let mut last_check = std::time::Instant::now();
-        
-        // Initial check
-        if crate::core::persistence::load_config().check_for_updates {
-            do_check(&app_dir);
-        }
-
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(60)); // Check config every minute
-            let config = crate::core::persistence::load_config();
-            if !config.check_for_updates {
-                continue;
+async fn perform_update(remote_json_str: String, app_dir: PathBuf) {
+    let bytes = match HTTP_CLIENT.get(UPDATE_URL_EXE).send().await {
+        Ok(r) => match r.bytes().await {
+            Ok(b) => b.to_vec(),
+            Err(_) => {
+                show_error_box(tr("update_failed_title"), tr("update_failed_dl")).await;
+                return;
             }
-            
-            let interval_secs = config.update_check_interval * 3600.0;
-            if last_check.elapsed().as_secs_f32() >= interval_secs {
-                do_check(&app_dir);
-                last_check = std::time::Instant::now();
-            }
-        }
-    });
-}
-
-trait AddNull {
-    fn add_null(&self) -> String;
-}
-impl AddNull for String {
-    fn add_null(&self) -> String {
-        format!("{}\0", self)
-    }
-}
-
-fn perform_update(remote_json_str: String, app_dir: PathBuf) {
-    let resp = match ureq::get(UPDATE_URL_EXE).call() {
-        Ok(r) => r,
+        },
         Err(_) => {
-            let title: Vec<u16> = tr("update_failed_title").add_null().encode_utf16().collect();
-            let text: Vec<u16> = tr("update_failed_dl").add_null().encode_utf16().collect();
-            unsafe {
-                MessageBoxW(None, PCWSTR(text.as_ptr()), PCWSTR(title.as_ptr()), MB_ICONINFORMATION | MB_TOPMOST);
-            }
+            show_error_box(tr("update_failed_title"), tr("update_failed_dl")).await;
             return;
         }
     };
 
-    let mut bytes = Vec::new();
-    if resp.into_reader().read_to_end(&mut bytes).is_err() {
-        return;
-    }
-
     let current_exe = std::env::current_exe().unwrap();
     let new_exe_path = current_exe.with_extension("exe.new");
-    
+
     if fs::write(&new_exe_path, &bytes).is_err() {
-        let title: Vec<u16> = tr("update_failed_title").add_null().encode_utf16().collect();
-        let text: Vec<u16> = tr("update_failed_save").add_null().encode_utf16().collect();
-        unsafe {
-            MessageBoxW(None, PCWSTR(text.as_ptr()), PCWSTR(title.as_ptr()), MB_ICONINFORMATION | MB_TOPMOST);
-        }
+        show_error_box(tr("update_failed_title"), tr("update_failed_save")).await;
         return;
     }
 
@@ -146,7 +139,7 @@ fn perform_update(remote_json_str: String, app_dir: PathBuf) {
 
     let current_exe_str = current_exe.to_str().unwrap();
     let new_exe_str = new_exe_path.to_str().unwrap();
-    
+
     let pid = std::process::id();
     let script = format!(
         "Start-Sleep -Seconds 1; \
@@ -161,4 +154,21 @@ fn perform_update(remote_json_str: String, app_dir: PathBuf) {
         .spawn();
 
     std::process::exit(0);
+}
+
+async fn show_error_box(title: String, text: String) {
+    let title_w: Vec<u16> = title.add_null().encode_utf16().collect();
+    let text_w: Vec<u16> = text.add_null().encode_utf16().collect();
+    tokio::task::spawn_blocking(move || unsafe {
+        MessageBoxW(None, PCWSTR(text_w.as_ptr()), PCWSTR(title_w.as_ptr()), MB_ICONINFORMATION | MB_TOPMOST);
+    }).await.ok();
+}
+
+trait AddNull {
+    fn add_null(&self) -> String;
+}
+impl AddNull for String {
+    fn add_null(&self) -> String {
+        format!("{}\0", self)
+    }
 }

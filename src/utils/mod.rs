@@ -10,3 +10,4 @@ pub mod autostart;
 pub mod updater;
 pub mod settings_ui;
 pub mod scroll;
+pub mod backdrop;

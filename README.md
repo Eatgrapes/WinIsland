@@ -10,6 +10,9 @@ English | [简体中文](./README-zh.md)
 
 This is a project that can display **Dynamic Island** on Windows.
 
+## Download it
+you can in [Release](https://github.com/Eatgrapes/WinIsland/releases) or our [website](https://tanikaze.icu/WinIsland) Download WinIsland
+
 ## Build it 
 
 - **Rust** environment

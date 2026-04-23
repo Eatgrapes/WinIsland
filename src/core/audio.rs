@@ -1,7 +1,8 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use realfft::RealFftPlanner;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
+use tokio_util::sync::CancellationToken;
 use windows::Win32::Media::Audio::{
     IMMDeviceEnumerator, MMDeviceEnumerator, eRender, eConsole,
     IAudioSessionManager2, IAudioSessionControl2,
@@ -10,28 +11,32 @@ use windows::Win32::Media::Audio::{
 use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, COINIT_MULTITHREADED, CLSCTX_ALL};
 use windows::Win32::Foundation::{S_OK};
 use windows::core::{Interface};
+
 pub struct AudioProcessor {
     spectrum: Arc<Mutex<[f32; 6]>>,
-    active: Arc<AtomicBool>,
-    gate: Arc<AtomicU32>, 
+    gate: Arc<AtomicU32>,
+    cancel_token: CancellationToken,
 }
+
 impl AudioProcessor {
     pub fn new() -> Self {
         let spectrum = Arc::new(Mutex::new([0.0f32; 6]));
-        let active = Arc::new(AtomicBool::new(true));
         let gate = Arc::new(AtomicU32::new(0f32.to_bits()));
-        let processor = Self { spectrum, active, gate };
+        let cancel_token = CancellationToken::new();
+        let processor = Self { spectrum, gate, cancel_token };
         processor.start_capture();
         processor.start_meter_thread();
         processor
     }
+
     pub fn get_spectrum(&self) -> [f32; 6] {
         *self.spectrum.lock().unwrap()
     }
+
     fn start_meter_thread(&self) {
-        let active_clone = self.active.clone();
+        let cancel = self.cancel_token.clone();
         let gate_clone = self.gate.clone();
-        std::thread::spawn(move || {
+        tokio::task::spawn_blocking(move || {
             let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
             let session_manager: Option<IAudioSessionManager2> = unsafe {
                 (|| -> Option<IAudioSessionManager2> {
@@ -40,7 +45,7 @@ impl AudioProcessor {
                     device.Activate(CLSCTX_ALL, None).ok()
                 })()
             };
-            while active_clone.load(Ordering::Relaxed) {
+            while !cancel.is_cancelled() {
                 let mut max_peak = 0.0f32;
                 if let Some(ref mgr) = session_manager {
                     unsafe {
@@ -65,14 +70,21 @@ impl AudioProcessor {
             }
         });
     }
+
     fn start_capture(&self) {
         let spectrum_arc = self.spectrum.clone();
-        let active_clone = self.active.clone();
+        let cancel = self.cancel_token.clone();
         let gate_clone = self.gate.clone();
-        std::thread::spawn(move || {
+        tokio::task::spawn_blocking(move || {
             let host = cpal::default_host();
-            let device = host.default_output_device().expect("No output device");
-            let config = device.default_output_config().expect("No config");
+            let device = match host.default_output_device() {
+                Some(d) => d,
+                None => return,
+            };
+            let config = match device.default_output_config() {
+                Ok(c) => c,
+                Err(_) => return,
+            };
             let mut planner = RealFftPlanner::<f32>::new();
             let fft_len = 1024;
             let fft = planner.plan_fft_forward(fft_len);
@@ -98,13 +110,13 @@ impl AudioProcessor {
                                 raw_bins[j] = (avg / (adaptive_max[j] * 2.3) * gate).clamp(0.0, 1.0);
                             }
                             let mut final_bins = [0.0f32; 6];
-                            final_bins[0] = raw_bins[5] * 0.8; 
-                            final_bins[1] = raw_bins[3] * 0.9; 
-                            final_bins[2] = raw_bins[0] * 1.0; 
-                            final_bins[3] = raw_bins[1] * 1.0; 
-                            final_bins[4] = raw_bins[2] * 0.9; 
+                            final_bins[0] = raw_bins[5] * 0.8;
+                            final_bins[1] = raw_bins[3] * 0.9;
+                            final_bins[2] = raw_bins[0] * 1.0;
+                            final_bins[3] = raw_bins[1] * 1.0;
+                            final_bins[4] = raw_bins[2] * 0.9;
                             final_bins[5] = raw_bins[4] * 0.8;
-                            if let Ok(mut s) = spectrum_arc.lock() { *s = final_bins; }
+                            if let Ok(mut s) = spectrum_arc.try_lock() { *s = final_bins; }
                             pcm_buffer.clear();
                         }
                     }
@@ -114,9 +126,14 @@ impl AudioProcessor {
             );
             if let Ok(s) = stream {
                 let _ = s.play();
-                while active_clone.load(Ordering::Relaxed) { std::thread::sleep(std::time::Duration::from_millis(100)); }
+                while !cancel.is_cancelled() { std::thread::sleep(std::time::Duration::from_millis(100)); }
             }
         });
     }
 }
 
+impl Drop for AudioProcessor {
+    fn drop(&mut self) {
+        self.cancel_token.cancel();
+    }
+}
