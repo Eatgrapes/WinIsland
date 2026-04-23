@@ -1,21 +1,22 @@
 <p align="center">
-  <img src="resources/info-en.png" width="350">
+  <img src="resources/info-zh.png" width="350">
 </p>
 
-## WinIsland
+# WinIsland
 
-English | [简体中文](./README-zh.md)
+[English](./README.md) | 简体中文
+
 > [!WARNING]
-> IT'S WIP, Mistakes may occur sometimes.
+> 该项目仍在开发中 (WIP)，可能会出现错误。
 
-This is a project that can display **Dynamic Island** on Windows.
+这是一个可以在 Windows 上显示**灵动岛**的项目。
 
-## Download it
-you can in [Release](https://github.com/Eatgrapes/WinIsland/releases) or our [website](https://tanikaze.icu/WinIsland) Download WinIsland
+## 下载
+你可以在 [Release](https://github.com/Eatgrapes/WinIsland/releases) 或者我们的 [网站](https://tanikaze.icu/WinIsland) 下载WinIsland
 
-## Build it 
+## 构建项目
 
-- **Rust** environment
+- **Rust** 环境
 - **Cargo**
 
 ```cmd
@@ -26,10 +27,9 @@ cd WinIsland
 cargo build --release
 ```
 
-## Contributes 
-We encourage contributions
-If you have the energy or interest,PR are welcome
+## 贡献
+我们欢迎任何形式的贡献！
+如果你有精力或兴趣，欢迎提交 PR。
 
-## LICENCE
+## 许可证
 [MIT](LICENSE)
-
