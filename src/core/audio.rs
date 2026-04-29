@@ -125,6 +125,21 @@ impl AudioProcessor {
                 None
             );
             if let Ok(s) = stream {
+                // 使用 Windows API 设置音频会话为静音
+                let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+                unsafe {
+                    let enumerator: IMMDeviceEnumerator = match CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok() {
+                        Some(e) => e,
+                        None => { let _ = s.play(); while !cancel.is_cancelled() { std::thread::sleep(std::time::Duration::from_millis(100)); } return; }
+                    };
+                    if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eConsole) {
+                        if let Ok(mgr) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) {
+                            if let Ok(session) = mgr.GetSimpleAudioVolume(None, 0) {
+                                let _ = session.SetMute(true, std::ptr::null());
+                            }
+                        }
+                    }
+                }
                 let _ = s.play();
                 while !cancel.is_cancelled() { std::thread::sleep(std::time::Duration::from_millis(100)); }
             }

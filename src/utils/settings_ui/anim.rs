@@ -39,4 +39,13 @@ impl SwitchAnimator {
         }
         changed
     }
+
+    pub fn is_animating(&self) -> bool {
+        for i in 0..self.positions.len() {
+            if (self.targets[i] - self.positions[i]).abs() > 0.01 {
+                return true;
+            }
+        }
+        false
+    }
 }

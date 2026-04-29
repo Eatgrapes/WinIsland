@@ -54,6 +54,14 @@ pub struct AppConfig {
     pub monitor_index: i32,
     #[serde(default = "default_font_size")]
     pub font_size: f32,
+    #[serde(default = "default_settings_theme")]
+    pub settings_theme: String,
+    #[serde(default = "default_mini_cover_shape")]
+    pub mini_cover_shape: String,
+    #[serde(default = "default_expanded_cover_shape")]
+    pub expanded_cover_shape: String,
+    #[serde(default = "default_cover_rotate")]
+    pub cover_rotate: bool,
 }
 
 fn default_island_style() -> String {
@@ -132,6 +140,22 @@ fn default_font_size() -> f32 {
     0.0
 }
 
+fn default_settings_theme() -> String {
+    "system".to_string()
+}
+
+fn default_mini_cover_shape() -> String {
+    "square".to_string()
+}
+
+fn default_expanded_cover_shape() -> String {
+    "square".to_string()
+}
+
+fn default_cover_rotate() -> bool {
+    false
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -163,6 +187,10 @@ impl Default for AppConfig {
             position_y_offset: 0,
             monitor_index: 0,
             font_size: 0.0,
+            settings_theme: "system".to_string(),
+            mini_cover_shape: "square".to_string(),
+            expanded_cover_shape: "square".to_string(),
+            cover_rotate: false,
         }
     }
 }
