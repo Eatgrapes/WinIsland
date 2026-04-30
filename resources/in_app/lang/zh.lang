@@ -27,6 +27,7 @@ font_size=字体大小 (px)
 adaptive_border=自适应边框
 motion_blur=动态模糊
 cover_rotate=封面旋转
+audio_gate=音频门控
 island_style=灵动岛风格
 style_default=默认
 style_glass=毛玻璃

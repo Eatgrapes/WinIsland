@@ -483,6 +483,12 @@ impl ApplicationHandler for App {
                                 crate::core::smtc::MediaInfo::default()
                             };
                             media_info.spectrum = self.audio.get_spectrum();
+                            let is_hidden = self.auto_hidden || self.manually_hidden;
+                            if self.config.audio_gate {
+                                self.audio.set_gate_override(!is_hidden);
+                            } else {
+                                self.audio.set_gate_override(false);
+                            }
                             let mut music_active = false;
                             if self.config.smtc_enabled && !media_info.title.is_empty() {
                                 music_active = true;

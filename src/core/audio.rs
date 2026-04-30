@@ -15,6 +15,7 @@ use windows::core::{Interface};
 pub struct AudioProcessor {
     spectrum: Arc<Mutex<[f32; 6]>>,
     gate: Arc<AtomicU32>,
+    gate_override: Arc<AtomicU32>,
     cancel_token: CancellationToken,
 }
 
@@ -22,8 +23,9 @@ impl AudioProcessor {
     pub fn new() -> Self {
         let spectrum = Arc::new(Mutex::new([0.0f32; 6]));
         let gate = Arc::new(AtomicU32::new(0f32.to_bits()));
+        let gate_override = Arc::new(AtomicU32::new(1.0f32.to_bits()));
         let cancel_token = CancellationToken::new();
-        let processor = Self { spectrum, gate, cancel_token };
+        let processor = Self { spectrum, gate, gate_override, cancel_token };
         processor.start_capture();
         processor.start_meter_thread();
         processor
@@ -31,6 +33,11 @@ impl AudioProcessor {
 
     pub fn get_spectrum(&self) -> [f32; 6] {
         *self.spectrum.lock().unwrap()
+    }
+
+    pub fn set_gate_override(&self, value: bool) {
+        let v = if value { 1.0f32 } else { 0.0f32 };
+        self.gate_override.store(v.to_bits(), Ordering::Relaxed);
     }
 
     fn start_meter_thread(&self) {
@@ -75,6 +82,7 @@ impl AudioProcessor {
         let spectrum_arc = self.spectrum.clone();
         let cancel = self.cancel_token.clone();
         let gate_clone = self.gate.clone();
+        let gate_override_clone = self.gate_override.clone();
         tokio::task::spawn_blocking(move || {
             let host = cpal::default_host();
             let device = match host.default_output_device() {
@@ -100,6 +108,8 @@ impl AudioProcessor {
                             let mut indata = pcm_buffer[..fft_len].to_vec();
                             let _ = fft.process(&mut indata, &mut output);
                             let gate = f32::from_bits(gate_clone.load(Ordering::Relaxed));
+                            let gate_override = f32::from_bits(gate_override_clone.load(Ordering::Relaxed));
+                            let effective_gate = gate * gate_override;
                             let mut raw_bins = [0.0f32; 6];
                             let ranges = [(2,8), (8,20), (20,50), (50,120), (120,280), (280,511)];
                             for (j, (start, end)) in ranges.iter().enumerate() {
@@ -107,7 +117,7 @@ impl AudioProcessor {
                                 for k in *start..*end { sum += output[k].norm(); }
                                 let avg = sum / (*end - *start) as f32;
                                 adaptive_max[j] = adaptive_max[j] * 0.995 + avg.max(0.01) * 0.005;
-                                raw_bins[j] = (avg / (adaptive_max[j] * 2.3) * gate).clamp(0.0, 1.0);
+                                raw_bins[j] = (avg / (adaptive_max[j] * 2.3) * effective_gate).clamp(0.0, 1.0);
                             }
                             let mut final_bins = [0.0f32; 6];
                             final_bins[0] = raw_bins[5] * 0.8;
@@ -125,7 +135,6 @@ impl AudioProcessor {
                 None
             );
             if let Ok(s) = stream {
-                // 使用 Windows API 设置音频会话为静音
                 let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
                 unsafe {
                     let enumerator: IMMDeviceEnumerator = match CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok() {

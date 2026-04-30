@@ -27,6 +27,7 @@ font_size=Font Size (px)
 adaptive_border=Adaptive Border
 motion_blur=Motion Blur
 cover_rotate=Cover Rotate
+audio_gate=Audio Gate
 island_style=Island Style
 style_default=Default
 style_glass=Frosted Glass
