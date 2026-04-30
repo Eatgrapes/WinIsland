@@ -29,11 +29,14 @@ impl AnimPool {
             v.target = target;
             v.speed = speed;
         } else {
-            self.values.insert(key.to_string(), AnimValue {
-                value: 0.0,
-                target,
-                speed,
-            });
+            self.values.insert(
+                key.to_string(),
+                AnimValue {
+                    value: 0.0,
+                    target,
+                    speed,
+                },
+            );
         }
     }
 

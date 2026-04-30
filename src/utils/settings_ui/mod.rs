@@ -1,8 +1,8 @@
+pub mod anim;
+pub mod input;
 pub mod items;
 pub mod renderer;
-pub mod input;
-pub mod anim;
 
-pub use renderer::{draw_items, content_height};
-pub use input::{hit_test, hover_test, ClickResult};
 pub use anim::SwitchAnimator;
+pub use input::{ClickResult, hit_test, hover_test};
+pub use renderer::{content_height, draw_items};

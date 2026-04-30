@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use crate::core::config::{APP_HOMEPAGE, APP_VERSION};
+use once_cell::sync::Lazy;
 use serde_json::Value;
 use std::collections::BTreeMap;
-use crate::core::config::{APP_VERSION, APP_HOMEPAGE};
-use once_cell::sync::Lazy;
+use std::sync::Arc;
 
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
@@ -17,7 +17,13 @@ pub struct LyricLine {
     pub text: String,
 }
 
-pub async fn fetch_lyrics(title: &str, artist: &str, duration_secs: u64, source: &str, fallback: bool) -> Option<Arc<Vec<LyricLine>>> {
+pub async fn fetch_lyrics(
+    title: &str,
+    artist: &str,
+    duration_secs: u64,
+    source: &str,
+    fallback: bool,
+) -> Option<Arc<Vec<LyricLine>>> {
     if title.is_empty() {
         return None;
     }
@@ -36,13 +42,22 @@ pub async fn fetch_lyrics(title: &str, artist: &str, duration_secs: u64, source:
 }
 
 async fn fetch_lyrics_163(title: &str, artist: &str) -> Option<Arc<Vec<LyricLine>>> {
-    if let Some(r) = fetch_lyrics_163_inner(title, artist).await { return Some(r); }
+    if let Some(r) = fetch_lyrics_163_inner(title, artist).await {
+        return Some(r);
+    }
     fetch_lyrics_163_inner(title, "").await
 }
 
 async fn fetch_lyrics_163_inner(title: &str, artist: &str) -> Option<Arc<Vec<LyricLine>>> {
-    let query = if artist.is_empty() { title.to_string() } else { format!("{} {}", title, artist) };
-    let url = format!("https://music.163.com/api/search/get/web?s={}&type=1&offset=0&total=true&limit=10", url_encode(&query));
+    let query = if artist.is_empty() {
+        title.to_string()
+    } else {
+        format!("{} {}", title, artist)
+    };
+    let url = format!(
+        "https://music.163.com/api/search/get/web?s={}&type=1&offset=0&total=true&limit=10",
+        url_encode(&query)
+    );
 
     let res = HTTP_CLIENT.get(&url)
         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
@@ -53,7 +68,9 @@ async fn fetch_lyrics_163_inner(title: &str, artist: &str) -> Option<Arc<Vec<Lyr
     let json: Value = res.json().await.ok()?;
 
     let songs = json.get("result")?.get("songs")?.as_array()?;
-    if songs.is_empty() { return None; }
+    if songs.is_empty() {
+        return None;
+    }
 
     let artist_lower = artist.to_lowercase();
     let mut song_id: Option<i64> = None;
@@ -70,7 +87,9 @@ async fn fetch_lyrics_163_inner(title: &str, artist: &str) -> Option<Arc<Vec<Lyr
                     }
                 }
             }
-            if song_id.is_some() { break; }
+            if song_id.is_some() {
+                break;
+            }
         }
     }
 
@@ -80,10 +99,17 @@ async fn fetch_lyrics_163_inner(title: &str, artist: &str) -> Option<Arc<Vec<Lyr
 
     let id = song_id?;
 
-    let lyric_url = format!("https://music.163.com/api/song/lyric?id={}&lv=1&kv=1&tv=-1", id);
+    let lyric_url = format!(
+        "https://music.163.com/api/song/lyric?id={}&lv=1&kv=1&tv=-1",
+        id
+    );
 
-    let lyric_res = HTTP_CLIENT.get(&lyric_url)
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+    let lyric_res = HTTP_CLIENT
+        .get(&lyric_url)
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        )
         .send()
         .await
         .ok()?;
@@ -91,17 +117,31 @@ async fn fetch_lyrics_163_inner(title: &str, artist: &str) -> Option<Arc<Vec<Lyr
     let lyric_json: Value = lyric_res.json().await.ok()?;
 
     let lrc_str = lyric_json.get("lrc")?.get("lyric")?.as_str().unwrap_or("");
-    let tlrc_str = lyric_json.get("tlyric")?.get("lyric")?.as_str().unwrap_or("");
+    let tlrc_str = lyric_json
+        .get("tlyric")?
+        .get("lyric")?
+        .as_str()
+        .unwrap_or("");
 
     Some(Arc::new(parse_lyrics(lrc_str, tlrc_str)))
 }
 
-async fn fetch_lyrics_lrclib(title: &str, artist: &str, duration_secs: u64) -> Option<Arc<Vec<LyricLine>>> {
-    if let Some(r) = fetch_lyrics_lrclib_inner(title, artist, duration_secs).await { return Some(r); }
+async fn fetch_lyrics_lrclib(
+    title: &str,
+    artist: &str,
+    duration_secs: u64,
+) -> Option<Arc<Vec<LyricLine>>> {
+    if let Some(r) = fetch_lyrics_lrclib_inner(title, artist, duration_secs).await {
+        return Some(r);
+    }
     fetch_lyrics_lrclib_search(title, artist).await
 }
 
-async fn fetch_lyrics_lrclib_inner(title: &str, artist: &str, duration_secs: u64) -> Option<Arc<Vec<LyricLine>>> {
+async fn fetch_lyrics_lrclib_inner(
+    title: &str,
+    artist: &str,
+    duration_secs: u64,
+) -> Option<Arc<Vec<LyricLine>>> {
     let url = format!(
         "https://lrclib.net/api/get?track_name={}&artist_name={}&duration={}",
         url_encode(title),
@@ -109,8 +149,12 @@ async fn fetch_lyrics_lrclib_inner(title: &str, artist: &str, duration_secs: u64
         duration_secs
     );
 
-    let res = HTTP_CLIENT.get(&url)
-        .header("User-Agent", &format!("WinIsland/{} ({})", APP_VERSION, APP_HOMEPAGE))
+    let res = HTTP_CLIENT
+        .get(&url)
+        .header(
+            "User-Agent",
+            &format!("WinIsland/{} ({})", APP_VERSION, APP_HOMEPAGE),
+        )
         .send()
         .await
         .ok()?;
@@ -119,15 +163,27 @@ async fn fetch_lyrics_lrclib_inner(title: &str, artist: &str, duration_secs: u64
     let synced = json.get("syncedLyrics")?.as_str()?;
 
     let lines = parse_lyrics(synced, "");
-    if lines.is_empty() { None } else { Some(Arc::new(lines)) }
+    if lines.is_empty() {
+        None
+    } else {
+        Some(Arc::new(lines))
+    }
 }
 
 async fn fetch_lyrics_lrclib_search(title: &str, artist: &str) -> Option<Arc<Vec<LyricLine>>> {
-    let query = if artist.is_empty() { title.to_string() } else { format!("{} {}", title, artist) };
+    let query = if artist.is_empty() {
+        title.to_string()
+    } else {
+        format!("{} {}", title, artist)
+    };
     let url = format!("https://lrclib.net/api/search?q={}", url_encode(&query));
 
-    let res = HTTP_CLIENT.get(&url)
-        .header("User-Agent", &format!("WinIsland/{} ({})", APP_VERSION, APP_HOMEPAGE))
+    let res = HTTP_CLIENT
+        .get(&url)
+        .header(
+            "User-Agent",
+            &format!("WinIsland/{} ({})", APP_VERSION, APP_HOMEPAGE),
+        )
         .send()
         .await
         .ok()?;
@@ -138,7 +194,9 @@ async fn fetch_lyrics_lrclib_search(title: &str, artist: &str) -> Option<Arc<Vec
     for item in arr {
         if let Some(synced) = item.get("syncedLyrics").and_then(|s| s.as_str()) {
             let lines = parse_lyrics(synced, "");
-            if !lines.is_empty() { return Some(Arc::new(lines)); }
+            if !lines.is_empty() {
+                return Some(Arc::new(lines));
+            }
         }
     }
     None
@@ -150,10 +208,14 @@ fn parse_lyrics(lrc: &str, tlrc: &str) -> Vec<LyricLine> {
     let mut process_content = |content: &str| {
         for line in content.lines() {
             let line = line.trim();
-            if !line.starts_with('[') { continue; }
+            if !line.starts_with('[') {
+                continue;
+            }
 
             let parts: Vec<&str> = line.split(']').collect();
-            if parts.len() < 2 { continue; }
+            if parts.len() < 2 {
+                continue;
+            }
 
             let text = parts[parts.len() - 1].trim().to_string();
             if text.is_empty() && content == lrc {
@@ -165,11 +227,13 @@ fn parse_lyrics(lrc: &str, tlrc: &str) -> Vec<LyricLine> {
             for time_part in &parts[..parts.len() - 1] {
                 let time_str = time_part.trim_start_matches('[');
                 if let Some(ms) = parse_time(time_str) {
-                    map.entry(ms).and_modify(|e| {
-                        if e.is_empty() && !text.is_empty() {
-                            *e = text.clone();
-                        }
-                    }).or_insert(text.clone());
+                    map.entry(ms)
+                        .and_modify(|e| {
+                            if e.is_empty() && !text.is_empty() {
+                                *e = text.clone();
+                            }
+                        })
+                        .or_insert(text.clone());
                 }
             }
         }
@@ -185,15 +249,17 @@ fn parse_lyrics(lrc: &str, tlrc: &str) -> Vec<LyricLine> {
 
 fn parse_time(time_str: &str) -> Option<u64> {
     let parts: Vec<&str> = time_str.split(':').collect();
-    if parts.len() < 2 { return None; }
+    if parts.len() < 2 {
+        return None;
+    }
 
     let mins = parts[0].parse::<u64>().ok()?;
 
     let rest = parts[1];
     let (secs_str, ms_str) = if let Some(dot_idx) = rest.find('.') {
-        (&rest[..dot_idx], Some(&rest[dot_idx+1..]))
+        (&rest[..dot_idx], Some(&rest[dot_idx + 1..]))
     } else if let Some(colon_idx) = rest.find(':') {
-        (&rest[..colon_idx], Some(&rest[colon_idx+1..]))
+        (&rest[..colon_idx], Some(&rest[colon_idx + 1..]))
     } else if parts.len() > 2 {
         (parts[1], Some(parts[2]))
     } else {
@@ -207,9 +273,13 @@ fn parse_time(time_str: &str) -> Option<u64> {
         raw.retain(|c| c.is_ascii_digit());
         if !raw.is_empty() {
             ms = raw.parse::<u64>().ok().unwrap_or(0);
-            if raw.len() == 2 { ms *= 10; }
-            else if raw.len() == 1 { ms *= 100; }
-            else if raw.len() > 3 { ms /= 10u64.pow((raw.len() - 3) as u32); }
+            if raw.len() == 2 {
+                ms *= 10;
+            } else if raw.len() == 1 {
+                ms *= 100;
+            } else if raw.len() > 3 {
+                ms /= 10u64.pow((raw.len() - 3) as u32);
+            }
         }
     }
 

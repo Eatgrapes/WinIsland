@@ -28,7 +28,8 @@ pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f
             SettingsItem::RowStepper { enabled, .. } => {
                 if *enabled {
                     let cy = y + ROW_HEIGHT / 2.0;
-                    let btn_inc_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - STEPPER_BTN_SIZE;
+                    let btn_inc_x =
+                        CONTENT_PADDING + content_w - GROUP_INNER_PAD - STEPPER_BTN_SIZE;
                     let btn_dec_x = btn_inc_x - STEPPER_BTN_SIZE - 60.0;
                     let btn_y = cy - STEPPER_BTN_SIZE / 2.0;
                     if in_rect(mx, my, btn_dec_x, btn_y, STEPPER_BTN_SIZE, STEPPER_BTN_SIZE) {
@@ -81,8 +82,10 @@ pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f
                 }
             }
             SettingsItem::CenterLink { .. } => {
-                if mx >= width / 2.0 - 100.0 && mx <= width / 2.0 + 100.0
-                    && my >= y && my <= y + 40.0
+                if mx >= width / 2.0 - 100.0
+                    && mx <= width / 2.0 + 100.0
+                    && my >= y
+                    && my <= y + 40.0
                 {
                     return ClickResult::CenterLink(idx);
                 }

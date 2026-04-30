@@ -88,13 +88,14 @@ impl SettingsItem {
     }
 
     pub fn is_row(&self) -> bool {
-        matches!(self,
-            SettingsItem::RowStepper { .. } |
-            SettingsItem::RowSwitch { .. } |
-            SettingsItem::RowFontPicker { .. } |
-            SettingsItem::RowSourceSelect { .. } |
-            SettingsItem::RowAppItem { .. } |
-            SettingsItem::RowLabel { .. }
+        matches!(
+            self,
+            SettingsItem::RowStepper { .. }
+                | SettingsItem::RowSwitch { .. }
+                | SettingsItem::RowFontPicker { .. }
+                | SettingsItem::RowSourceSelect { .. }
+                | SettingsItem::RowAppItem { .. }
+                | SettingsItem::RowLabel { .. }
         )
     }
 }

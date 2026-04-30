@@ -1,6 +1,6 @@
-use std::time::Instant;
-use skia_safe::{Canvas, Paint, FontStyle, Rect, ClipOp};
 use crate::utils::font::FontManager;
+use skia_safe::{Canvas, ClipOp, FontStyle, Paint, Rect};
+use std::time::Instant;
 
 pub struct ScrollText {
     last_text: String,
@@ -61,15 +61,42 @@ impl ScrollText {
                 true,
             );
 
-            FontManager::global().draw_text_cached(canvas, text, (x - self.offset, y), size, style, paint, false, f32::MAX);
+            FontManager::global().draw_text_cached(
+                canvas,
+                text,
+                (x - self.offset, y),
+                size,
+                style,
+                paint,
+                false,
+                f32::MAX,
+            );
             let next_x = x - self.offset + full_w + 50.0 * scale;
             if next_x < x + max_w {
-                FontManager::global().draw_text_cached(canvas, text, (next_x, y), size, style, paint, false, f32::MAX);
+                FontManager::global().draw_text_cached(
+                    canvas,
+                    text,
+                    (next_x, y),
+                    size,
+                    style,
+                    paint,
+                    false,
+                    f32::MAX,
+                );
             }
             canvas.restore();
         } else {
             self.offset = 0.0;
-            FontManager::global().draw_text_cached(canvas, text, (x, y), size, style, paint, false, max_w);
+            FontManager::global().draw_text_cached(
+                canvas,
+                text,
+                (x, y),
+                size,
+                style,
+                paint,
+                false,
+                max_w,
+            );
         }
     }
 }

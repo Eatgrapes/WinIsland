@@ -1,11 +1,13 @@
-use std::fs;
-use std::path::{PathBuf};
-use serde::{Deserialize, Serialize};
-use std::process::Command;
-use windows::core::PCWSTR;
-use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_OKCANCEL, MB_ICONINFORMATION, MB_TOPMOST, MB_SETFOREGROUND, IDOK, IDYES};
 use crate::core::i18n::tr;
 use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
+use windows::Win32::UI::WindowsAndMessaging::{
+    IDOK, IDYES, MB_ICONINFORMATION, MB_OKCANCEL, MB_SETFOREGROUND, MB_TOPMOST, MessageBoxW,
+};
+use windows::core::PCWSTR;
 
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
@@ -19,8 +21,10 @@ pub struct VersionInfo {
     pub timestamp: String,
 }
 
-const UPDATE_URL_JSON: &str = "https://github.com/Eatgrapes/WinIsland/releases/download/nightly/version_info.json";
-const UPDATE_URL_EXE: &str = "https://github.com/Eatgrapes/WinIsland/releases/download/nightly/WinIsland.exe";
+const UPDATE_URL_JSON: &str =
+    "https://github.com/Eatgrapes/WinIsland/releases/download/nightly/version_info.json";
+const UPDATE_URL_EXE: &str =
+    "https://github.com/Eatgrapes/WinIsland/releases/download/nightly/WinIsland.exe";
 
 pub fn get_app_dir() -> PathBuf {
     let mut path = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -91,17 +95,24 @@ async fn do_check(app_dir: &PathBuf) {
     }
 
     if needs_update {
-        let title_w: Vec<u16> = format!("{}\0", tr("update_available_title")).encode_utf16().collect();
-        let text_w: Vec<u16> = tr("update_available_desc").replace("{}", &remote_info.timestamp).add_null().encode_utf16().collect();
+        let title_w: Vec<u16> = format!("{}\0", tr("update_available_title"))
+            .encode_utf16()
+            .collect();
+        let text_w: Vec<u16> = tr("update_available_desc")
+            .replace("{}", &remote_info.timestamp)
+            .add_null()
+            .encode_utf16()
+            .collect();
 
         let result = tokio::task::spawn_blocking(move || unsafe {
             MessageBoxW(
                 None,
-                PCWSTR(title_w.as_ptr()),
                 PCWSTR(text_w.as_ptr()),
-                MB_OKCANCEL | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND
+                PCWSTR(title_w.as_ptr()),
+                MB_OKCANCEL | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND,
             )
-        }).await;
+        })
+        .await;
 
         if let Ok(r) = result {
             if r == IDOK || r == IDYES {
@@ -126,7 +137,13 @@ async fn perform_update(remote_json_str: String, app_dir: PathBuf) {
         }
     };
 
-    let current_exe = std::env::current_exe().unwrap();
+    let current_exe = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(_) => {
+            show_error_box(tr("update_failed_title"), tr("update_failed_save")).await;
+            return;
+        }
+    };
     let new_exe_path = current_exe.with_extension("exe.new");
 
     if fs::write(&new_exe_path, &bytes).is_err() {
@@ -137,8 +154,8 @@ async fn perform_update(remote_json_str: String, app_dir: PathBuf) {
     let local_json_path = app_dir.join("version_info.json");
     let _ = fs::write(local_json_path, remote_json_str);
 
-    let current_exe_str = current_exe.to_str().unwrap();
-    let new_exe_str = new_exe_path.to_str().unwrap();
+    let current_exe_str = current_exe.to_string_lossy().into_owned();
+    let new_exe_str = new_exe_path.to_string_lossy().into_owned();
 
     let pid = std::process::id();
     let script = format!(
@@ -160,8 +177,15 @@ async fn show_error_box(title: String, text: String) {
     let title_w: Vec<u16> = title.add_null().encode_utf16().collect();
     let text_w: Vec<u16> = text.add_null().encode_utf16().collect();
     tokio::task::spawn_blocking(move || unsafe {
-        MessageBoxW(None, PCWSTR(text_w.as_ptr()), PCWSTR(title_w.as_ptr()), MB_ICONINFORMATION | MB_TOPMOST);
-    }).await.ok();
+        MessageBoxW(
+            None,
+            PCWSTR(text_w.as_ptr()),
+            PCWSTR(title_w.as_ptr()),
+            MB_ICONINFORMATION | MB_TOPMOST,
+        );
+    })
+    .await
+    .ok();
 }
 
 trait AddNull {

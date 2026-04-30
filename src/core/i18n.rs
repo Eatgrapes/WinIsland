@@ -1,6 +1,6 @@
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use once_cell::sync::Lazy;
 use windows::Win32::Globalization::GetUserDefaultLocaleName;
 
 pub struct I18n {
@@ -37,23 +37,25 @@ const FALLBACK_ZH: &str = include_str!("../../resources/in_app/lang/zh.lang");
 
 impl I18n {
     pub fn load(&mut self, lang: &str) {
-        let content = read_lang_file(lang).unwrap_or_else(|| {
-            match lang {
-                "zh" => FALLBACK_ZH.to_string(),
-                _ => FALLBACK_EN.to_string(),
-            }
+        let content = read_lang_file(lang).unwrap_or_else(|| match lang {
+            "zh" => FALLBACK_ZH.to_string(),
+            _ => FALLBACK_EN.to_string(),
         });
         self.current_lang = lang.to_string();
         self.translations.clear();
         for line in content.lines() {
             if let Some((k, v)) = line.split_once('=') {
-                self.translations.insert(k.trim().to_string(), v.trim().to_string());
+                self.translations
+                    .insert(k.trim().to_string(), v.trim().to_string());
             }
         }
     }
 
     pub fn get(&self, key: &str) -> String {
-        self.translations.get(key).cloned().unwrap_or_else(|| key.to_string())
+        self.translations
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| key.to_string())
     }
 }
 

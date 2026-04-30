@@ -1,9 +1,9 @@
 use std::env;
 use windows::Win32::System::Registry::{
-    HKEY_CURRENT_USER, RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegSetValueExW,
-    HKEY, REG_SZ, REG_OPTION_NON_VOLATILE, KEY_WRITE,
+    HKEY, HKEY_CURRENT_USER, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey,
+    RegCreateKeyExW, RegDeleteValueW, RegSetValueExW,
 };
-use windows::core::{w};
+use windows::core::w;
 
 pub fn set_autostart(enabled: bool) -> Result<(), Box<dyn std::error::Error>> {
     let app_name = w!("WinIsland");
@@ -12,7 +12,10 @@ pub fn set_autostart(enabled: bool) -> Result<(), Box<dyn std::error::Error>> {
     if enabled {
         let exe_path = env::current_exe()?;
         let exe_path_str = exe_path.to_str().ok_or("Invalid exe path")?;
-        let exe_path_wide: Vec<u16> = exe_path_str.encode_utf16().chain(std::iter::once(0)).collect();
+        let exe_path_wide: Vec<u16> = exe_path_str
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
 
         unsafe {
             let mut hkey = HKEY::default();
@@ -27,7 +30,7 @@ pub fn set_autostart(enabled: bool) -> Result<(), Box<dyn std::error::Error>> {
                 &mut hkey,
                 None,
             );
-            
+
             if res.is_ok() {
                 let _ = RegSetValueExW(
                     hkey,
@@ -55,7 +58,9 @@ pub fn set_autostart(enabled: bool) -> Result<(), Box<dyn std::error::Error>> {
                 None,
                 &mut hkey,
                 None,
-            ).is_ok() {
+            )
+            .is_ok()
+            {
                 let _ = RegDeleteValueW(hkey, app_name);
                 let _ = RegCloseKey(hkey);
             }

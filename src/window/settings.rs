@@ -1,25 +1,25 @@
-use crate::core::config::{AppConfig, APP_AUTHOR, APP_HOMEPAGE, APP_VERSION};
+use crate::core::config::{APP_AUTHOR, APP_HOMEPAGE, APP_VERSION, AppConfig};
+use crate::core::i18n::{current_lang, init_i18n, set_lang, tr};
 use crate::core::persistence::save_config;
-use crate::core::i18n::{tr, set_lang, current_lang};
 use crate::utils::anim::AnimPool;
+use crate::utils::autostart::set_autostart;
 use crate::utils::color::*;
 use crate::utils::font::FontManager;
-use crate::utils::settings_ui::*;
+use crate::utils::icon::get_app_icon;
 use crate::utils::settings_ui::items::*;
-use skia_safe::{surfaces, Color, Paint, Rect};
+use crate::utils::settings_ui::*;
+use skia_safe::{Color, Paint, Rect, surfaces};
 use softbuffer::{Context, Surface};
 use std::sync::Arc;
 use std::time::Duration;
+use windows::Win32::System::Threading::{MUTEX_ALL_ACCESS, OpenMutexW};
 use windows::core::w;
-use windows::Win32::System::Threading::{OpenMutexW, MUTEX_ALL_ACCESS};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
-use winit::window::{Window, WindowId, WindowButtons};
 use winit::keyboard::{Key, NamedKey};
-use crate::utils::icon::get_app_icon;
-use crate::utils::autostart::set_autostart;
+use winit::window::{Window, WindowButtons, WindowId};
 
 const WIN_W: f32 = 680.0;
 const WIN_H: f32 = 480.0;
@@ -53,17 +53,14 @@ impl PopupState {
         for opt in &self.options {
             let (w, _) = fm.measure(opt, 12.0, false);
             let needed = w + 36.0;
-            if needed > max_text_w { max_text_w = needed; }
+            if needed > max_text_w {
+                max_text_w = needed;
+            }
         }
         let menu_w = max_text_w;
         let right_edge = self.button_rect.right;
         let menu_x = right_edge - menu_w;
-        Rect::from_xywh(
-            menu_x,
-            self.button_rect.bottom + 2.0,
-            menu_w,
-            menu_h,
-        )
+        Rect::from_xywh(menu_x, self.button_rect.bottom + 2.0, menu_w, menu_h)
     }
 
     fn item_rect(&self, idx: usize) -> Rect {
@@ -131,22 +128,61 @@ impl SettingsApp {
 
     fn build_general_items(&self) -> Vec<SettingsItem> {
         let mut items: Vec<SettingsItem> = vec![
-            SettingsItem::PageTitle { text: tr("tab_general") },
-            SettingsItem::SectionHeader { label: tr("section_appearance") },
+            SettingsItem::PageTitle {
+                text: tr("tab_general"),
+            },
+            SettingsItem::SectionHeader {
+                label: tr("section_appearance"),
+            },
             SettingsItem::GroupStart,
-            SettingsItem::RowStepper { label: tr("global_scale"), value: format!("{:.2}", self.config.global_scale), enabled: true },
-            SettingsItem::RowStepper { label: tr("base_width"), value: self.config.base_width.to_string(), enabled: true },
-            SettingsItem::RowStepper { label: tr("base_height"), value: self.config.base_height.to_string(), enabled: true },
-            SettingsItem::RowStepper { label: tr("expanded_width"), value: self.config.expanded_width.to_string(), enabled: true },
-            SettingsItem::RowStepper { label: tr("expanded_height"), value: self.config.expanded_height.to_string(), enabled: true },
-            SettingsItem::RowStepper { label: tr("position_x_offset"), value: self.config.position_x_offset.to_string(), enabled: true },
-            SettingsItem::RowStepper { label: tr("position_y_offset"), value: self.config.position_y_offset.to_string(), enabled: true },
-            SettingsItem::RowStepper { label: tr("font_size"), value: format!("{:.0}", self.config.font_size), enabled: true },
+            SettingsItem::RowStepper {
+                label: tr("global_scale"),
+                value: format!("{:.2}", self.config.global_scale),
+                enabled: true,
+            },
+            SettingsItem::RowStepper {
+                label: tr("base_width"),
+                value: self.config.base_width.to_string(),
+                enabled: true,
+            },
+            SettingsItem::RowStepper {
+                label: tr("base_height"),
+                value: self.config.base_height.to_string(),
+                enabled: true,
+            },
+            SettingsItem::RowStepper {
+                label: tr("expanded_width"),
+                value: self.config.expanded_width.to_string(),
+                enabled: true,
+            },
+            SettingsItem::RowStepper {
+                label: tr("expanded_height"),
+                value: self.config.expanded_height.to_string(),
+                enabled: true,
+            },
+            SettingsItem::RowStepper {
+                label: tr("position_x_offset"),
+                value: self.config.position_x_offset.to_string(),
+                enabled: true,
+            },
+            SettingsItem::RowStepper {
+                label: tr("position_y_offset"),
+                value: self.config.position_y_offset.to_string(),
+                enabled: true,
+            },
+            SettingsItem::RowStepper {
+                label: tr("font_size"),
+                value: format!("{:.0}", self.config.font_size),
+                enabled: true,
+            },
         ];
         {
             let monitors = self.get_monitor_list();
-            let selected_idx = (self.config.monitor_index as usize).min(monitors.len().saturating_sub(1));
-            let options: Vec<(String, bool)> = monitors.iter().enumerate()
+            let selected_idx =
+                (self.config.monitor_index as usize).min(monitors.len().saturating_sub(1));
+            let options: Vec<(String, bool)> = monitors
+                .iter()
+                .enumerate()
                 .map(|(i, name)| (name.clone(), i == selected_idx))
                 .collect();
             items.push(SettingsItem::RowSourceSelect {
@@ -156,10 +192,20 @@ impl SettingsApp {
             });
         }
         items.push(SettingsItem::GroupEnd);
-        items.push(SettingsItem::SectionHeader { label: tr("section_effects") });
+        items.push(SettingsItem::SectionHeader {
+            label: tr("section_effects"),
+        });
         items.push(SettingsItem::GroupStart);
-        items.push(SettingsItem::RowSwitch { label: tr("adaptive_border"), on: self.config.adaptive_border, enabled: true });
-        items.push(SettingsItem::RowSwitch { label: tr("motion_blur"), on: self.config.motion_blur, enabled: true });
+        items.push(SettingsItem::RowSwitch {
+            label: tr("adaptive_border"),
+            on: self.config.adaptive_border,
+            enabled: true,
+        });
+        items.push(SettingsItem::RowSwitch {
+            label: tr("motion_blur"),
+            on: self.config.motion_blur,
+            enabled: true,
+        });
         items.push(SettingsItem::RowSourceSelect {
             label: tr("island_style"),
             options: vec![
@@ -171,36 +217,67 @@ impl SettingsApp {
         items.push(SettingsItem::RowFontPicker {
             label: tr("custom_font"),
             btn_label: tr("font_select"),
-            reset_label: if self.config.custom_font_path.is_some() { Some(tr("font_reset")) } else { None },
+            reset_label: if self.config.custom_font_path.is_some() {
+                Some(tr("font_reset"))
+            } else {
+                None
+            },
         });
         items.push(SettingsItem::GroupEnd);
-        items.push(SettingsItem::SectionHeader { label: tr("section_behavior") });
+        items.push(SettingsItem::SectionHeader {
+            label: tr("section_behavior"),
+        });
         items.push(SettingsItem::GroupStart);
-        items.push(SettingsItem::RowSwitch { label: tr("start_boot"), on: self.config.auto_start, enabled: true });
-        items.push(SettingsItem::RowSwitch { label: tr("auto_hide"), on: self.config.auto_hide, enabled: true });
+        items.push(SettingsItem::RowSwitch {
+            label: tr("start_boot"),
+            on: self.config.auto_start,
+            enabled: true,
+        });
+        items.push(SettingsItem::RowSwitch {
+            label: tr("auto_hide"),
+            on: self.config.auto_hide,
+            enabled: true,
+        });
         if self.config.auto_hide {
-            items.push(SettingsItem::RowStepper { label: tr("hide_delay"), value: format!("{:.0}", self.config.auto_hide_delay), enabled: true });
+            items.push(SettingsItem::RowStepper {
+                label: tr("hide_delay"),
+                value: format!("{:.0}", self.config.auto_hide_delay),
+                enabled: true,
+            });
         }
         items.push(SettingsItem::RowSourceSelect {
             label: tr("language"),
             options: vec![
                 ("English".to_string(), current_lang() == "en"),
-                ("中文".to_string(), current_lang() == "zh"),
+                ("涓枃".to_string(), current_lang() == "zh"),
             ],
             enabled: true,
         });
         items.push(SettingsItem::GroupEnd);
 
-        items.push(SettingsItem::SectionHeader { label: tr("section_updates") });
+        items.push(SettingsItem::SectionHeader {
+            label: tr("section_updates"),
+        });
         items.push(SettingsItem::GroupStart);
-        items.push(SettingsItem::RowSwitch { label: tr("check_updates"), on: self.config.check_for_updates, enabled: true });
+        items.push(SettingsItem::RowSwitch {
+            label: tr("check_updates"),
+            on: self.config.check_for_updates,
+            enabled: true,
+        });
         if self.config.check_for_updates {
-            items.push(SettingsItem::RowStepper { label: tr("update_interval"), value: format!("{:.0}", self.config.update_check_interval), enabled: true });
+            items.push(SettingsItem::RowStepper {
+                label: tr("update_interval"),
+                value: format!("{:.0}", self.config.update_check_interval),
+                enabled: true,
+            });
         }
         items.push(SettingsItem::GroupEnd);
 
         items.push(SettingsItem::Spacer { height: 10.0 });
-        items.push(SettingsItem::CenterLink { label: tr("reset_defaults"), color: COLOR_DANGER });
+        items.push(SettingsItem::CenterLink {
+            label: tr("reset_defaults"),
+            color: COLOR_DANGER,
+        });
         items
     }
 
@@ -210,14 +287,28 @@ impl SettingsApp {
         let source = &self.config.lyrics_source;
 
         let mut items = vec![
-            SettingsItem::PageTitle { text: tr("tab_music") },
-            SettingsItem::SectionHeader { label: tr("section_playback") },
+            SettingsItem::PageTitle {
+                text: tr("tab_music"),
+            },
+            SettingsItem::SectionHeader {
+                label: tr("section_playback"),
+            },
             SettingsItem::GroupStart,
-            SettingsItem::RowSwitch { label: tr("smtc_control"), on: self.config.smtc_enabled, enabled: true },
+            SettingsItem::RowSwitch {
+                label: tr("smtc_control"),
+                on: self.config.smtc_enabled,
+                enabled: true,
+            },
             SettingsItem::GroupEnd,
-            SettingsItem::SectionHeader { label: tr("section_lyrics") },
+            SettingsItem::SectionHeader {
+                label: tr("section_lyrics"),
+            },
             SettingsItem::GroupStart,
-            SettingsItem::RowSwitch { label: tr("show_lyrics"), on: self.config.show_lyrics, enabled: true },
+            SettingsItem::RowSwitch {
+                label: tr("show_lyrics"),
+                on: self.config.show_lyrics,
+                enabled: true,
+            },
             SettingsItem::RowSourceSelect {
                 label: tr("lyrics_source"),
                 options: vec![
@@ -226,17 +317,45 @@ impl SettingsApp {
                 ],
                 enabled: show_lyrics,
             },
-            SettingsItem::RowSwitch { label: tr("lyrics_fallback"), on: if show_lyrics { self.config.lyrics_fallback } else { false }, enabled: show_lyrics },
-            SettingsItem::RowStepper { label: tr("lyrics_delay"), value: format!("{:.1}", self.config.lyrics_delay), enabled: show_lyrics },
-            SettingsItem::RowSwitch { label: tr("lyrics_scroll"), on: if show_lyrics { self.config.lyrics_scroll } else { false }, enabled: show_lyrics },
-            SettingsItem::RowStepper { label: tr("lyrics_scroll_max_width"), value: format!("{}", self.config.lyrics_scroll_max_width as i32), enabled: show_lyrics && self.config.lyrics_scroll },
+            SettingsItem::RowSwitch {
+                label: tr("lyrics_fallback"),
+                on: if show_lyrics {
+                    self.config.lyrics_fallback
+                } else {
+                    false
+                },
+                enabled: show_lyrics,
+            },
+            SettingsItem::RowStepper {
+                label: tr("lyrics_delay"),
+                value: format!("{:.1}", self.config.lyrics_delay),
+                enabled: show_lyrics,
+            },
+            SettingsItem::RowSwitch {
+                label: tr("lyrics_scroll"),
+                on: if show_lyrics {
+                    self.config.lyrics_scroll
+                } else {
+                    false
+                },
+                enabled: show_lyrics,
+            },
+            SettingsItem::RowStepper {
+                label: tr("lyrics_scroll_max_width"),
+                value: format!("{}", self.config.lyrics_scroll_max_width as i32),
+                enabled: show_lyrics && self.config.lyrics_scroll,
+            },
             SettingsItem::GroupEnd,
-            SettingsItem::SectionHeader { label: tr("media_apps") },
+            SettingsItem::SectionHeader {
+                label: tr("media_apps"),
+            },
             SettingsItem::GroupStart,
         ];
 
         if self.detected_apps.is_empty() {
-            items.push(SettingsItem::RowLabel { label: tr("no_sessions") });
+            items.push(SettingsItem::RowLabel {
+                label: tr("no_sessions"),
+            });
         } else {
             for app in &self.detected_apps {
                 let display_name = app.split('!').next().unwrap_or(app);
@@ -254,13 +373,30 @@ impl SettingsApp {
 
     fn build_about_items(&self) -> Vec<SettingsItem> {
         vec![
-            SettingsItem::PageTitle { text: tr("tab_about") },
+            SettingsItem::PageTitle {
+                text: tr("tab_about"),
+            },
             SettingsItem::Spacer { height: 20.0 },
-            SettingsItem::CenterText { text: "WinIsland".to_string(), size: 28.0, color: COLOR_TEXT_PRI },
-            SettingsItem::CenterText { text: format!("Version {}", APP_VERSION), size: 14.0, color: COLOR_TEXT_SEC },
-            SettingsItem::CenterText { text: format!("{} {}", tr("created_by"), APP_AUTHOR), size: 14.0, color: COLOR_TEXT_SEC },
+            SettingsItem::CenterText {
+                text: "WinIsland".to_string(),
+                size: 28.0,
+                color: COLOR_TEXT_PRI,
+            },
+            SettingsItem::CenterText {
+                text: format!("Version {}", APP_VERSION),
+                size: 14.0,
+                color: COLOR_TEXT_SEC,
+            },
+            SettingsItem::CenterText {
+                text: format!("{} {}", tr("created_by"), APP_AUTHOR),
+                size: 14.0,
+                color: COLOR_TEXT_SEC,
+            },
             SettingsItem::Spacer { height: 10.0 },
-            SettingsItem::CenterLink { label: tr("visit_homepage"), color: COLOR_ACCENT },
+            SettingsItem::CenterLink {
+                label: tr("visit_homepage"),
+                color: COLOR_ACCENT,
+            },
         ]
     }
 
@@ -285,15 +421,27 @@ impl SettingsApp {
                 if EnumDisplayDevicesW(None, idx, &mut dd, 0).as_bool() {
                     if (dd.StateFlags & DISPLAY_DEVICE_ACTIVE) != 0 {
                         active_count += 1;
-                        let name = String::from_utf16_lossy(&dd.DeviceName).trim_end_matches('\0').to_string();
+                        let name = String::from_utf16_lossy(&dd.DeviceName)
+                            .trim_end_matches('\0')
+                            .to_string();
                         let mut dm: DISPLAY_DEVICEW = std::mem::zeroed();
                         dm.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
                         let mut label = if EnumDisplayDevicesW(
                             windows::core::PCWSTR(dd.DeviceName.as_ptr()),
-                            0, &mut dm, 0
-                        ).as_bool() {
-                            let friendly = String::from_utf16_lossy(&dm.DeviceString).trim_end_matches('\0').to_string();
-                            if friendly.is_empty() { name.clone() } else { friendly }
+                            0,
+                            &mut dm,
+                            0,
+                        )
+                        .as_bool()
+                        {
+                            let friendly = String::from_utf16_lossy(&dm.DeviceString)
+                                .trim_end_matches('\0')
+                                .to_string();
+                            if friendly.is_empty() {
+                                name.clone()
+                            } else {
+                                friendly
+                            }
                         } else {
                             name.clone()
                         };
@@ -317,18 +465,28 @@ impl SettingsApp {
         self.switch_anim.set_target(1, self.config.motion_blur);
         self.switch_anim.set_target(2, self.config.auto_start);
         self.switch_anim.set_target(3, self.config.auto_hide);
-        self.switch_anim.set_target(4, self.config.check_for_updates);
+        self.switch_anim
+            .set_target(4, self.config.check_for_updates);
         self.switch_anim.set_target(5, self.config.smtc_enabled);
         self.switch_anim.set_target(6, self.config.show_lyrics);
-        let fb_on = if self.config.show_lyrics { self.config.lyrics_fallback } else { false };
+        let fb_on = if self.config.show_lyrics {
+            self.config.lyrics_fallback
+        } else {
+            false
+        };
         self.switch_anim.set_target(7, fb_on);
-        let fw_on = if self.config.show_lyrics { self.config.lyrics_scroll } else { false };
+        let fw_on = if self.config.show_lyrics {
+            self.config.lyrics_scroll
+        } else {
+            false
+        };
         self.switch_anim.set_target(8, fw_on);
     }
 
     fn update_detected_apps(&mut self) {
         use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
-        if let Ok(manager_async) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
+        if let Ok(manager_async) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
+        {
             if let Ok(manager) = manager_async.get() {
                 if let Ok(sessions) = manager.GetSessions() {
                     if let Ok(size) = sessions.Size() {
@@ -358,7 +516,9 @@ impl SettingsApp {
         let size = win.inner_size();
         let p_w = size.width as i32;
         let p_h = size.height as i32;
-        if p_w <= 0 || p_h <= 0 { return; }
+        if p_w <= 0 || p_h <= 0 {
+            return;
+        }
 
         let mut sk_surface = if let Some(ref s) = self.sk_surface {
             if s.width() == p_w && s.height() == p_h {
@@ -393,7 +553,14 @@ impl SettingsApp {
 
         let items = self.build_current_items();
         let anim = self.get_page_anim();
-        draw_items(canvas, &items, CONTENT_START_Y, content_w, &anim, &self.anim);
+        draw_items(
+            canvas,
+            &items,
+            CONTENT_START_Y,
+            content_w,
+            &anim,
+            &self.anim,
+        );
         canvas.restore();
 
         let ch = content_height(&items, CONTENT_START_Y);
@@ -404,7 +571,12 @@ impl SettingsApp {
             let mut p = Paint::default();
             p.set_anti_alias(true);
             p.set_color(Color::from_argb(60, 255, 255, 255));
-            canvas.draw_round_rect(Rect::from_xywh(WIN_W - 6.0, bar_y, 4.0, bar_h), 2.0, 2.0, &p);
+            canvas.draw_round_rect(
+                Rect::from_xywh(WIN_W - 6.0, bar_y, 4.0, bar_h),
+                2.0,
+                2.0,
+                &p,
+            );
         }
 
         self.draw_popup(canvas);
@@ -451,7 +623,9 @@ impl SettingsApp {
                 paint.set_color(color_sidebar_sel());
                 canvas.draw_round_rect(
                     Rect::from_xywh(row_x, row_y, row_w, SIDEBAR_ROW_H),
-                    SIDEBAR_SEL_RADIUS, SIDEBAR_SEL_RADIUS, &paint,
+                    SIDEBAR_SEL_RADIUS,
+                    SIDEBAR_SEL_RADIUS,
+                    &paint,
                 );
                 paint.set_color(COLOR_TEXT_PRI);
             } else {
@@ -462,13 +636,22 @@ impl SettingsApp {
                     paint.set_color(Color::from_argb(alpha, base.r(), base.g(), base.b()));
                     canvas.draw_round_rect(
                         Rect::from_xywh(row_x, row_y, row_w, SIDEBAR_ROW_H),
-                        SIDEBAR_SEL_RADIUS, SIDEBAR_SEL_RADIUS, &paint,
+                        SIDEBAR_SEL_RADIUS,
+                        SIDEBAR_SEL_RADIUS,
+                        &paint,
                     );
                 }
                 paint.set_color(COLOR_TEXT_SEC);
             }
 
-            fm.draw_text(canvas, label, (row_x + 12.0, row_y + 21.0), 13.0, false, &paint);
+            fm.draw_text(
+                canvas,
+                label,
+                (row_x + 12.0, row_y + 21.0),
+                13.0,
+                false,
+                &paint,
+            );
         }
     }
 
@@ -478,7 +661,9 @@ impl SettingsApp {
             None => return,
         };
         let opacity = self.anim.get("popup_opacity");
-        if opacity < 0.005 { return; }
+        if opacity < 0.005 {
+            return;
+        }
         let fm = FontManager::global();
         let menu = popup.menu_rect();
 
@@ -486,8 +671,15 @@ impl SettingsApp {
         shadow.set_anti_alias(true);
         shadow.set_color(Color::from_argb((60.0 * opacity) as u8, 0, 0, 0));
         canvas.draw_round_rect(
-            Rect::from_xywh(menu.left - 1.0, menu.top + 2.0, menu.width() + 2.0, menu.height() + 2.0),
-            POPUP_MENU_R, POPUP_MENU_R, &shadow,
+            Rect::from_xywh(
+                menu.left - 1.0,
+                menu.top + 2.0,
+                menu.width() + 2.0,
+                menu.height() + 2.0,
+            ),
+            POPUP_MENU_R,
+            POPUP_MENU_R,
+            &shadow,
         );
 
         let mut paint = Paint::default();
@@ -508,25 +700,56 @@ impl SettingsApp {
 
             if popup.hover_idx == Some(i) {
                 let a = COLOR_ACCENT.a() as f32 * opacity;
-                paint.set_color(Color::from_argb(a as u8, COLOR_ACCENT.r(), COLOR_ACCENT.g(), COLOR_ACCENT.b()));
+                paint.set_color(Color::from_argb(
+                    a as u8,
+                    COLOR_ACCENT.r(),
+                    COLOR_ACCENT.g(),
+                    COLOR_ACCENT.b(),
+                ));
                 paint.set_style(skia_safe::paint::Style::Fill);
                 canvas.draw_round_rect(item_rect, 4.0, 4.0, &paint);
             }
 
-            paint.set_color(Color::from_argb(text_alpha, COLOR_TEXT_PRI.r(), COLOR_TEXT_PRI.g(), COLOR_TEXT_PRI.b()));
+            paint.set_color(Color::from_argb(
+                text_alpha,
+                COLOR_TEXT_PRI.r(),
+                COLOR_TEXT_PRI.g(),
+                COLOR_TEXT_PRI.b(),
+            ));
             paint.set_style(skia_safe::paint::Style::Fill);
-            fm.draw_text(canvas, opt_label, (item_rect.left + 8.0, item_rect.top + 19.0), 12.0, false, &paint);
+            fm.draw_text(
+                canvas,
+                opt_label,
+                (item_rect.left + 8.0, item_rect.top + 19.0),
+                12.0,
+                false,
+                &paint,
+            );
 
             if i == popup.selected_idx {
-                let check_base = if popup.hover_idx == Some(i) { COLOR_TEXT_PRI } else { COLOR_ACCENT };
-                paint.set_color(Color::from_argb(text_alpha, check_base.r(), check_base.g(), check_base.b()));
+                let check_base = if popup.hover_idx == Some(i) {
+                    COLOR_TEXT_PRI
+                } else {
+                    COLOR_ACCENT
+                };
+                paint.set_color(Color::from_argb(
+                    text_alpha,
+                    check_base.r(),
+                    check_base.g(),
+                    check_base.b(),
+                ));
                 paint.set_style(skia_safe::paint::Style::Stroke);
                 paint.set_stroke_width(2.0);
                 let cx = item_rect.right - 14.0;
                 let cy = item_rect.top + POPUP_ITEM_H / 2.0;
                 let svg = format!(
                     "M {} {} L {} {} L {} {}",
-                    cx - 4.0, cy, cx - 1.0, cy + 3.0, cx + 4.0, cy - 3.0,
+                    cx - 4.0,
+                    cy,
+                    cx - 1.0,
+                    cy + 3.0,
+                    cx + 4.0,
+                    cy - 3.0,
                 );
                 if let Some(path) = skia_safe::Path::from_svg(&svg) {
                     canvas.draw_path(&path, &paint);
@@ -540,19 +763,19 @@ impl SettingsApp {
                 sep.set_color(Color::from_argb((30.0 * opacity) as u8, 255, 255, 255));
                 sep.set_stroke_width(0.5);
                 sep.set_style(skia_safe::paint::Style::Stroke);
-                canvas.draw_line((item_rect.left, item_rect.bottom), (item_rect.right, item_rect.bottom), &sep);
+                canvas.draw_line(
+                    (item_rect.left, item_rect.bottom),
+                    (item_rect.right, item_rect.bottom),
+                    &sep,
+                );
             }
         }
     }
 
     fn get_page_anim(&self) -> SwitchAnimator {
         match self.active_page {
-            0 => {
-                SwitchAnimator::new_with_anims(&self.switch_anim, &[0, 1, 2, 3, 4])
-            }
-            1 => {
-                SwitchAnimator::new_with_anims(&self.switch_anim, &[5, 6, 7, 8])
-            }
+            0 => SwitchAnimator::new_with_anims(&self.switch_anim, &[0, 1, 2, 3, 4]),
+            1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[5, 6, 7, 8]),
             _ => SwitchAnimator::new(&[]),
         }
     }
@@ -589,7 +812,9 @@ impl SettingsApp {
             }
             self.popup = None;
             self.anim.set_with_speed("popup_opacity", 0.0, 0.3);
-            if let Some(win) = &self.window { win.request_redraw(); }
+            if let Some(win) = &self.window {
+                win.request_redraw();
+            }
             return;
         }
 
@@ -598,12 +823,18 @@ impl SettingsApp {
             let start_y = 20.0;
             for i in 0..pages {
                 let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
-                if my >= row_y && my <= row_y + SIDEBAR_ROW_H && mx >= SIDEBAR_PAD && mx <= SIDEBAR_W - SIDEBAR_PAD {
+                if my >= row_y
+                    && my <= row_y + SIDEBAR_ROW_H
+                    && mx >= SIDEBAR_PAD
+                    && mx <= SIDEBAR_W - SIDEBAR_PAD
+                {
                     if self.active_page != i as usize {
                         self.active_page = i as usize;
                         self.scroll_y = 0.0;
                         self.target_scroll_y = 0.0;
-                        if let Some(win) = &self.window { win.request_redraw(); }
+                        if let Some(win) = &self.window {
+                            win.request_redraw();
+                        }
                     }
                     return;
                 }
@@ -635,38 +866,82 @@ impl SettingsApp {
                     if let SettingsItem::RowStepper { label, .. } = item {
                         let l = label.clone();
                         if l == tr("global_scale") {
-                            if is_dec { self.config.global_scale = ((self.config.global_scale - 0.05) * 100.0).round() / 100.0; self.config.global_scale = self.config.global_scale.max(0.5); }
-                            else { self.config.global_scale = ((self.config.global_scale + 0.05) * 100.0).round() / 100.0; self.config.global_scale = self.config.global_scale.min(5.0); }
+                            if is_dec {
+                                self.config.global_scale =
+                                    ((self.config.global_scale - 0.05) * 100.0).round() / 100.0;
+                                self.config.global_scale = self.config.global_scale.max(0.5);
+                            } else {
+                                self.config.global_scale =
+                                    ((self.config.global_scale + 0.05) * 100.0).round() / 100.0;
+                                self.config.global_scale = self.config.global_scale.min(5.0);
+                            }
                             changed = true;
                         } else if l == tr("base_width") {
-                            if is_dec { self.config.base_width -= 5.0; } else { self.config.base_width += 5.0; }
+                            if is_dec {
+                                self.config.base_width -= 5.0;
+                            } else {
+                                self.config.base_width += 5.0;
+                            }
                             changed = true;
                         } else if l == tr("base_height") {
-                            if is_dec { self.config.base_height -= 2.0; } else { self.config.base_height += 2.0; }
+                            if is_dec {
+                                self.config.base_height -= 2.0;
+                            } else {
+                                self.config.base_height += 2.0;
+                            }
                             changed = true;
                         } else if l == tr("expanded_width") {
-                            if is_dec { self.config.expanded_width -= 10.0; } else { self.config.expanded_width += 10.0; }
+                            if is_dec {
+                                self.config.expanded_width -= 10.0;
+                            } else {
+                                self.config.expanded_width += 10.0;
+                            }
                             changed = true;
                         } else if l == tr("expanded_height") {
-                            if is_dec { self.config.expanded_height -= 10.0; } else { self.config.expanded_height += 10.0; }
+                            if is_dec {
+                                self.config.expanded_height -= 10.0;
+                            } else {
+                                self.config.expanded_height += 10.0;
+                            }
                             changed = true;
                         } else if l == tr("position_x_offset") {
-                            if is_dec { self.config.position_x_offset -= 5; } else { self.config.position_x_offset += 5; }
+                            if is_dec {
+                                self.config.position_x_offset -= 5;
+                            } else {
+                                self.config.position_x_offset += 5;
+                            }
                             changed = true;
                         } else if l == tr("position_y_offset") {
-                            if is_dec { self.config.position_y_offset -= 5; } else { self.config.position_y_offset += 5; }
+                            if is_dec {
+                                self.config.position_y_offset -= 5;
+                            } else {
+                                self.config.position_y_offset += 5;
+                            }
                             changed = true;
                         } else if l == tr("font_size") {
-                            if is_dec { self.config.font_size = (self.config.font_size - 1.0).max(0.0); }
-                            else { self.config.font_size = (self.config.font_size + 1.0).min(30.0); }
+                            if is_dec {
+                                self.config.font_size = (self.config.font_size - 1.0).max(0.0);
+                            } else {
+                                self.config.font_size = (self.config.font_size + 1.0).min(30.0);
+                            }
                             changed = true;
                         } else if l == tr("hide_delay") {
-                            if is_dec { self.config.auto_hide_delay = (self.config.auto_hide_delay - 1.0).max(1.0); }
-                            else { self.config.auto_hide_delay = (self.config.auto_hide_delay + 1.0).min(60.0); }
+                            if is_dec {
+                                self.config.auto_hide_delay =
+                                    (self.config.auto_hide_delay - 1.0).max(1.0);
+                            } else {
+                                self.config.auto_hide_delay =
+                                    (self.config.auto_hide_delay + 1.0).min(60.0);
+                            }
                             changed = true;
                         } else if l == tr("update_interval") {
-                            if is_dec { self.config.update_check_interval = (self.config.update_check_interval - 1.0).max(1.0); }
-                            else { self.config.update_check_interval = (self.config.update_check_interval + 1.0).min(24.0); }
+                            if is_dec {
+                                self.config.update_check_interval =
+                                    (self.config.update_check_interval - 1.0).max(1.0);
+                            } else {
+                                self.config.update_check_interval =
+                                    (self.config.update_check_interval + 1.0).min(24.0);
+                            }
                             changed = true;
                         }
                     }
@@ -676,7 +951,10 @@ impl SettingsApp {
                 match idx {
                     0 => self.config.adaptive_border = !self.config.adaptive_border,
                     1 => self.config.motion_blur = !self.config.motion_blur,
-                    2 => { self.config.auto_start = !self.config.auto_start; let _ = set_autostart(self.config.auto_start); }
+                    2 => {
+                        self.config.auto_start = !self.config.auto_start;
+                        let _ = set_autostart(self.config.auto_start);
+                    }
                     3 => self.config.auto_hide = !self.config.auto_hide,
                     4 => self.config.check_for_updates = !self.config.check_for_updates,
                     _ => {}
@@ -685,7 +963,10 @@ impl SettingsApp {
                 changed = true;
             }
             ClickResult::FontSelect(_) => {
-                if let Some(path) = rfd::FileDialog::new().add_filter("Fonts", &["ttf", "otf"]).pick_file() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Fonts", &["ttf", "otf"])
+                    .pick_file()
+                {
                     self.config.custom_font_path = Some(path.to_string_lossy().into_owned());
                     FontManager::global().refresh_custom_font();
                     changed = true;
@@ -709,8 +990,10 @@ impl SettingsApp {
                 if let Some(SettingsItem::RowSourceSelect { label, .. }) = items.get(idx) {
                     if label == &tr("monitor") {
                         let monitors = self.get_monitor_list();
-                        let selected_idx = (self.config.monitor_index as usize).min(monitors.len().saturating_sub(1));
-                        let values: Vec<String> = (0..monitors.len()).map(|i| i.to_string()).collect();
+                        let selected_idx = (self.config.monitor_index as usize)
+                            .min(monitors.len().saturating_sub(1));
+                        let values: Vec<String> =
+                            (0..monitors.len()).map(|i| i.to_string()).collect();
                         self.popup = Some(PopupState {
                             kind: PopupKind::Monitor,
                             button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
@@ -720,7 +1003,11 @@ impl SettingsApp {
                             hover_idx: None,
                         });
                     } else if label == &tr("island_style") {
-                        let selected_idx = if self.config.island_style == "glass" { 1 } else { 0 };
+                        let selected_idx = if self.config.island_style == "glass" {
+                            1
+                        } else {
+                            0
+                        };
                         self.popup = Some(PopupState {
                             kind: PopupKind::IslandStyle,
                             button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
@@ -741,12 +1028,14 @@ impl SettingsApp {
                         });
                     }
                     self.anim.set_with_speed("popup_opacity", 1.0, 0.25);
-                    if let Some(win) = &self.window { win.request_redraw(); }
+                    if let Some(win) = &self.window {
+                        win.request_redraw();
+                    }
                 }
             }
             ClickResult::CenterLink(_) => {
                 self.config = AppConfig::default();
-                set_lang(if self.config.language == "auto" { "en" } else { &self.config.language });
+                init_i18n(&self.config.language);
                 FontManager::global().refresh_custom_font();
                 self.switch_anim = SwitchAnimator::new(&[
                     self.config.adaptive_border,
@@ -766,7 +1055,9 @@ impl SettingsApp {
 
         if changed {
             save_config(&self.config);
-            if let Some(win) = &self.window { win.request_redraw(); }
+            if let Some(win) = &self.window {
+                win.request_redraw();
+            }
         }
     }
 
@@ -779,8 +1070,16 @@ impl SettingsApp {
                 match idx {
                     0 => self.config.smtc_enabled = !self.config.smtc_enabled,
                     1 => self.config.show_lyrics = !self.config.show_lyrics,
-                    2 => if self.config.show_lyrics { self.config.lyrics_fallback = !self.config.lyrics_fallback },
-                    3 => if self.config.show_lyrics { self.config.lyrics_scroll = !self.config.lyrics_scroll },
+                    2 => {
+                        if self.config.show_lyrics {
+                            self.config.lyrics_fallback = !self.config.lyrics_fallback
+                        }
+                    }
+                    3 => {
+                        if self.config.show_lyrics {
+                            self.config.lyrics_scroll = !self.config.lyrics_scroll
+                        }
+                    }
                     _ => {}
                 }
                 self.sync_switch_targets();
@@ -806,19 +1105,36 @@ impl SettingsApp {
                     hover_idx: None,
                 });
                 self.anim.set_with_speed("popup_opacity", 1.0, 0.25);
-                if let Some(win) = &self.window { win.request_redraw(); }
+                if let Some(win) = &self.window {
+                    win.request_redraw();
+                }
             }
             ClickResult::StepperDec(idx) | ClickResult::StepperInc(idx) => {
                 let is_dec = matches!(result, ClickResult::StepperDec(_));
                 if let Some(item) = items.get(idx) {
                     if let SettingsItem::RowStepper { label, .. } = item {
                         if label == &tr("lyrics_delay") && self.config.show_lyrics {
-                            if is_dec { self.config.lyrics_delay = ((self.config.lyrics_delay * 10.0 - 1.0).round() / 10.0).max(-10.0); }
-                            else { self.config.lyrics_delay = ((self.config.lyrics_delay * 10.0 + 1.0).round() / 10.0).min(10.0); }
+                            if is_dec {
+                                self.config.lyrics_delay =
+                                    ((self.config.lyrics_delay * 10.0 - 1.0).round() / 10.0)
+                                        .max(-10.0);
+                            } else {
+                                self.config.lyrics_delay =
+                                    ((self.config.lyrics_delay * 10.0 + 1.0).round() / 10.0)
+                                        .min(10.0);
+                            }
                             changed = true;
-                        } else if label == &tr("lyrics_scroll_max_width") && self.config.show_lyrics && self.config.lyrics_scroll {
-                            if is_dec { self.config.lyrics_scroll_max_width = (self.config.lyrics_scroll_max_width - 10.0).max(100.0); }
-                            else { self.config.lyrics_scroll_max_width = (self.config.lyrics_scroll_max_width + 10.0).min(500.0); }
+                        } else if label == &tr("lyrics_scroll_max_width")
+                            && self.config.show_lyrics
+                            && self.config.lyrics_scroll
+                        {
+                            if is_dec {
+                                self.config.lyrics_scroll_max_width =
+                                    (self.config.lyrics_scroll_max_width - 10.0).max(100.0);
+                            } else {
+                                self.config.lyrics_scroll_max_width =
+                                    (self.config.lyrics_scroll_max_width + 10.0).min(500.0);
+                            }
                             changed = true;
                         }
                     }
@@ -826,7 +1142,10 @@ impl SettingsApp {
             }
             ClickResult::AppItem(idx) => {
                 if self.config.smtc_enabled && !self.detected_apps.is_empty() {
-                    let app_start = items.iter().position(|i| matches!(i, SettingsItem::RowAppItem { .. })).unwrap_or(items.len());
+                    let app_start = items
+                        .iter()
+                        .position(|i| matches!(i, SettingsItem::RowAppItem { .. }))
+                        .unwrap_or(items.len());
                     let app_idx = idx - app_start;
                     if app_idx < self.detected_apps.len() {
                         let app = &self.detected_apps[app_idx];
@@ -847,7 +1166,9 @@ impl SettingsApp {
 
         if changed {
             save_config(&self.config);
-            if let Some(win) = &self.window { win.request_redraw(); }
+            if let Some(win) = &self.window {
+                win.request_redraw();
+            }
         }
     }
 
@@ -872,7 +1193,11 @@ impl SettingsApp {
             let start_y = 20.0;
             for i in 0..3 {
                 let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
-                if my >= row_y && my <= row_y + SIDEBAR_ROW_H && mx >= SIDEBAR_PAD && mx <= SIDEBAR_W - SIDEBAR_PAD {
+                if my >= row_y
+                    && my <= row_y + SIDEBAR_ROW_H
+                    && mx >= SIDEBAR_PAD
+                    && mx <= SIDEBAR_W - SIDEBAR_PAD
+                {
                     return true;
                 }
             }
@@ -900,10 +1225,7 @@ impl ApplicationHandler for SettingsApp {
         let context = Context::new(window.clone()).unwrap();
         let mut surface = Surface::new(&context, window.clone()).unwrap();
         let size = window.inner_size();
-        surface.resize(
-            std::num::NonZeroU32::new(size.width).unwrap(),
-            std::num::NonZeroU32::new(size.height).unwrap(),
-        ).unwrap();
+        resize_surface(&mut surface, size.width, size.height);
         self.surface = Some(surface);
         self.update_detected_apps();
     }
@@ -913,20 +1235,16 @@ impl ApplicationHandler for SettingsApp {
             WindowEvent::CloseRequested => _el.exit(),
             WindowEvent::Resized(new_size) => {
                 if let Some(surface) = &mut self.surface {
-                    surface.resize(
-                        std::num::NonZeroU32::new(new_size.width).unwrap(),
-                        std::num::NonZeroU32::new(new_size.height).unwrap(),
-                    ).unwrap();
-                    if let Some(win) = &self.window { win.request_redraw(); }
+                    resize_surface(surface, new_size.width, new_size.height);
+                    if let Some(win) = &self.window {
+                        win.request_redraw();
+                    }
                 }
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 if let (Some(win), Some(surface)) = (&self.window, &mut self.surface) {
                     let size = win.inner_size();
-                    surface.resize(
-                        std::num::NonZeroU32::new(size.width).unwrap(),
-                        std::num::NonZeroU32::new(size.height).unwrap(),
-                    ).unwrap();
+                    resize_surface(surface, size.width, size.height);
                     win.request_redraw();
                 }
             }
@@ -943,7 +1261,11 @@ impl ApplicationHandler for SettingsApp {
                     let (pmx, pmy) = self.logical_mouse_pos;
                     let menu = popup.menu_rect();
                     let mut new_hover = None;
-                    if pmx >= menu.left && pmx <= menu.right && pmy >= menu.top && pmy <= menu.bottom {
+                    if pmx >= menu.left
+                        && pmx <= menu.right
+                        && pmy >= menu.top
+                        && pmy <= menu.bottom
+                    {
                         for i in 0..popup.options.len() {
                             let ir = popup.item_rect(i);
                             if pmy >= ir.top && pmy <= ir.bottom {
@@ -954,7 +1276,9 @@ impl ApplicationHandler for SettingsApp {
                     }
                     if new_hover != popup.hover_idx {
                         popup.hover_idx = new_hover;
-                        if let Some(win) = &self.window { win.request_redraw(); }
+                        if let Some(win) = &self.window {
+                            win.request_redraw();
+                        }
                     }
                 }
 
@@ -964,7 +1288,11 @@ impl ApplicationHandler for SettingsApp {
                     let start_y = 20.0;
                     for i in 0..3 {
                         let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
-                        if my >= row_y && my <= row_y + SIDEBAR_ROW_H && mx >= SIDEBAR_PAD && mx <= SIDEBAR_W - SIDEBAR_PAD {
+                        if my >= row_y
+                            && my <= row_y + SIDEBAR_ROW_H
+                            && mx >= SIDEBAR_PAD
+                            && mx <= SIDEBAR_W - SIDEBAR_PAD
+                        {
                             new_hover = i;
                         }
                     }
@@ -979,7 +1307,9 @@ impl ApplicationHandler for SettingsApp {
                             self.anim.set(&key, 0.0);
                         }
                     }
-                    if let Some(win) = &self.window { win.request_redraw(); }
+                    if let Some(win) = &self.window {
+                        win.request_redraw();
+                    }
                 }
 
                 if mx >= SIDEBAR_W {
@@ -992,8 +1322,11 @@ impl ApplicationHandler for SettingsApp {
                     let mut ri: usize = 0;
                     for item in &items {
                         if item.is_row() {
-                            if content_y >= item_y && content_y <= item_y + ROW_HEIGHT
-                                && content_x >= CONTENT_PADDING && content_x <= content_w - CONTENT_PADDING {
+                            if content_y >= item_y
+                                && content_y <= item_y + ROW_HEIGHT
+                                && content_x >= CONTENT_PADDING
+                                && content_x <= content_w - CONTENT_PADDING
+                            {
                                 new_row = Some(ri);
                             }
                             ri += 1;
@@ -1031,8 +1364,10 @@ impl ApplicationHandler for SettingsApp {
             WindowEvent::MouseWheel { delta, .. } => {
                 if self.popup.is_some() {
                     self.popup = None;
-            self.anim.set_with_speed("popup_opacity", 0.0, 0.3);
-                    if let Some(win) = &self.window { win.request_redraw(); }
+                    self.anim.set_with_speed("popup_opacity", 0.0, 0.3);
+                    if let Some(win) = &self.window {
+                        win.request_redraw();
+                    }
                     return;
                 }
                 let (mx, _) = self.logical_mouse_pos;
@@ -1046,10 +1381,16 @@ impl ApplicationHandler for SettingsApp {
                     let ch = content_height(&items, CONTENT_START_Y);
                     let max_scroll = (ch - WIN_H).max(0.0);
                     self.target_scroll_y = self.target_scroll_y.clamp(0.0, max_scroll);
-                    if let Some(win) = &self.window { win.request_redraw(); }
+                    if let Some(win) = &self.window {
+                        win.request_redraw();
+                    }
                 }
             }
-            WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.handle_click(),
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } => self.handle_click(),
             WindowEvent::RedrawRequested => self.draw(),
             _ => (),
         }
@@ -1060,13 +1401,22 @@ impl ApplicationHandler for SettingsApp {
             self.frame_count += 1;
             if self.frame_count % 60 == 0 {
                 unsafe {
-                    let h = OpenMutexW(MUTEX_ALL_ACCESS, false, w!("Local\\WinIsland_SingleInstance_Mutex"));
-                    if h.is_err() { _el.exit(); return; }
+                    let h = OpenMutexW(
+                        MUTEX_ALL_ACCESS,
+                        false,
+                        w!("Local\\WinIsland_SingleInstance_Mutex"),
+                    );
+                    if h.is_err() {
+                        _el.exit();
+                        return;
+                    }
                     let _ = windows::Win32::Foundation::CloseHandle(h.unwrap());
                 }
             }
             let mut redraw = self.switch_anim.tick();
-            if self.anim.tick() { redraw = true; }
+            if self.anim.tick() {
+                redraw = true;
+            }
 
             let items = self.build_current_items();
             let ch = content_height(&items, CONTENT_START_Y);
@@ -1080,7 +1430,9 @@ impl ApplicationHandler for SettingsApp {
                 self.scroll_y = self.target_scroll_y;
             }
 
-            if redraw { win.request_redraw(); }
+            if redraw {
+                win.request_redraw();
+            }
             std::thread::sleep(Duration::from_millis(16));
         }
     }
@@ -1090,4 +1442,13 @@ pub fn run_settings(config: AppConfig) {
     let el = EventLoop::new().unwrap();
     let mut app = SettingsApp::new(config);
     el.run_app(&mut app).unwrap();
+}
+
+fn resize_surface(surface: &mut Surface<Arc<Window>, Arc<Window>>, width: u32, height: u32) {
+    if let (Some(width), Some(height)) = (
+        std::num::NonZeroU32::new(width),
+        std::num::NonZeroU32::new(height),
+    ) {
+        let _ = surface.resize(width, height);
+    }
 }

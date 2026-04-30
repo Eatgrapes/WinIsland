@@ -1,14 +1,13 @@
+use crate::core::lyrics::{LyricLine, fetch_lyrics};
+use crate::core::persistence::{load_config, save_config};
 use std::sync::Arc;
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
-use windows::Media::Control::{
-    GlobalSystemMediaTransportControlsSessionManager,
-    GlobalSystemMediaTransportControlsSession,
-};
 use windows::Foundation::TypedEventHandler;
-use crate::core::persistence::{load_config, save_config};
-use crate::core::lyrics::{LyricLine, fetch_lyrics};
+use windows::Media::Control::{
+    GlobalSystemMediaTransportControlsSession, GlobalSystemMediaTransportControlsSessionManager,
+};
 
 #[derive(Clone, Debug)]
 pub struct MediaInfo {
@@ -52,7 +51,9 @@ impl Default for MediaInfo {
 impl MediaInfo {
     pub fn current_lyric(&self, delay_ms: i64) -> Option<String> {
         let lyrics = self.lyrics.as_ref()?;
-        if lyrics.is_empty() { return None; }
+        if lyrics.is_empty() {
+            return None;
+        }
 
         let raw_pos = if self.is_playing {
             self.position_ms + self.last_update.elapsed().as_millis() as u64
@@ -108,15 +109,23 @@ impl SmtcListener {
         let cancel = cancel_token.clone();
         tokio::task::spawn_blocking(move || {
             smtc_poll_loop(
-                info_tx, seek_rx, playback_rx,
-                lyrics_source_rx, lyrics_fallback_rx, allowed_apps_rx,
+                info_tx,
+                seek_rx,
+                playback_rx,
+                lyrics_source_rx,
+                lyrics_fallback_rx,
+                allowed_apps_rx,
                 cancel,
             );
         });
 
         Self {
-            info_rx, seek_tx, playback_tx,
-            lyrics_source_tx, lyrics_fallback_tx, allowed_apps_tx,
+            info_rx,
+            seek_tx,
+            playback_tx,
+            lyrics_source_tx,
+            lyrics_fallback_tx,
+            allowed_apps_tx,
             cancel_token,
         }
     }
@@ -179,10 +188,12 @@ fn smtc_poll_loop(
 
     // COM event bridge: COM callback -> std::sync::mpsc -> polling loop
     let (event_tx, event_rx) = std::sync::mpsc::channel::<()>();
-    let handler = TypedEventHandler::new(move |_m: &Option<GlobalSystemMediaTransportControlsSessionManager>, _| {
-        let _ = event_tx.send(());
-        Ok(())
-    });
+    let handler = TypedEventHandler::new(
+        move |_m: &Option<GlobalSystemMediaTransportControlsSessionManager>, _| {
+            let _ = event_tx.send(());
+            Ok(())
+        },
+    );
     let _ = manager.SessionsChanged(&handler);
 
     // Local state mirrored from channels
@@ -191,15 +202,23 @@ fn smtc_poll_loop(
     let mut current_allowed_apps: Vec<String> = Vec::new();
 
     // Drain initial config values from channels
-    while let Ok(src) = lyrics_source_rx.try_recv() { current_lyrics_source = src; }
-    while let Ok(fb) = lyrics_fallback_rx.try_recv() { current_lyrics_fallback = fb; }
-    while let Ok(apps) = allowed_apps_rx.try_recv() { current_allowed_apps = apps; }
+    while let Ok(src) = lyrics_source_rx.try_recv() {
+        current_lyrics_source = src;
+    }
+    while let Ok(fb) = lyrics_fallback_rx.try_recv() {
+        current_lyrics_fallback = fb;
+    }
+    while let Ok(apps) = allowed_apps_rx.try_recv() {
+        current_allowed_apps = apps;
+    }
 
     // Initial update
     update_media_info(
-        &manager, &info_tx,
-        &current_lyrics_source, current_lyrics_fallback,
-        &current_allowed_apps,
+        &manager,
+        &info_tx,
+        &current_lyrics_source,
+        current_lyrics_fallback,
+        &mut current_allowed_apps,
     );
 
     let mut last_manager_refresh = Instant::now();
@@ -208,7 +227,8 @@ fn smtc_poll_loop(
     while !cancel.is_cancelled() {
         // Refresh manager every 30 seconds
         if last_manager_refresh.elapsed() > Duration::from_secs(30) {
-            if let Ok(new_mgr_op) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
+            if let Ok(new_mgr_op) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
+            {
                 if let Ok(new_mgr) = new_mgr_op.get() {
                     current_manager = new_mgr;
                     let _ = current_manager.SessionsChanged(&handler);
@@ -232,7 +252,9 @@ fn smtc_poll_loop(
                     let info_tx_clone = info_tx.clone();
                     drop(info);
                     tokio::spawn(async move {
-                        if let Some(lyrics) = fetch_lyrics(&title, &artist, duration, &src, fb).await {
+                        if let Some(lyrics) =
+                            fetch_lyrics(&title, &artist, duration, &src, fb).await
+                        {
                             let current = info_tx_clone.borrow();
                             if current.title == title && current.artist == artist {
                                 drop(current);
@@ -245,8 +267,12 @@ fn smtc_poll_loop(
                 }
             }
         }
-        while let Ok(fb) = lyrics_fallback_rx.try_recv() { current_lyrics_fallback = fb; }
-        while let Ok(apps) = allowed_apps_rx.try_recv() { current_allowed_apps = apps; }
+        while let Ok(fb) = lyrics_fallback_rx.try_recv() {
+            current_lyrics_fallback = fb;
+        }
+        while let Ok(apps) = allowed_apps_rx.try_recv() {
+            current_allowed_apps = apps;
+        }
 
         // Handle seek request
         if let Ok(Some(seek_pos)) = seek_rx.try_recv().map(|v| Some(v)) {
@@ -276,8 +302,12 @@ fn smtc_poll_loop(
                             }
                         }
                     }
-                    PlaybackCommand::Next => { let _ = session.TrySkipNextAsync(); }
-                    PlaybackCommand::Prev => { let _ = session.TrySkipPreviousAsync(); }
+                    PlaybackCommand::Next => {
+                        let _ = session.TrySkipNextAsync();
+                    }
+                    PlaybackCommand::Prev => {
+                        let _ = session.TrySkipPreviousAsync();
+                    }
                 }
             }
         }
@@ -285,17 +315,21 @@ fn smtc_poll_loop(
         // Check COM events
         if event_rx.try_recv().is_ok() {
             update_media_info(
-                &current_manager, &info_tx,
-                &current_lyrics_source, current_lyrics_fallback,
-                &current_allowed_apps,
+                &current_manager,
+                &info_tx,
+                &current_lyrics_source,
+                current_lyrics_fallback,
+                &mut current_allowed_apps,
             );
         }
 
         // Regular update
         update_media_info(
-            &current_manager, &info_tx,
-            &current_lyrics_source, current_lyrics_fallback,
-            &current_allowed_apps,
+            &current_manager,
+            &info_tx,
+            &current_lyrics_source,
+            current_lyrics_fallback,
+            &mut current_allowed_apps,
         );
 
         std::thread::sleep(Duration::from_millis(300));
@@ -307,9 +341,9 @@ fn update_media_info(
     info_tx: &watch::Sender<MediaInfo>,
     lyrics_source: &str,
     lyrics_fallback: bool,
-    allowed_apps: &[String],
+    allowed_apps: &mut Vec<String>,
 ) {
-    auto_allow_new_apps(manager, allowed_apps);
+    *allowed_apps = auto_allow_new_apps(manager, allowed_apps);
 
     if let Some(session) = get_target_session(manager, allowed_apps) {
         let _ = fetch_properties(&session, info_tx, lyrics_source, lyrics_fallback);
@@ -322,7 +356,10 @@ fn update_media_info(
     }
 }
 
-fn auto_allow_new_apps(mgr: &GlobalSystemMediaTransportControlsSessionManager, allowed: &[String]) -> Vec<String> {
+fn auto_allow_new_apps(
+    mgr: &GlobalSystemMediaTransportControlsSessionManager,
+    allowed: &[String],
+) -> Vec<String> {
     let mut new_allowed = allowed.to_vec();
     if let Ok(sessions) = mgr.GetSessions() {
         if let Ok(count) = sessions.Size() {
@@ -365,7 +402,10 @@ fn auto_allow_new_apps(mgr: &GlobalSystemMediaTransportControlsSessionManager, a
     new_allowed
 }
 
-fn get_target_session(mgr: &GlobalSystemMediaTransportControlsSessionManager, allowed: &[String]) -> Option<GlobalSystemMediaTransportControlsSession> {
+fn get_target_session(
+    mgr: &GlobalSystemMediaTransportControlsSessionManager,
+    allowed: &[String],
+) -> Option<GlobalSystemMediaTransportControlsSession> {
     if allowed.is_empty() {
         return None;
     }
@@ -454,22 +494,38 @@ fn fetch_properties(
         if let Ok(pos) = tl.Position() {
             let raw = pos.Duration;
             if raw > 0 { (raw / 10_000) as u64 } else { 0 }
-        } else { 0 }
-    } else { 0 };
+        } else {
+            0
+        }
+    } else {
+        0
+    };
 
     let duration_secs = if let Ok(tl) = session.GetTimelineProperties() {
         if let Ok(end) = tl.EndTime() {
             let raw = end.Duration;
-            if raw > 0 { (raw / 10_000_000) as u64 } else { 0 }
-        } else { 0 }
-    } else { 0 };
+            if raw > 0 {
+                (raw / 10_000_000) as u64
+            } else {
+                0
+            }
+        } else {
+            0
+        }
+    } else {
+        0
+    };
 
     let duration_ms_from_tl = if let Ok(tl) = session.GetTimelineProperties() {
         if let Ok(end) = tl.EndTime() {
             let raw = end.Duration;
             if raw > 0 { (raw / 10_000) as u64 } else { 0 }
-        } else { 0 }
-    } else { 0 };
+        } else {
+            0
+        }
+    } else {
+        0
+    };
 
     let new_title = props.Title()?.to_string();
     let new_artist = props.Artist()?.to_string();
@@ -479,7 +535,8 @@ fn fetch_properties(
 
     {
         let mut info = info_tx.borrow().clone();
-        let song_changed = info.title != new_title || info.artist != new_artist || info.album != new_album;
+        let song_changed =
+            info.title != new_title || info.artist != new_artist || info.album != new_album;
         if song_changed {
             info.title = new_title.clone();
             info.artist = new_artist.clone();
@@ -495,10 +552,13 @@ fn fetch_properties(
             info.last_thumbnail_fetch = Instant::now();
             should_fetch_lyrics = true;
             should_fetch_thumbnail = true;
-        } else if info.is_playing != is_playing && info.thumbnail.is_none() && !new_title.is_empty() {
+        } else if info.is_playing != is_playing && info.thumbnail.is_none() && !new_title.is_empty()
+        {
             info.last_thumbnail_fetch = Instant::now();
             should_fetch_thumbnail = true;
-        } else if !new_title.is_empty() && info.last_thumbnail_fetch.elapsed() >= Duration::from_secs(5) {
+        } else if !new_title.is_empty()
+            && info.last_thumbnail_fetch.elapsed() >= Duration::from_secs(5)
+        {
             info.last_thumbnail_fetch = Instant::now();
             should_fetch_thumbnail = true;
         }
@@ -551,10 +611,19 @@ fn fetch_properties(
                     let stream = thumb_ref.OpenReadAsync()?.get()?;
                     let size = stream.Size()?;
                     if size == 0 {
-                        return Err(windows::core::Error::new(windows::core::HRESULT(-1), "Empty thumbnail"));
+                        return Err(windows::core::Error::new(
+                            windows::core::HRESULT(-1),
+                            "Empty thumbnail",
+                        ));
                     }
                     let buffer = windows::Storage::Streams::Buffer::Create(size as u32)?;
-                    let res_buffer = stream.ReadAsync(&buffer, size as u32, windows::Storage::Streams::InputStreamOptions::None)?.get()?;
+                    let res_buffer = stream
+                        .ReadAsync(
+                            &buffer,
+                            size as u32,
+                            windows::Storage::Streams::InputStreamOptions::None,
+                        )?
+                        .get()?;
                     let reader = windows::Storage::Streams::DataReader::FromBuffer(&res_buffer)?;
                     let mut bytes = vec![0u8; size as usize];
                     reader.ReadBytes(&mut bytes)?;

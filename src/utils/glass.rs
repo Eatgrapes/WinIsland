@@ -1,8 +1,10 @@
-use skia_safe::{images, Data, ISize, ImageInfo, Image, ColorType, AlphaType, image_filters, Paint, surfaces};
+use skia_safe::{
+    AlphaType, ColorType, Data, ISize, Image, ImageInfo, Paint, image_filters, images, surfaces,
+};
 use std::cell::RefCell;
 use std::time::Instant;
-use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::Foundation::HWND;
+use windows::Win32::Graphics::Gdi::*;
 
 thread_local! {
     static GLASS_CACHE: RefCell<Option<(Image, Instant, i32, i32, u32, u32)>> = RefCell::new(None);
@@ -10,15 +12,25 @@ thread_local! {
 
 pub fn set_glass_hwnd(_hwnd_raw: isize) {}
 
-pub fn get_glass_background(screen_x: i32, screen_y: i32, w: u32, h: u32, blur_sigma: f32) -> Option<Image> {
-    if w == 0 || h == 0 { return None; }
+pub fn get_glass_background(
+    screen_x: i32,
+    screen_y: i32,
+    w: u32,
+    h: u32,
+    blur_sigma: f32,
+) -> Option<Image> {
+    if w == 0 || h == 0 {
+        return None;
+    }
 
     let cached = GLASS_CACHE.with(|cell| {
         let cache = cell.borrow();
         if let Some((img, time, cx, cy, cw, ch)) = cache.as_ref() {
             if time.elapsed().as_millis() < 100
-                && *cx == screen_x && *cy == screen_y
-                && *cw == w && *ch == h
+                && *cx == screen_x
+                && *cy == screen_y
+                && *cw == w
+                && *ch == h
             {
                 return Some(img.clone());
             }
@@ -49,13 +61,17 @@ unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) ->
         let cap_h = h as i32 + 2 * margin;
 
         let hdc_screen = GetDC(HWND::default());
-        if hdc_screen.is_invalid() { return None; }
+        if hdc_screen.is_invalid() {
+            return None;
+        }
 
         let hdc_mem = CreateCompatibleDC(hdc_screen);
         let hbm = CreateCompatibleBitmap(hdc_screen, cap_w, cap_h);
         let old = SelectObject(hdc_mem, hbm);
 
-        let _ = BitBlt(hdc_mem, 0, 0, cap_w, cap_h, hdc_screen, cap_x, cap_y, SRCCOPY);
+        let _ = BitBlt(
+            hdc_mem, 0, 0, cap_w, cap_h, hdc_screen, cap_x, cap_y, SRCCOPY,
+        );
 
         let mut bmi: BITMAPINFO = std::mem::zeroed();
         bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
@@ -68,9 +84,13 @@ unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) ->
         let pixel_count = (cap_w * cap_h * 4) as usize;
         let mut pixels = vec![0u8; pixel_count];
         GetDIBits(
-            hdc_mem, hbm, 0, cap_h as u32,
+            hdc_mem,
+            hbm,
+            0,
+            cap_h as u32,
             Some(pixels.as_mut_ptr() as *mut _),
-            &mut bmi, DIB_RGB_COLORS,
+            &mut bmi,
+            DIB_RGB_COLORS,
         );
 
         SelectObject(hdc_mem, old);

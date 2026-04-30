@@ -27,4 +27,3 @@ pub fn save_config(config: &AppConfig) {
         let _ = fs::write(path, content);
     }
 }
-
