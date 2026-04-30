@@ -278,15 +278,17 @@ impl SettingsApp {
         let mut monitors: Vec<String> = Vec::new();
         unsafe {
             let mut idx = 0u32;
+            let mut active_count = 0;
             loop {
                 let mut dd: DISPLAY_DEVICEW = std::mem::zeroed();
                 dd.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
                 if EnumDisplayDevicesW(None, idx, &mut dd, 0).as_bool() {
                     if (dd.StateFlags & DISPLAY_DEVICE_ACTIVE) != 0 {
+                        active_count += 1;
                         let name = String::from_utf16_lossy(&dd.DeviceName).trim_end_matches('\0').to_string();
                         let mut dm: DISPLAY_DEVICEW = std::mem::zeroed();
                         dm.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
-                        let label = if EnumDisplayDevicesW(
+                        let mut label = if EnumDisplayDevicesW(
                             windows::core::PCWSTR(dd.DeviceName.as_ptr()),
                             0, &mut dm, 0
                         ).as_bool() {
@@ -295,6 +297,7 @@ impl SettingsApp {
                         } else {
                             name.clone()
                         };
+                        label = format!("Display {}: {}", active_count, label);
                         monitors.push(label);
                     }
                     idx += 1;

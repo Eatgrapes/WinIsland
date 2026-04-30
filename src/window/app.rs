@@ -123,9 +123,6 @@ impl Default for App {
 
 impl App {
     fn get_target_monitor(window: &Window, monitor_index: i32) -> Option<winit::monitor::MonitorHandle> {
-        if monitor_index <= 0 {
-            return window.primary_monitor().or_else(|| window.current_monitor());
-        }
         let monitors: Vec<_> = window.available_monitors().collect();
         let idx = monitor_index as usize;
         if idx < monitors.len() {
