@@ -133,21 +133,6 @@ impl FontManager {
         canvas.draw_str(text, pos, &font, paint);
     }
 
-    pub fn draw_text_centered(
-        &self,
-        canvas: &Canvas,
-        text: &str,
-        center_x: f32,
-        y: f32,
-        size: f32,
-        bold: bool,
-        paint: &Paint,
-    ) {
-        let font = self.get_font(size, bold);
-        let (_, rect) = font.measure_str(text, None);
-        canvas.draw_str(text, (center_x - rect.width() / 2.0, y), &font, paint);
-    }
-
     pub fn draw_text_in_rect(
         &self,
         canvas: &Canvas,
@@ -182,7 +167,7 @@ impl FontManager {
     }
 
     pub fn measure_text_cached(&self, text: &str, size: f32, style: FontStyle) -> f32 {
-        let cache_key = format!("measure-{}-{:?}-{}", text, style, size as i32);
+        let cache_key = format!("measure\0{}\0{:?}\0{}", text, style, size as i32);
         TEXT_CACHE.with(|cache| {
             let mut cache_mut = cache.borrow_mut();
             if cache_mut.len() > 500 {
@@ -238,7 +223,7 @@ impl FontManager {
         align_center: bool,
         max_w: f32,
     ) {
-        let cache_key = format!("{}-{}-{:?}-{}", text, max_w as i32, style, size as i32);
+        let cache_key = format!("{}\0{}\0{:?}\0{}", text, max_w as i32, style, size as i32);
         TEXT_CACHE.with(|cache| {
             let mut cache_mut = cache.borrow_mut();
             if cache_mut.len() > 500 {

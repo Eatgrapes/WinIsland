@@ -1,9 +1,10 @@
 use super::anim::SwitchAnimator;
 use super::items::*;
+use super::HOVER_ROW_KEY_BASE;
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
 use crate::utils::font::FontManager;
-use skia_safe::{Canvas, Color, Paint, Rect};
+use skia_safe::{Canvas, Color, FontStyle, Paint, Rect};
 
 fn draw_switch(canvas: &Canvas, x: f32, y: f32, pos: f32, enabled: bool) {
     let mut paint = Paint::default();
@@ -97,27 +98,6 @@ fn draw_pill_btn(
     fm.draw_text_in_rect(canvas, label, x, y + 17.0, w, 12.0, true, &paint);
 }
 
-fn truncate_text(fm: &FontManager, text: &str, size: f32, max_w: f32) -> String {
-    let (w, _) = fm.measure(text, size, false);
-    if w <= max_w {
-        return text.to_string();
-    }
-    let ellipsis = "...";
-    let (ew, _) = fm.measure(ellipsis, size, false);
-    let mut result = String::new();
-    let mut current_w = 0.0;
-    for c in text.chars() {
-        let (cw, _) = fm.measure(&c.to_string(), size, false);
-        if current_w + cw + ew > max_w {
-            result.push_str(ellipsis);
-            return result;
-        }
-        current_w += cw;
-        result.push(c);
-    }
-    result
-}
-
 fn count_group_rows(items: &[SettingsItem], start: usize) -> usize {
     let mut count = 0;
     let mut i = start;
@@ -141,8 +121,7 @@ fn draw_row_hover(
     in_group: bool,
     hover_anims: &AnimPool,
 ) {
-    let key = format!("hover_row_{}", row_idx);
-    let val = hover_anims.get(&key);
+    let val = hover_anims.get(HOVER_ROW_KEY_BASE + row_idx as u64);
     if val > 0.005 {
         let alpha = (val * 15.0) as u8;
         let mut hp = Paint::default();
@@ -173,6 +152,8 @@ pub fn draw_items(
     width: f32,
     anims: &SwitchAnimator,
     hover_anims: &AnimPool,
+    visible_min_y: f32,
+    visible_max_y: f32,
 ) {
     let fm = FontManager::global();
     let mut y = start_y;
@@ -188,43 +169,58 @@ pub fn draw_items(
     let mut i = 0;
     while i < items.len() {
         let item = &items[i];
+        if y > visible_max_y + 120.0 {
+            break;
+        }
         match item {
             SettingsItem::PageTitle { text } => {
-                paint.set_color(COLOR_TEXT_PRI);
-                fm.draw_text(
-                    canvas,
-                    text,
-                    (CONTENT_PADDING, y + 35.0),
-                    20.0,
-                    true,
-                    &paint,
-                );
+                let h = item.height();
+                if y + h >= visible_min_y && y <= visible_max_y {
+                    paint.set_color(COLOR_TEXT_PRI);
+                    fm.draw_text_cached(
+                        canvas,
+                        text,
+                        (CONTENT_PADDING, y + 35.0),
+                        20.0,
+                        FontStyle::bold(),
+                        &paint,
+                        false,
+                        f32::MAX,
+                    );
+                }
             }
             SettingsItem::SectionHeader { label } => {
-                paint.set_color(COLOR_TEXT_SEC);
-                fm.draw_text(
-                    canvas,
-                    label,
-                    (CONTENT_PADDING + 4.0, y + 22.0),
-                    12.0,
-                    false,
-                    &paint,
-                );
+                let h = item.height();
+                if y + h >= visible_min_y && y <= visible_max_y {
+                    paint.set_color(COLOR_TEXT_SEC);
+                    fm.draw_text_cached(
+                        canvas,
+                        label,
+                        (CONTENT_PADDING + 4.0, y + 22.0),
+                        12.0,
+                        FontStyle::normal(),
+                        &paint,
+                        false,
+                        f32::MAX,
+                    );
+                }
             }
             SettingsItem::GroupStart => {
                 in_group = true;
                 group_current_row = 0;
                 group_row_count = count_group_rows(items, i + 1);
                 let total_h = group_row_count as f32 * ROW_HEIGHT;
-                let mut bg = Paint::default();
-                bg.set_anti_alias(true);
-                bg.set_color(COLOR_GROUP_BG);
-                canvas.draw_round_rect(
-                    Rect::from_xywh(CONTENT_PADDING, y, content_w, total_h),
-                    GROUP_RADIUS,
-                    GROUP_RADIUS,
-                    &bg,
-                );
+                if y + total_h >= visible_min_y && y <= visible_max_y {
+                    let mut bg = Paint::default();
+                    bg.set_anti_alias(true);
+                    bg.set_color(COLOR_GROUP_BG);
+                    canvas.draw_round_rect(
+                        Rect::from_xywh(CONTENT_PADDING, y, content_w, total_h),
+                        GROUP_RADIUS,
+                        GROUP_RADIUS,
+                        &bg,
+                    );
+                }
             }
             SettingsItem::GroupEnd => {
                 in_group = false;
@@ -234,47 +230,75 @@ pub fn draw_items(
                 value,
                 enabled,
             } => {
-                draw_row_hover(canvas, y, content_w, row_idx, in_group, hover_anims);
+                if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
+                    draw_row_hover(canvas, y, content_w, row_idx, in_group, hover_anims);
+                }
                 let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
                 let cy = y + ROW_HEIGHT / 2.0;
 
-                paint.set_color(if *enabled {
-                    COLOR_TEXT_PRI
-                } else {
-                    COLOR_TEXT_SEC
-                });
-                fm.draw_text(canvas, label, (row_x, cy + 5.0), 13.0, false, &paint);
+                if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
+                    paint.set_color(if *enabled {
+                        COLOR_TEXT_PRI
+                    } else {
+                        COLOR_TEXT_SEC
+                    });
+                    fm.draw_text_cached(
+                        canvas,
+                        label,
+                        (row_x, cy + 5.0),
+                        13.0,
+                        FontStyle::normal(),
+                        &paint,
+                        false,
+                        f32::MAX,
+                    );
+                }
 
                 let btn_inc_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - STEPPER_BTN_SIZE;
                 let btn_dec_x = btn_inc_x - STEPPER_BTN_SIZE - 60.0;
                 let btn_y = cy - STEPPER_BTN_SIZE / 2.0;
-                draw_stepper_btn(canvas, btn_dec_x, btn_y, "-", *enabled);
-                draw_stepper_btn(canvas, btn_inc_x, btn_y, "+", *enabled);
+                if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
+                    draw_stepper_btn(canvas, btn_dec_x, btn_y, "-", *enabled);
+                    draw_stepper_btn(canvas, btn_inc_x, btn_y, "+", *enabled);
+                }
 
                 let val_center = (btn_dec_x + STEPPER_BTN_SIZE + btn_inc_x) / 2.0;
-                paint.set_color(if *enabled {
-                    COLOR_TEXT_PRI
-                } else {
-                    COLOR_TEXT_SEC
-                });
-                fm.draw_text_centered(canvas, value, val_center, cy + 5.0, 13.0, false, &paint);
+                if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
+                    paint.set_color(if *enabled {
+                        COLOR_TEXT_PRI
+                    } else {
+                        COLOR_TEXT_SEC
+                    });
+                    fm.draw_text_cached(
+                        canvas,
+                        value,
+                        (val_center, cy + 5.0),
+                        13.0,
+                        FontStyle::normal(),
+                        &paint,
+                        true,
+                        f32::MAX,
+                    );
+                }
 
                 if in_group {
                     group_current_row += 1;
                     if group_current_row < group_row_count {
-                        let mut sep = Paint::default();
-                        sep.set_anti_alias(true);
-                        sep.set_color(color_separator());
-                        sep.set_stroke_width(0.5);
-                        sep.set_style(skia_safe::paint::Style::Stroke);
-                        canvas.draw_line(
-                            (row_x, y + ROW_HEIGHT),
-                            (
-                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                y + ROW_HEIGHT,
-                            ),
-                            &sep,
-                        );
+                        if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
+                            let mut sep = Paint::default();
+                            sep.set_anti_alias(true);
+                            sep.set_color(color_separator());
+                            sep.set_stroke_width(0.5);
+                            sep.set_style(skia_safe::paint::Style::Stroke);
+                            canvas.draw_line(
+                                (row_x, y + ROW_HEIGHT),
+                                (
+                                    CONTENT_PADDING + content_w - GROUP_INNER_PAD,
+                                    y + ROW_HEIGHT,
+                                ),
+                                &sep,
+                            );
+                        }
                     }
                 }
                 row_idx += 1;
@@ -284,38 +308,55 @@ pub fn draw_items(
                 on: _,
                 enabled,
             } => {
-                draw_row_hover(canvas, y, content_w, row_idx, in_group, hover_anims);
+                if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
+                    draw_row_hover(canvas, y, content_w, row_idx, in_group, hover_anims);
+                }
                 let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
                 let cy = y + ROW_HEIGHT / 2.0;
 
-                paint.set_color(if *enabled {
-                    COLOR_TEXT_PRI
-                } else {
-                    COLOR_TEXT_SEC
-                });
-                fm.draw_text(canvas, label, (row_x, cy + 5.0), 13.0, false, &paint);
+                if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
+                    paint.set_color(if *enabled {
+                        COLOR_TEXT_PRI
+                    } else {
+                        COLOR_TEXT_SEC
+                    });
+                    fm.draw_text_cached(
+                        canvas,
+                        label,
+                        (row_x, cy + 5.0),
+                        13.0,
+                        FontStyle::normal(),
+                        &paint,
+                        false,
+                        f32::MAX,
+                    );
+                }
 
                 let toggle_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - TOGGLE_W;
                 let toggle_y = cy - TOGGLE_H / 2.0;
-                draw_switch(canvas, toggle_x, toggle_y, anims.get(switch_idx), *enabled);
+                if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
+                    draw_switch(canvas, toggle_x, toggle_y, anims.get(switch_idx), *enabled);
+                }
                 switch_idx += 1;
 
                 if in_group {
                     group_current_row += 1;
                     if group_current_row < group_row_count {
-                        let mut sep = Paint::default();
-                        sep.set_anti_alias(true);
-                        sep.set_color(color_separator());
-                        sep.set_stroke_width(0.5);
-                        sep.set_style(skia_safe::paint::Style::Stroke);
-                        canvas.draw_line(
-                            (row_x, y + ROW_HEIGHT),
-                            (
-                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                y + ROW_HEIGHT,
-                            ),
-                            &sep,
-                        );
+                        if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
+                            let mut sep = Paint::default();
+                            sep.set_anti_alias(true);
+                            sep.set_color(color_separator());
+                            sep.set_stroke_width(0.5);
+                            sep.set_style(skia_safe::paint::Style::Stroke);
+                            canvas.draw_line(
+                                (row_x, y + ROW_HEIGHT),
+                                (
+                                    CONTENT_PADDING + content_w - GROUP_INNER_PAD,
+                                    y + ROW_HEIGHT,
+                                ),
+                                &sep,
+                            );
+                        }
                     }
                 }
                 row_idx += 1;
@@ -325,57 +366,73 @@ pub fn draw_items(
                 btn_label,
                 reset_label,
             } => {
-                draw_row_hover(canvas, y, content_w, row_idx, in_group, hover_anims);
+                let visible = y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y;
+                if visible {
+                    draw_row_hover(canvas, y, content_w, row_idx, in_group, hover_anims);
+                }
                 let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
                 let cy = y + ROW_HEIGHT / 2.0;
 
-                paint.set_color(COLOR_TEXT_PRI);
-                fm.draw_text(canvas, label, (row_x, cy + 5.0), 13.0, false, &paint);
+                if visible {
+                    paint.set_color(COLOR_TEXT_PRI);
+                    fm.draw_text_cached(
+                        canvas,
+                        label,
+                        (row_x, cy + 5.0),
+                        13.0,
+                        FontStyle::normal(),
+                        &paint,
+                        false,
+                        f32::MAX,
+                    );
 
-                let sel_w: f32 = 60.0;
-                let sel_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - sel_w;
-                draw_pill_btn(
-                    canvas,
-                    sel_x,
-                    cy - 13.0,
-                    sel_w,
-                    26.0,
-                    btn_label,
-                    COLOR_TEXT_PRI,
-                    COLOR_CARD_HIGHLIGHT,
-                );
-
-                if let Some(rl) = reset_label {
-                    let rst_w: f32 = 60.0;
-                    let rst_x = sel_x - rst_w - 6.0;
+                    let sel_w: f32 = 60.0;
+                    let sel_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - sel_w;
                     draw_pill_btn(
                         canvas,
-                        rst_x,
+                        sel_x,
                         cy - 13.0,
-                        rst_w,
+                        sel_w,
                         26.0,
-                        rl,
-                        COLOR_DANGER,
+                        btn_label,
+                        COLOR_TEXT_PRI,
                         COLOR_CARD_HIGHLIGHT,
                     );
+
+                    if let Some(rl) = reset_label {
+                        let rst_w: f32 = 60.0;
+                        let rst_x = sel_x - rst_w - 6.0;
+                        draw_pill_btn(
+                            canvas,
+                            rst_x,
+                            cy - 13.0,
+                            rst_w,
+                            26.0,
+                            rl,
+                            COLOR_DANGER,
+                            COLOR_CARD_HIGHLIGHT,
+                        );
+                    }
                 }
 
                 if in_group {
                     group_current_row += 1;
                     if group_current_row < group_row_count {
-                        let mut sep = Paint::default();
-                        sep.set_anti_alias(true);
-                        sep.set_color(color_separator());
-                        sep.set_stroke_width(0.5);
-                        sep.set_style(skia_safe::paint::Style::Stroke);
-                        canvas.draw_line(
-                            (row_x, y + ROW_HEIGHT),
-                            (
-                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                y + ROW_HEIGHT,
-                            ),
-                            &sep,
-                        );
+                        if visible {
+                            let mut sep = Paint::default();
+                            sep.set_anti_alias(true);
+                            sep.set_color(color_separator());
+                            sep.set_stroke_width(0.5);
+                            sep.set_style(skia_safe::paint::Style::Stroke);
+                            canvas.draw_line(
+                                (row_x, y + ROW_HEIGHT),
+                                (
+                                    CONTENT_PADDING + content_w - GROUP_INNER_PAD,
+                                    y + ROW_HEIGHT,
+                                ),
+                                &sep,
+                            );
+                        }
                     }
                 }
                 row_idx += 1;
@@ -385,16 +442,30 @@ pub fn draw_items(
                 options,
                 enabled,
             } => {
-                draw_row_hover(canvas, y, content_w, row_idx, in_group, hover_anims);
+                let visible = y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y;
+                if visible {
+                    draw_row_hover(canvas, y, content_w, row_idx, in_group, hover_anims);
+                }
                 let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
                 let cy = y + ROW_HEIGHT / 2.0;
 
-                paint.set_color(if *enabled {
-                    COLOR_TEXT_PRI
-                } else {
-                    COLOR_TEXT_SEC
-                });
-                fm.draw_text(canvas, label, (row_x, cy + 5.0), 13.0, false, &paint);
+                if visible {
+                    paint.set_color(if *enabled {
+                        COLOR_TEXT_PRI
+                    } else {
+                        COLOR_TEXT_SEC
+                    });
+                    fm.draw_text_cached(
+                        canvas,
+                        label,
+                        (row_x, cy + 5.0),
+                        13.0,
+                        FontStyle::normal(),
+                        &paint,
+                        false,
+                        f32::MAX,
+                    );
+                }
 
                 let selected_label = options
                     .iter()
@@ -405,75 +476,79 @@ pub fn draw_items(
                 let btn_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - POPUP_BTN_W;
                 let btn_y = cy - POPUP_BTN_H / 2.0;
 
-                let mut p = Paint::default();
-                p.set_anti_alias(true);
-                p.set_color(if *enabled {
-                    COLOR_CARD_HIGHLIGHT
-                } else {
-                    COLOR_DISABLED
-                });
-                canvas.draw_round_rect(
-                    Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                    POPUP_BTN_R,
-                    POPUP_BTN_R,
-                    &p,
-                );
+                if visible {
+                    let mut p = Paint::default();
+                    p.set_anti_alias(true);
+                    p.set_color(if *enabled {
+                        COLOR_CARD_HIGHLIGHT
+                    } else {
+                        COLOR_DISABLED
+                    });
+                    canvas.draw_round_rect(
+                        Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+                        POPUP_BTN_R,
+                        POPUP_BTN_R,
+                        &p,
+                    );
 
-                p.set_color(if *enabled {
-                    COLOR_TEXT_PRI
-                } else {
-                    COLOR_TEXT_SEC
-                });
-                let text_w = POPUP_BTN_W - 22.0;
-                fm.draw_text_in_rect(
-                    canvas,
-                    selected_label,
-                    btn_x + 4.0,
-                    btn_y + 17.0,
-                    text_w,
-                    12.0,
-                    true,
-                    &p,
-                );
+                    p.set_color(if *enabled {
+                        COLOR_TEXT_PRI
+                    } else {
+                        COLOR_TEXT_SEC
+                    });
+                    let text_w = POPUP_BTN_W - 22.0;
+                    fm.draw_text_in_rect(
+                        canvas,
+                        selected_label,
+                        btn_x + 4.0,
+                        btn_y + 17.0,
+                        text_w,
+                        12.0,
+                        true,
+                        &p,
+                    );
 
-                let chev_cx = btn_x + POPUP_BTN_W - 12.0;
-                let chev_cy = cy;
-                let chev_svg = format!(
-                    "M {} {} L {} {} L {} {}",
-                    chev_cx - 3.0,
-                    chev_cy - 1.5,
-                    chev_cx,
-                    chev_cy + 1.5,
-                    chev_cx + 3.0,
-                    chev_cy - 1.5,
-                );
-                p.set_color(if *enabled {
-                    COLOR_TEXT_SEC
-                } else {
-                    COLOR_DISABLED
-                });
-                p.set_style(skia_safe::paint::Style::Stroke);
-                p.set_stroke_width(1.5);
-                if let Some(chev_path) = skia_safe::Path::from_svg(&chev_svg) {
-                    canvas.draw_path(&chev_path, &p);
+                    let chev_cx = btn_x + POPUP_BTN_W - 12.0;
+                    let chev_cy = cy;
+                    let chev_svg = format!(
+                        "M {} {} L {} {} L {} {}",
+                        chev_cx - 3.0,
+                        chev_cy - 1.5,
+                        chev_cx,
+                        chev_cy + 1.5,
+                        chev_cx + 3.0,
+                        chev_cy - 1.5,
+                    );
+                    p.set_color(if *enabled {
+                        COLOR_TEXT_SEC
+                    } else {
+                        COLOR_DISABLED
+                    });
+                    p.set_style(skia_safe::paint::Style::Stroke);
+                    p.set_stroke_width(1.5);
+                    if let Some(chev_path) = skia_safe::Path::from_svg(&chev_svg) {
+                        canvas.draw_path(&chev_path, &p);
+                    }
                 }
 
                 if in_group {
                     group_current_row += 1;
                     if group_current_row < group_row_count {
-                        let mut sep = Paint::default();
-                        sep.set_anti_alias(true);
-                        sep.set_color(color_separator());
-                        sep.set_stroke_width(0.5);
-                        sep.set_style(skia_safe::paint::Style::Stroke);
-                        canvas.draw_line(
-                            (row_x, y + ROW_HEIGHT),
-                            (
-                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                y + ROW_HEIGHT,
-                            ),
-                            &sep,
-                        );
+                        if visible {
+                            let mut sep = Paint::default();
+                            sep.set_anti_alias(true);
+                            sep.set_color(color_separator());
+                            sep.set_stroke_width(0.5);
+                            sep.set_style(skia_safe::paint::Style::Stroke);
+                            canvas.draw_line(
+                                (row_x, y + ROW_HEIGHT),
+                                (
+                                    CONTENT_PADDING + content_w - GROUP_INNER_PAD,
+                                    y + ROW_HEIGHT,
+                                ),
+                                &sep,
+                            );
+                        }
                     }
                 }
                 row_idx += 1;
@@ -483,7 +558,10 @@ pub fn draw_items(
                 active,
                 enabled,
             } => {
-                draw_row_hover(canvas, y, content_w, row_idx, in_group, hover_anims);
+                let visible = y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y;
+                if visible {
+                    draw_row_hover(canvas, y, content_w, row_idx, in_group, hover_anims);
+                }
                 let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
                 let cy = y + ROW_HEIGHT / 2.0;
 
@@ -493,7 +571,7 @@ pub fn draw_items(
 
                 let mut p = Paint::default();
                 p.set_anti_alias(true);
-                if *active && *enabled {
+                if visible && *active && *enabled {
                     p.set_color(COLOR_ACCENT);
                     canvas.draw_round_rect(
                         Rect::from_xywh(check_x, check_y, check_size, check_size),
@@ -516,7 +594,7 @@ pub fn draw_items(
                     if let Some(path) = skia_safe::Path::from_svg(&svg) {
                         canvas.draw_path(&path, &p);
                     }
-                } else {
+                } else if visible {
                     p.set_color(if *enabled {
                         COLOR_CARD_HIGHLIGHT
                     } else {
@@ -532,69 +610,121 @@ pub fn draw_items(
                     );
                 }
 
-                paint.set_color(if *enabled {
-                    COLOR_TEXT_PRI
-                } else {
-                    COLOR_TEXT_SEC
-                });
-                let max_label_w = check_x - row_x - 8.0;
-                let display = truncate_text(fm, label, 13.0, max_label_w);
-                fm.draw_text(canvas, &display, (row_x, cy + 5.0), 13.0, false, &paint);
+                if visible {
+                    paint.set_color(if *enabled {
+                        COLOR_TEXT_PRI
+                    } else {
+                        COLOR_TEXT_SEC
+                    });
+                    let max_label_w = check_x - row_x - 8.0;
+                    fm.draw_text_cached(
+                        canvas,
+                        label,
+                        (row_x, cy + 5.0),
+                        13.0,
+                        FontStyle::normal(),
+                        &paint,
+                        false,
+                        max_label_w,
+                    );
+                }
 
                 if in_group {
                     group_current_row += 1;
                     if group_current_row < group_row_count {
-                        let mut sep = Paint::default();
-                        sep.set_anti_alias(true);
-                        sep.set_color(color_separator());
-                        sep.set_stroke_width(0.5);
-                        sep.set_style(skia_safe::paint::Style::Stroke);
-                        canvas.draw_line(
-                            (row_x, y + ROW_HEIGHT),
-                            (
-                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                y + ROW_HEIGHT,
-                            ),
-                            &sep,
-                        );
+                        if visible {
+                            let mut sep = Paint::default();
+                            sep.set_anti_alias(true);
+                            sep.set_color(color_separator());
+                            sep.set_stroke_width(0.5);
+                            sep.set_style(skia_safe::paint::Style::Stroke);
+                            canvas.draw_line(
+                                (row_x, y + ROW_HEIGHT),
+                                (
+                                    CONTENT_PADDING + content_w - GROUP_INNER_PAD,
+                                    y + ROW_HEIGHT,
+                                ),
+                                &sep,
+                            );
+                        }
                     }
                 }
                 row_idx += 1;
             }
             SettingsItem::RowLabel { label } => {
-                draw_row_hover(canvas, y, content_w, row_idx, in_group, hover_anims);
+                let visible = y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y;
+                if visible {
+                    draw_row_hover(canvas, y, content_w, row_idx, in_group, hover_anims);
+                }
                 let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
                 let cy = y + ROW_HEIGHT / 2.0;
-                paint.set_color(COLOR_TEXT_SEC);
-                fm.draw_text(canvas, label, (row_x, cy + 5.0), 13.0, false, &paint);
+                if visible {
+                    paint.set_color(COLOR_TEXT_SEC);
+                    fm.draw_text_cached(
+                        canvas,
+                        label,
+                        (row_x, cy + 5.0),
+                        13.0,
+                        FontStyle::normal(),
+                        &paint,
+                        false,
+                        f32::MAX,
+                    );
+                }
 
                 if in_group {
                     group_current_row += 1;
                     if group_current_row < group_row_count {
-                        let mut sep = Paint::default();
-                        sep.set_anti_alias(true);
-                        sep.set_color(color_separator());
-                        sep.set_stroke_width(0.5);
-                        sep.set_style(skia_safe::paint::Style::Stroke);
-                        canvas.draw_line(
-                            (row_x, y + ROW_HEIGHT),
-                            (
-                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                y + ROW_HEIGHT,
-                            ),
-                            &sep,
-                        );
+                        if visible {
+                            let mut sep = Paint::default();
+                            sep.set_anti_alias(true);
+                            sep.set_color(color_separator());
+                            sep.set_stroke_width(0.5);
+                            sep.set_style(skia_safe::paint::Style::Stroke);
+                            canvas.draw_line(
+                                (row_x, y + ROW_HEIGHT),
+                                (
+                                    CONTENT_PADDING + content_w - GROUP_INNER_PAD,
+                                    y + ROW_HEIGHT,
+                                ),
+                                &sep,
+                            );
+                        }
                     }
                 }
                 row_idx += 1;
             }
             SettingsItem::CenterLink { label, color } => {
-                paint.set_color(*color);
-                fm.draw_text_centered(canvas, label, width / 2.0, y + 24.0, 13.0, false, &paint);
+                let h = item.height();
+                if y + h >= visible_min_y && y <= visible_max_y {
+                    paint.set_color(*color);
+                    fm.draw_text_cached(
+                        canvas,
+                        label,
+                        (width / 2.0, y + 24.0),
+                        13.0,
+                        FontStyle::normal(),
+                        &paint,
+                        true,
+                        f32::MAX,
+                    );
+                }
             }
             SettingsItem::CenterText { text, size, color } => {
-                paint.set_color(*color);
-                fm.draw_text_centered(canvas, text, width / 2.0, y + 22.0, *size, false, &paint);
+                let h = item.height();
+                if y + h >= visible_min_y && y <= visible_max_y {
+                    paint.set_color(*color);
+                    fm.draw_text_cached(
+                        canvas,
+                        text,
+                        (width / 2.0, y + 22.0),
+                        *size,
+                        FontStyle::normal(),
+                        &paint,
+                        true,
+                        f32::MAX,
+                    );
+                }
             }
             SettingsItem::Spacer { .. } => {}
         }
