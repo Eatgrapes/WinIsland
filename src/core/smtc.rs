@@ -296,6 +296,8 @@ fn smtc_poll_loop(
                 let mut info = info_tx.borrow().clone();
                 info.position_ms = seek_pos;
                 info.last_update = Instant::now();
+                // Do not update last_smtc_pos here: SMTC timeline can lag after seek, and treating
+                // seek_pos as authoritative would make the next poll think SMTC changed and sync back.
                 let _ = info_tx.send(info);
             }
         }
