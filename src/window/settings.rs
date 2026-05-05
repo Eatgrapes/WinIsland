@@ -11,7 +11,7 @@ use crate::utils::settings_ui::*;
 use skia_safe::{Color, Paint, Rect, surfaces};
 use softbuffer::{Context, Surface};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use windows::Win32::System::Threading::{MUTEX_ALL_ACCESS, OpenMutexW};
 use windows::core::w;
 use winit::application::ApplicationHandler;
@@ -26,6 +26,10 @@ const WIN_H: f32 = 480.0;
 const SIDEBAR_W: f32 = 180.0;
 const SIDEBAR_ROW_H: f32 = 32.0;
 const CONTENT_START_Y: f32 = 10.0;
+
+const POPUP_OPACITY_KEY: u64 = 1;
+const SIDEBAR_KEY_BASE: u64 = 1_000;
+const HOVER_ROW_KEY_BASE: u64 = 10_000;
 
 #[derive(Clone, PartialEq)]
 enum PopupKind {
@@ -77,7 +81,6 @@ impl PopupState {
 pub struct SettingsApp {
     window: Option<Arc<Window>>,
     surface: Option<Surface<Arc<Window>, Arc<Window>>>,
-    sk_surface: Option<skia_safe::Surface>,
     config: AppConfig,
     active_page: usize,
     switch_anim: SwitchAnimator,
@@ -86,11 +89,18 @@ pub struct SettingsApp {
     frame_count: u64,
     scroll_y: f32,
     target_scroll_y: f32,
+    scroll_vel_y: f32,
+    last_frame_time: Instant,
     detected_apps: Vec<String>,
     sidebar_hover: i32,
     popup: Option<PopupState>,
     hover_row: Option<usize>,
     total_rows: usize,
+    items_dirty: bool,
+    cached_items: Vec<SettingsItem>,
+    cached_content_height: f32,
+    cached_max_scroll: f32,
+    cached_row_tops: Vec<f32>,
 }
 
 impl SettingsApp {
@@ -109,7 +119,6 @@ impl SettingsApp {
         Self {
             window: None,
             surface: None,
-            sk_surface: None,
             config,
             active_page: 0,
             switch_anim,
@@ -118,11 +127,18 @@ impl SettingsApp {
             frame_count: 0,
             scroll_y: 0.0,
             target_scroll_y: 0.0,
+            scroll_vel_y: 0.0,
+            last_frame_time: Instant::now(),
             detected_apps: Vec::new(),
             sidebar_hover: -1,
             popup: None,
             hover_row: None,
             total_rows: 0,
+            items_dirty: true,
+            cached_items: Vec::new(),
+            cached_content_height: 0.0,
+            cached_max_scroll: 0.0,
+            cached_row_tops: Vec::new(),
         }
     }
 
@@ -409,6 +425,28 @@ impl SettingsApp {
         }
     }
 
+    fn rebuild_items_cache(&mut self) {
+        self.cached_items = self.build_current_items();
+        self.cached_content_height = content_height(&self.cached_items, CONTENT_START_Y);
+        self.cached_max_scroll = (self.cached_content_height - WIN_H).max(0.0);
+        self.cached_row_tops.clear();
+        let mut y = CONTENT_START_Y;
+        for item in &self.cached_items {
+            if item.is_row() {
+                self.cached_row_tops.push(y);
+            }
+            y += item.height();
+        }
+        self.total_rows = self.cached_row_tops.len();
+        self.items_dirty = false;
+    }
+
+    fn ensure_items_cache(&mut self) {
+        if self.items_dirty {
+            self.rebuild_items_cache();
+        }
+    }
+
     fn get_monitor_list(&self) -> Vec<String> {
         use windows::Win32::Graphics::Gdi::*;
         let mut monitors: Vec<String> = Vec::new();
@@ -417,7 +455,7 @@ impl SettingsApp {
             let mut active_count = 0;
             loop {
                 let mut dd: DISPLAY_DEVICEW = std::mem::zeroed();
-                dd.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+                dd.cb = size_of::<DISPLAY_DEVICEW>() as u32;
                 if EnumDisplayDevicesW(None, idx, &mut dd, 0).as_bool() {
                     if (dd.StateFlags & DISPLAY_DEVICE_ACTIVE) != 0 {
                         active_count += 1;
@@ -425,7 +463,7 @@ impl SettingsApp {
                             .trim_end_matches('\0')
                             .to_string();
                         let mut dm: DISPLAY_DEVICEW = std::mem::zeroed();
-                        dm.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+                        dm.cb = size_of::<DISPLAY_DEVICEW>() as u32;
                         let mut label = if EnumDisplayDevicesW(
                             windows::core::PCWSTR(dd.DeviceName.as_ptr()),
                             0,
@@ -485,6 +523,7 @@ impl SettingsApp {
 
     fn update_detected_apps(&mut self) {
         use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
+        let mut changed = false;
         if let Ok(manager_async) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
         {
             if let Ok(manager) = manager_async.get() {
@@ -496,6 +535,7 @@ impl SettingsApp {
                                     let name = id.to_string();
                                     if !self.detected_apps.contains(&name) {
                                         self.detected_apps.push(name);
+                                        changed = true;
                                     }
                                 }
                             }
@@ -507,81 +547,31 @@ impl SettingsApp {
         for app in &self.config.smtc_known_apps {
             if !self.detected_apps.contains(app) {
                 self.detected_apps.push(app.clone());
+                changed = true;
             }
+        }
+        if changed {
+            self.items_dirty = true;
         }
     }
 
     fn draw(&mut self) {
-        let win = self.window.as_ref().unwrap();
-        let size = win.inner_size();
-        let p_w = size.width as i32;
-        let p_h = size.height as i32;
+        let (p_w, p_h, scale) = {
+            let win = self.window.as_ref().unwrap();
+            let size = win.inner_size();
+            (size.width as i32, size.height as i32, win.scale_factor() as f32)
+        };
         if p_w <= 0 || p_h <= 0 {
             return;
         }
-
-        let mut sk_surface = if let Some(ref s) = self.sk_surface {
-            if s.width() == p_w && s.height() == p_h {
-                s.clone()
-            } else {
-                let new_s = surfaces::raster_n32_premul(skia_safe::ISize::new(p_w, p_h)).unwrap();
-                self.sk_surface = Some(new_s.clone());
-                new_s
-            }
-        } else {
-            let new_s = surfaces::raster_n32_premul(skia_safe::ISize::new(p_w, p_h)).unwrap();
-            self.sk_surface = Some(new_s.clone());
-            new_s
+        self.ensure_items_cache();
+        let anim = self.get_page_anim();
+        let mut surface = match self.surface.take() {
+            Some(s) => s,
+            None => return,
         };
 
-        let canvas = sk_surface.canvas();
-        canvas.reset_matrix();
-        canvas.clear(COLOR_WIN_BG);
-        let scale = win.scale_factor() as f32;
-        canvas.scale((scale, scale));
-
-        self.draw_sidebar(canvas);
-
-        let content_w = WIN_W - SIDEBAR_W;
-        canvas.save();
-        canvas.clip_rect(
-            Rect::from_xywh(SIDEBAR_W, 0.0, content_w, WIN_H),
-            skia_safe::ClipOp::Intersect,
-            true,
-        );
-        canvas.translate((SIDEBAR_W, -self.scroll_y));
-
-        let items = self.build_current_items();
-        let anim = self.get_page_anim();
-        draw_items(
-            canvas,
-            &items,
-            CONTENT_START_Y,
-            content_w,
-            &anim,
-            &self.anim,
-        );
-        canvas.restore();
-
-        let ch = content_height(&items, CONTENT_START_Y);
-        let view_h = WIN_H;
-        if ch > view_h {
-            let bar_h = (view_h / ch) * view_h;
-            let bar_y = (self.scroll_y / (ch - view_h)) * (view_h - bar_h);
-            let mut p = Paint::default();
-            p.set_anti_alias(true);
-            p.set_color(Color::from_argb(60, 255, 255, 255));
-            canvas.draw_round_rect(
-                Rect::from_xywh(WIN_W - 6.0, bar_y, 4.0, bar_h),
-                2.0,
-                2.0,
-                &p,
-            );
-        }
-
-        self.draw_popup(canvas);
-
-        if let Some(surface) = self.surface.as_mut() {
+        {
             let mut buffer = surface.buffer_mut().unwrap();
             let info = skia_safe::ImageInfo::new(
                 skia_safe::ISize::new(p_w, p_h),
@@ -591,9 +581,58 @@ impl SettingsApp {
             );
             let dst_row_bytes = (p_w * 4) as usize;
             let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut *buffer);
-            let _ = sk_surface.read_pixels(&info, u8_buffer, dst_row_bytes, (0, 0));
+            let mut sk_surface =
+                surfaces::wrap_pixels(&info, u8_buffer, dst_row_bytes, None).unwrap();
+
+            let canvas = sk_surface.canvas();
+            canvas.reset_matrix();
+            canvas.clear(COLOR_WIN_BG);
+            canvas.scale((scale, scale));
+
+            self.draw_sidebar(canvas);
+
+            let content_w = WIN_W - SIDEBAR_W;
+            canvas.save();
+            canvas.clip_rect(
+                Rect::from_xywh(SIDEBAR_W, 0.0, content_w, WIN_H),
+                skia_safe::ClipOp::Intersect,
+                true,
+            );
+            canvas.translate((SIDEBAR_W, -self.scroll_y));
+
+            draw_items(
+                canvas,
+                &self.cached_items,
+                CONTENT_START_Y,
+                content_w,
+                &anim,
+                &self.anim,
+                self.scroll_y,
+                self.scroll_y + WIN_H,
+            );
+            canvas.restore();
+
+            let ch = self.cached_content_height;
+            let view_h = WIN_H;
+            if ch > view_h {
+                let bar_h = (view_h / ch) * view_h;
+                let bar_y = (self.scroll_y / (ch - view_h)) * (view_h - bar_h);
+                let mut p = Paint::default();
+                p.set_anti_alias(true);
+                p.set_color(Color::from_argb(60, 255, 255, 255));
+                canvas.draw_round_rect(
+                    Rect::from_xywh(WIN_W - 6.0, bar_y, 4.0, bar_h),
+                    2.0,
+                    2.0,
+                    &p,
+                );
+            }
+
+            self.draw_popup(canvas);
             buffer.present().unwrap();
         }
+
+        self.surface = Some(surface);
     }
 
     fn draw_sidebar(&self, canvas: &skia_safe::Canvas) {
@@ -629,7 +668,7 @@ impl SettingsApp {
                 );
                 paint.set_color(COLOR_TEXT_PRI);
             } else {
-                let hover_val = self.anim.get(&format!("sidebar_{}", i));
+                let hover_val = self.anim.get(SIDEBAR_KEY_BASE + i as u64);
                 if hover_val > 0.005 {
                     let base = color_sidebar_hover();
                     let alpha = (base.a() as f32 * hover_val) as u8;
@@ -660,7 +699,7 @@ impl SettingsApp {
             Some(p) => p,
             None => return,
         };
-        let opacity = self.anim.get("popup_opacity");
+        let opacity = self.anim.get(POPUP_OPACITY_KEY);
         if opacity < 0.005 {
             return;
         }
@@ -806,12 +845,13 @@ impl SettingsApp {
                             }
                         }
                         save_config(&self.config);
+                        self.items_dirty = true;
                         break;
                     }
                 }
             }
             self.popup = None;
-            self.anim.set_with_speed("popup_opacity", 0.0, 0.3);
+            self.anim.set_with_speed(POPUP_OPACITY_KEY, 0.0, 0.3);
             if let Some(win) = &self.window {
                 win.request_redraw();
             }
@@ -832,6 +872,7 @@ impl SettingsApp {
                         self.active_page = i as usize;
                         self.scroll_y = 0.0;
                         self.target_scroll_y = 0.0;
+                        self.items_dirty = true;
                         if let Some(win) = &self.window {
                             win.request_redraw();
                         }
@@ -1027,7 +1068,7 @@ impl SettingsApp {
                             hover_idx: None,
                         });
                     }
-                    self.anim.set_with_speed("popup_opacity", 1.0, 0.25);
+                    self.anim.set_with_speed(POPUP_OPACITY_KEY, 1.0, 0.25);
                     if let Some(win) = &self.window {
                         win.request_redraw();
                     }
@@ -1055,6 +1096,7 @@ impl SettingsApp {
 
         if changed {
             save_config(&self.config);
+            self.items_dirty = true;
             if let Some(win) = &self.window {
                 win.request_redraw();
             }
@@ -1104,7 +1146,7 @@ impl SettingsApp {
                     selected_idx: if source == "163" { 0 } else { 1 },
                     hover_idx: None,
                 });
-                self.anim.set_with_speed("popup_opacity", 1.0, 0.25);
+                self.anim.set_with_speed(POPUP_OPACITY_KEY, 1.0, 0.25);
                 if let Some(win) = &self.window {
                     win.request_redraw();
                 }
@@ -1166,6 +1208,7 @@ impl SettingsApp {
 
         if changed {
             save_config(&self.config);
+            self.items_dirty = true;
             if let Some(win) = &self.window {
                 win.request_redraw();
             }
@@ -1179,7 +1222,7 @@ impl SettingsApp {
         }
     }
 
-    fn get_hover_state(&self) -> bool {
+    fn get_hover_state(&mut self) -> bool {
         let (mx, my) = self.logical_mouse_pos;
 
         if let Some(popup) = &self.popup {
@@ -1207,8 +1250,14 @@ impl SettingsApp {
         let content_x = mx - SIDEBAR_W;
         let content_y = my + self.scroll_y;
         let content_w = WIN_W - SIDEBAR_W;
-        let items = self.build_current_items();
-        hover_test(&items, content_x, content_y, CONTENT_START_Y, content_w)
+        self.ensure_items_cache();
+        hover_test(
+            &self.cached_items,
+            content_x,
+            content_y,
+            CONTENT_START_Y,
+            content_w,
+        )
     }
 }
 
@@ -1300,11 +1349,10 @@ impl ApplicationHandler for SettingsApp {
                 if new_hover != self.sidebar_hover {
                     self.sidebar_hover = new_hover;
                     for idx in 0..3 {
-                        let key = format!("sidebar_{}", idx);
                         if idx == new_hover as usize {
-                            self.anim.set(&key, 1.0);
+                            self.anim.set(SIDEBAR_KEY_BASE + idx as u64, 1.0);
                         } else {
-                            self.anim.set(&key, 0.0);
+                            self.anim.set(SIDEBAR_KEY_BASE + idx as u64, 0.0);
                         }
                     }
                     if let Some(win) = &self.window {
@@ -1316,55 +1364,54 @@ impl ApplicationHandler for SettingsApp {
                     let content_x = mx - SIDEBAR_W;
                     let content_y = my + self.scroll_y;
                     let content_w = WIN_W - SIDEBAR_W;
-                    let items = self.build_current_items();
-                    let mut item_y = CONTENT_START_Y;
                     let mut new_row: Option<usize> = None;
-                    let mut ri: usize = 0;
-                    for item in &items {
-                        if item.is_row() {
-                            if content_y >= item_y
-                                && content_y <= item_y + ROW_HEIGHT
-                                && content_x >= CONTENT_PADDING
-                                && content_x <= content_w - CONTENT_PADDING
-                            {
-                                new_row = Some(ri);
+                    self.ensure_items_cache();
+                    if content_x >= CONTENT_PADDING && content_x <= content_w - CONTENT_PADDING {
+                        let idx = match self
+                            .cached_row_tops
+                            .binary_search_by(|y| y.partial_cmp(&content_y).unwrap())
+                        {
+                            Ok(i) => Some(i),
+                            Err(0) => None,
+                            Err(i) => Some(i - 1),
+                        };
+                        if let Some(i) = idx {
+                            if content_y <= self.cached_row_tops[i] + ROW_HEIGHT {
+                                new_row = Some(i);
                             }
-                            ri += 1;
                         }
-                        item_y += item.height();
                     }
-                    self.total_rows = ri;
                     if new_row != self.hover_row {
                         if let Some(old) = self.hover_row {
-                            self.anim.set(&format!("hover_row_{}", old), 0.0);
+                            self.anim.set(HOVER_ROW_KEY_BASE + old as u64, 0.0);
                         }
                         if let Some(new) = new_row {
-                            self.anim.set(&format!("hover_row_{}", new), 1.0);
+                            self.anim.set(HOVER_ROW_KEY_BASE + new as u64, 1.0);
                         }
                         self.hover_row = new_row;
                     }
                 } else {
                     if self.hover_row.is_some() {
                         if let Some(old) = self.hover_row {
-                            self.anim.set(&format!("hover_row_{}", old), 0.0);
+                            self.anim.set(HOVER_ROW_KEY_BASE + old as u64, 0.0);
                         }
                         self.hover_row = None;
                     }
                 }
 
+                let cursor = if self.get_hover_state() {
+                    winit::window::CursorIcon::Pointer
+                } else {
+                    winit::window::CursorIcon::Default
+                };
                 if let Some(win) = &self.window {
-                    let cursor = if self.get_hover_state() {
-                        winit::window::CursorIcon::Pointer
-                    } else {
-                        winit::window::CursorIcon::Default
-                    };
                     win.set_cursor(cursor);
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 if self.popup.is_some() {
                     self.popup = None;
-                    self.anim.set_with_speed("popup_opacity", 0.0, 0.3);
+                    self.anim.set_with_speed(POPUP_OPACITY_KEY, 0.0, 0.3);
                     if let Some(win) = &self.window {
                         win.request_redraw();
                     }
@@ -1377,9 +1424,8 @@ impl ApplicationHandler for SettingsApp {
                         winit::event::MouseScrollDelta::PixelDelta(pos) => pos.y as f32,
                     };
                     self.target_scroll_y -= diff;
-                    let items = self.build_current_items();
-                    let ch = content_height(&items, CONTENT_START_Y);
-                    let max_scroll = (ch - WIN_H).max(0.0);
+                    self.ensure_items_cache();
+                    let max_scroll = self.cached_max_scroll;
                     self.target_scroll_y = self.target_scroll_y.clamp(0.0, max_scroll);
                     if let Some(win) = &self.window {
                         win.request_redraw();
@@ -1397,43 +1443,67 @@ impl ApplicationHandler for SettingsApp {
     }
 
     fn about_to_wait(&mut self, _el: &ActiveEventLoop) {
-        if let Some(win) = &self.window {
-            self.frame_count += 1;
-            if self.frame_count % 60 == 0 {
-                unsafe {
-                    let h = OpenMutexW(
-                        MUTEX_ALL_ACCESS,
-                        false,
-                        w!("Local\\WinIsland_SingleInstance_Mutex"),
-                    );
-                    if h.is_err() {
-                        _el.exit();
-                        return;
-                    }
-                    let _ = windows::Win32::Foundation::CloseHandle(h.unwrap());
+        if self.window.is_none() {
+            return;
+        }
+        let frame_start = Instant::now();
+        self.frame_count += 1;
+        if self.frame_count % 60 == 0 {
+            unsafe {
+                let h = OpenMutexW(
+                    MUTEX_ALL_ACCESS,
+                    false,
+                    w!("Local\\WinIsland_SingleInstance_Mutex"),
+                );
+                if h.is_err() {
+                    _el.exit();
+                    return;
                 }
+                let _ = windows::Win32::Foundation::CloseHandle(h.unwrap());
             }
-            let mut redraw = self.switch_anim.tick();
-            if self.anim.tick() {
-                redraw = true;
-            }
+        }
+        let mut redraw = self.switch_anim.tick();
+        if self.anim.tick() {
+            redraw = true;
+        }
 
-            let items = self.build_current_items();
-            let ch = content_height(&items, CONTENT_START_Y);
-            let view_h = WIN_H;
-            let max_scroll = (ch - view_h).max(0.0);
-            self.target_scroll_y = self.target_scroll_y.clamp(0.0, max_scroll);
-            if (self.target_scroll_y - self.scroll_y).abs() > 0.1 {
-                self.scroll_y += (self.target_scroll_y - self.scroll_y) * 0.28;
-                redraw = true;
-            } else if (self.scroll_y - self.target_scroll_y).abs() > f32::EPSILON {
-                self.scroll_y = self.target_scroll_y;
-            }
+        self.ensure_items_cache();
+        let max_scroll = self.cached_max_scroll;
+        self.target_scroll_y = self.target_scroll_y.clamp(0.0, max_scroll);
+        let dt = self.last_frame_time.elapsed().as_secs_f32().clamp(0.001, 0.05);
+        self.last_frame_time = Instant::now();
 
-            if redraw {
+        let stiffness = 55.0;
+        let damping = 16.0;
+        let diff = self.target_scroll_y - self.scroll_y;
+        let accel = diff * stiffness - self.scroll_vel_y * damping;
+        self.scroll_vel_y += accel * dt;
+        self.scroll_y += self.scroll_vel_y * dt;
+
+        if self.scroll_y < 0.0 {
+            self.scroll_y = 0.0;
+            self.scroll_vel_y = 0.0;
+        } else if self.scroll_y > max_scroll {
+            self.scroll_y = max_scroll;
+            self.scroll_vel_y = 0.0;
+        }
+
+        if diff.abs() > 0.05 || self.scroll_vel_y.abs() > 0.05 {
+            redraw = true;
+        } else if (self.scroll_y - self.target_scroll_y).abs() > f32::EPSILON {
+            self.scroll_y = self.target_scroll_y;
+            self.scroll_vel_y = 0.0;
+        }
+
+        if redraw {
+            if let Some(win) = &self.window {
                 win.request_redraw();
             }
-            std::thread::sleep(Duration::from_millis(16));
+            let target = Duration::from_millis(16);
+            let elapsed = frame_start.elapsed();
+            if elapsed < target {
+                std::thread::sleep(target - elapsed);
+            }
         }
     }
 }
