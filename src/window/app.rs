@@ -760,6 +760,7 @@ impl ApplicationHandler for App {
                 self.seeking_preview_ms = seek_ms;
                 window.request_redraw();
             } else if self.seeking_progress {
+                // Fallback: handle cases where mouse release isn't observed (e.g. released outside window)
                 self.seeking_progress = false;
                 if self.seeking_duration_ms > 0 {
                     self.smtc.request_seek(self.seeking_preview_ms);
