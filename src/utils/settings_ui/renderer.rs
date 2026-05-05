@@ -1,11 +1,10 @@
 use super::anim::SwitchAnimator;
 use super::items::*;
+use super::HOVER_ROW_KEY_BASE;
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
 use crate::utils::font::FontManager;
 use skia_safe::{Canvas, Color, FontStyle, Paint, Rect};
-
-const HOVER_ROW_KEY_BASE: u64 = 10_000;
 
 fn draw_switch(canvas: &Canvas, x: f32, y: f32, pos: f32, enabled: bool) {
     let mut paint = Paint::default();

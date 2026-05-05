@@ -27,9 +27,11 @@ const SIDEBAR_W: f32 = 180.0;
 const SIDEBAR_ROW_H: f32 = 32.0;
 const CONTENT_START_Y: f32 = 10.0;
 
+const SCROLL_STIFFNESS: f32 = 55.0;
+const SCROLL_DAMPING: f32 = 16.0;
+
 const POPUP_OPACITY_KEY: u64 = 1;
 const SIDEBAR_KEY_BASE: u64 = 1_000;
-const HOVER_ROW_KEY_BASE: u64 = 10_000;
 
 #[derive(Clone, PartialEq)]
 enum PopupKind {
@@ -1473,10 +1475,8 @@ impl ApplicationHandler for SettingsApp {
         let dt = self.last_frame_time.elapsed().as_secs_f32().clamp(0.001, 0.05);
         self.last_frame_time = Instant::now();
 
-        let stiffness = 55.0;
-        let damping = 16.0;
         let diff = self.target_scroll_y - self.scroll_y;
-        let accel = diff * stiffness - self.scroll_vel_y * damping;
+        let accel = diff * SCROLL_STIFFNESS - self.scroll_vel_y * SCROLL_DAMPING;
         self.scroll_vel_y += accel * dt;
         self.scroll_y += self.scroll_vel_y * dt;
 
