@@ -5,8 +5,8 @@ use crate::core::render::draw_island;
 use crate::core::smtc::SmtcListener;
 use crate::ui::expanded::main_view::{
     get_next_btn_rect, get_pause_btn_rect, get_prev_btn_rect, get_progress_bar_rect,
-    set_progress_hover, trigger_cover_flip, trigger_next_click, trigger_pause_click,
-    trigger_prev_click,
+    set_progress_dragging, set_progress_hover, trigger_cover_flip, trigger_next_click,
+    trigger_pause_click, trigger_prev_click,
 };
 use crate::utils::blur::calculate_blur_sigmas;
 use crate::utils::color::get_island_border_weights;
@@ -75,6 +75,7 @@ pub struct App {
     seeking_bar_left: f32,
     seeking_bar_right: f32,
     seeking_duration_ms: u64,
+    seeking_preview_ms: u64,
 }
 
 impl Default for App {
@@ -128,6 +129,7 @@ impl Default for App {
             seeking_bar_left: 0.0,
             seeking_bar_right: 0.0,
             seeking_duration_ms: 0,
+            seeking_preview_ms: 0,
         }
     }
 }
@@ -398,15 +400,18 @@ impl ApplicationHandler for App {
                                         {
                                             let ratio = ((cx - bar_left) / (bar_right - bar_left))
                                                 .clamp(0.0, 1.0);
-                                            let seek_ms = (ratio as f64
-                                                * media.duration_secs as f64
-                                                * 1000.0)
-                                                as u64;
-                                            self.smtc.request_seek(seek_ms);
+                                            let duration_ms = if media.duration_ms > 0 {
+                                                media.duration_ms
+                                            } else {
+                                                media.duration_secs * 1000
+                                            };
+                                            let seek_ms =
+                                                (ratio as f64 * duration_ms as f64) as u64;
                                             self.seeking_progress = true;
                                             self.seeking_bar_left = bar_left;
                                             self.seeking_bar_right = bar_right;
-                                            self.seeking_duration_ms = media.duration_secs * 1000;
+                                            self.seeking_duration_ms = duration_ms;
+                                            self.seeking_preview_ms = seek_ms;
                                             return;
                                         }
                                     }
@@ -462,6 +467,9 @@ impl ApplicationHandler for App {
                         } else if state == ElementState::Released {
                             if self.seeking_progress {
                                 self.seeking_progress = false;
+                                if self.seeking_duration_ms > 0 {
+                                    self.smtc.request_seek(self.seeking_preview_ms);
+                                }
                                 return;
                             }
                             if self.is_dragging {
@@ -512,6 +520,10 @@ impl ApplicationHandler for App {
                             } else {
                                 crate::core::smtc::MediaInfo::default()
                             };
+                            if self.seeking_progress && self.seeking_duration_ms > 0 {
+                                media_info.position_ms = self.seeking_preview_ms;
+                                media_info.last_update = Instant::now();
+                            }
                             media_info.spectrum = self.audio.get_spectrum();
                             let mut music_active = false;
                             if self.config.smtc_enabled && !media_info.title.is_empty() {
@@ -743,15 +755,20 @@ impl ApplicationHandler for App {
 
             // Handle dragging on the progress bar while mouse is held
             if self.seeking_progress && is_left_button_pressed() {
-                let click_x = rel_x as f32;
+                let page_shift = self.spring_view.value * self.spring_w.value;
+                let click_x = rel_x as f32 - page_shift;
                 let ratio = ((click_x - self.seeking_bar_left)
                     / (self.seeking_bar_right - self.seeking_bar_left))
                     .clamp(0.0, 1.0);
                 let seek_ms = (ratio as f64 * self.seeking_duration_ms as f64) as u64;
-                self.smtc.request_seek(seek_ms);
+                self.seeking_preview_ms = seek_ms;
                 window.request_redraw();
             } else if self.seeking_progress {
                 self.seeking_progress = false;
+                if self.seeking_duration_ms > 0 {
+                    self.smtc.request_seek(self.seeking_preview_ms);
+                    window.request_redraw();
+                }
             }
 
             let progress_hover_active = if self.seeking_progress {
@@ -780,6 +797,7 @@ impl ApplicationHandler for App {
                 false
             };
             set_progress_hover(progress_hover_active);
+            set_progress_dragging(self.seeking_progress);
 
             if self.is_dragging {
                 let diff_y = self.drag_start_py - py;
