@@ -26,6 +26,7 @@ thread_local! {
     static COVER_FLIP_ANIM: RefCell<Option<std::time::Instant>> = RefCell::new(None);
     static COVER_FLIP_OLD_IMG: RefCell<Option<Image>> = RefCell::new(None);
     static PROGRESS_HOVER: RefCell<(bool, f32)> = RefCell::new((false, 0.0));
+    static PROGRESS_DRAGGING: RefCell<bool> = RefCell::new(false);
 }
 
 pub fn trigger_pause_click(current_is_playing: bool) {
@@ -69,6 +70,12 @@ pub fn trigger_cover_flip() {
 pub fn set_progress_hover(active: bool) {
     PROGRESS_HOVER.with(|cell| {
         cell.borrow_mut().0 = active;
+    });
+}
+
+pub fn set_progress_dragging(active: bool) {
+    PROGRESS_DRAGGING.with(|cell| {
+        *cell.borrow_mut() = active;
     });
 }
 
@@ -417,13 +424,7 @@ pub fn draw_main_page(
         } else {
             media.position_ms
         };
-        let duration_ms = if media.duration_ms > 0 {
-            media.duration_ms
-        } else if media.duration_secs > 0 {
-            media.duration_secs * 1000
-        } else {
-            0
-        };
+        let duration_ms = media.effective_duration_ms();
         let current_pos_ms = if duration_ms > 0 {
             current_pos_ms.min(duration_ms)
         } else {
@@ -437,11 +438,16 @@ pub fn draw_main_page(
 
         let progress = PROGRESS_SMOOTH.with(|cell| {
             let mut smooth = cell.borrow_mut();
-            let diff = (raw_progress - *smooth).abs();
-            if diff > 0.3 {
+            let dragging = PROGRESS_DRAGGING.with(|d| *d.borrow());
+            if dragging {
                 *smooth = raw_progress;
             } else {
-                *smooth += (raw_progress - *smooth) * 0.15;
+                let diff = (raw_progress - *smooth).abs();
+                if diff > 0.3 {
+                    *smooth = raw_progress;
+                } else {
+                    *smooth += (raw_progress - *smooth) * 0.15;
+                }
             }
             *smooth
         });

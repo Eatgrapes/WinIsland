@@ -49,6 +49,16 @@ impl Default for MediaInfo {
 }
 
 impl MediaInfo {
+    pub fn effective_duration_ms(&self) -> u64 {
+        if self.duration_ms > 0 {
+            self.duration_ms
+        } else if self.duration_secs > 0 {
+            self.duration_secs * 1000
+        } else {
+            0
+        }
+    }
+
     pub fn current_lyric(&self, delay_ms: i64) -> Option<String> {
         let lyrics = self.lyrics.as_ref()?;
         if lyrics.is_empty() {
@@ -274,15 +284,20 @@ fn smtc_poll_loop(
             current_allowed_apps = apps;
         }
 
-        // Handle seek request
-        if let Ok(Some(seek_pos)) = seek_rx.try_recv().map(|v| Some(v)) {
+        // Handle seek request (keep only the latest)
+        let mut seek_pos = None;
+        while let Ok(v) = seek_rx.try_recv() {
+            seek_pos = Some(v);
+        }
+        if let Some(seek_pos) = seek_pos {
             if let Some(session) = get_target_session(&current_manager, &current_allowed_apps) {
                 let ticks = seek_pos as i64 * 10_000;
                 let _ = session.TryChangePlaybackPositionAsync(ticks);
                 let mut info = info_tx.borrow().clone();
                 info.position_ms = seek_pos;
                 info.last_update = Instant::now();
-                info.last_smtc_pos = seek_pos;
+                // Do not update last_smtc_pos here: SMTC timeline can lag after seek, and treating
+                // seek_pos as authoritative would make the next poll think SMTC changed and sync back.
                 let _ = info_tx.send(info);
             }
         }
