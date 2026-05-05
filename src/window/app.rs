@@ -23,6 +23,7 @@ use crate::window::tray::{TrayAction, TrayManager};
 use crate::utils::icon::get_app_icon;
 use crate::ui::expanded::main_view::{get_progress_bar_rect, get_pause_btn_rect, get_prev_btn_rect, get_next_btn_rect, trigger_pause_click, trigger_prev_click, trigger_next_click, trigger_cover_flip, set_progress_hover};
 use crate::utils::glass::set_glass_hwnd;
+use crate::plugins::manager::PluginManager;
 
 pub struct App {
     window: Option<Arc<Window>>,
@@ -31,6 +32,7 @@ pub struct App {
     smtc: SmtcListener,
     audio: AudioProcessor,
     config: AppConfig,
+    plugin_manager: Option<Arc<PluginManager>>,
     expanded: bool,
     widget_view: bool,
     visible: bool,
@@ -68,6 +70,8 @@ pub struct App {
     seeking_bar_left: f32,
     seeking_bar_right: f32,
     seeking_duration_ms: u64,
+    invalid_plugin_warning: Option<String>,
+    invalid_plugin_timer: Instant,
 }
 
 impl Default for App {
@@ -78,6 +82,7 @@ impl Default for App {
             surface: None,
             tray: None,
             config: config.clone(),
+            plugin_manager: None,
             expanded: false,
             widget_view: false,
             visible: true,
@@ -117,11 +122,73 @@ impl Default for App {
             seeking_bar_left: 0.0,
             seeking_bar_right: 0.0,
             seeking_duration_ms: 0,
+            invalid_plugin_warning: None,
+            invalid_plugin_timer: Instant::now(),
         }
     }
 }
 
 impl App {
+    pub fn new(plugin_manager: Arc<PluginManager>) -> Self {
+        Self {
+            plugin_manager: Some(plugin_manager),
+            ..Self::default()
+        }
+    }
+
+    fn check_invalid_plugins(&mut self) {
+        let plugins_path = dirs::data_local_dir()
+            .map(|p| p.join("WinIsland").join("plugins"))
+            .unwrap_or_else(|| std::path::PathBuf::from("plugins"));
+
+        let mut found_invalid = false;
+
+        if let Ok(entries) = std::fs::read_dir(&plugins_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && path.extension().map(|e| e == "zip").unwrap_or(false) {
+                    if let Some(name) = path.file_stem() {
+                        if let Ok(file) = std::fs::File::open(&path) {
+                            if let Ok(mut archive) = zip::ZipArchive::new(file) {
+                                let mut has_main_js = false;
+                                let mut has_desc_json = false;
+
+                                for i in 0..archive.len() {
+                                    if let Ok(file) = archive.by_index(i) {
+                                        let file_name = file.name().to_string();
+                                        if file_name == "desc.json" {
+                                            has_desc_json = true;
+                                        } else if file_name == "main.js" {
+                                            has_main_js = true;
+                                        }
+                                    }
+                                }
+
+                                if !has_main_js || !has_desc_json {
+                                    found_invalid = true;
+                                    let invalid_name = name.to_string_lossy().to_string();
+                                    if self.invalid_plugin_warning.is_none() {
+                                        self.invalid_plugin_warning = Some(invalid_name);
+                                        self.invalid_plugin_timer = Instant::now();
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if !found_invalid {
+            if let Some(ref _warn) = self.invalid_plugin_warning {
+                if self.invalid_plugin_timer.elapsed().as_secs() >= 5 {
+                    self.invalid_plugin_warning = None;
+                }
+            }
+        }
+    }
+
     fn get_target_monitor(window: &Window, monitor_index: i32) -> Option<winit::monitor::MonitorHandle> {
         if monitor_index <= 0 {
             return window.primary_monitor().or_else(|| window.current_monitor());
@@ -473,6 +540,7 @@ impl ApplicationHandler for App {
                                 self.win_x,
                                 self.win_y,
                                 self.config.font_size,
+                                self.invalid_plugin_warning.as_deref(),
                             );
                         }
                     }
@@ -850,6 +918,20 @@ impl ApplicationHandler for App {
             if self.expanded || music_active || self.spring_w.velocity.abs() > 0.001 || self.spring_h.velocity.abs() > 0.001 || self.spring_r.velocity.abs() > 0.001 || self.spring_view.velocity.abs() > 0.001 {
                 window.request_redraw();
             }
+
+            if let Some(ref pm) = self.plugin_manager {
+                pm.call_on_tick(dt);
+                pm.call_on_audio_spectrum(self.audio.get_spectrum());
+                if media.title != self.last_media_title {
+                    pm.call_on_media_change(&media);
+                }
+                if self.last_media_playing != media.is_playing {
+                    pm.call_on_playback_state_change(media.is_playing);
+                }
+            }
+
+            self.check_invalid_plugins();
+
             let elapsed = frame_start.elapsed();
             let target_frame_time = Duration::from_micros(6944);
             if elapsed < target_frame_time {

@@ -369,6 +369,42 @@ pub fn draw_items(canvas: &Canvas, items: &[SettingsItem], start_y: f32, width: 
                 }
                 row_idx += 1;
             }
+            SettingsItem::RowPluginItem { name, version, author, description } => {
+                draw_row_hover(canvas, y, content_w, row_idx, in_group, hover_anims);
+                let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
+
+                paint.set_color(COLOR_TEXT_PRI);
+                fm.draw_text(canvas, name, (row_x, y + 18.0), 14.0, false, &paint);
+
+                let version_author = format!("{} · {}", version, author);
+                paint.set_color(COLOR_TEXT_SEC);
+                fm.draw_text(canvas, &version_author, (row_x, y + 38.0), 12.0, false, &paint);
+
+                let max_desc_w = content_w - GROUP_INNER_PAD * 2.0;
+                let display_desc = truncate_text(fm, description, 12.0, max_desc_w);
+                paint.set_color(COLOR_TEXT_SEC);
+                fm.draw_text(canvas, &display_desc, (row_x, y + 58.0), 12.0, false, &paint);
+
+                if in_group {
+                    group_current_row += 1;
+                    if group_current_row < group_row_count {
+                        let mut sep = Paint::default();
+                        sep.set_anti_alias(true);
+                        sep.set_color(color_separator());
+                        sep.set_stroke_width(0.5);
+                        sep.set_style(skia_safe::paint::Style::Stroke);
+                        canvas.draw_line((row_x, y + 80.0), (CONTENT_PADDING + content_w - GROUP_INNER_PAD, y + 80.0), &sep);
+                    }
+                }
+                row_idx += 1;
+            }
+            SettingsItem::RowPluginAction { label, color } => {
+                draw_row_hover(canvas, y, content_w, row_idx, in_group, hover_anims);
+                let cy = y + ROW_HEIGHT / 2.0;
+                paint.set_color(*color);
+                fm.draw_text_centered(canvas, label, width / 2.0, cy + 5.0, 13.0, false, &paint);
+                row_idx += 1;
+            }
             SettingsItem::CenterLink { label, color } => {
                 paint.set_color(*color);
                 fm.draw_text_centered(canvas, label, width / 2.0, y + 24.0, 13.0, false, &paint);

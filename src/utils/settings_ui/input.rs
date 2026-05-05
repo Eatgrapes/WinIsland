@@ -11,6 +11,7 @@ pub enum ClickResult {
     CenterLink(usize),
     SourceButton(usize),
     AppItem(usize),
+    PluginAction(usize),
 }
 
 fn in_rect(mx: f32, my: f32, x: f32, y: f32, w: f32, h: f32) -> bool {
@@ -85,6 +86,13 @@ pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f
                     && my >= y && my <= y + 40.0
                 {
                     return ClickResult::CenterLink(idx);
+                }
+            }
+            SettingsItem::RowPluginAction { .. } => {
+                if mx >= width / 2.0 - 100.0 && mx <= width / 2.0 + 100.0
+                    && my >= y && my <= y + ROW_HEIGHT
+                {
+                    return ClickResult::PluginAction(idx);
                 }
             }
             _ => {}

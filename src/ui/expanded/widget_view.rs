@@ -1,10 +1,31 @@
-use skia_safe::{Canvas, Color, Paint};
+use skia_safe::{Canvas, Color, Paint, Rect, RRect, ClipOp};
 use crate::icons::arrows::draw_arrow_left;
+use crate::utils::font::FontManager;
 
-pub fn draw_widget_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: u8, scale: f32) {
+pub fn draw_widget_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: u8, scale: f32, invalid_plugin_name: Option<&str>) {
     let arrow_alpha = alpha;
     if arrow_alpha > 0 {
         draw_arrow_left(canvas, ox + 12.0 * scale, oy + h / 2.0, arrow_alpha, scale);
+    }
+
+    if let Some(plugin_name) = invalid_plugin_name {
+        let bar_h = 28.0 * scale;
+        let bar_rect = Rect::from_xywh(ox, oy, w, bar_h);
+        let mut bg_paint = Paint::default();
+        bg_paint.set_anti_alias(true);
+        bg_paint.set_color(Color::from_argb((alpha as f32 * 0.9) as u8, 255, 120, 50));
+        let rrect = RRect::new_rect_xy(bar_rect, 0.0, 0.0);
+        canvas.save();
+        canvas.clip_rrect(rrect, ClipOp::Intersect, true);
+        canvas.draw_rect(bar_rect, &bg_paint);
+
+        let warn_text = format!("⚠ {} 无效", plugin_name);
+        let font_sz = 11.0 * scale;
+        let mut text_paint = Paint::default();
+        text_paint.set_anti_alias(true);
+        text_paint.set_color(Color::from_argb(alpha, 255, 255, 255));
+        FontManager::global().draw_text_centered(canvas, &warn_text, ox + w / 2.0, oy + bar_h / 2.0 + font_sz / 3.0, font_sz, false, &text_paint);
+        canvas.restore();
     }
 
     if alpha > 30 {

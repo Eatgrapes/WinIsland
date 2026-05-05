@@ -37,6 +37,7 @@ pub fn draw_island(
     win_x: i32,
     win_y: i32,
     font_size: f32,
+    invalid_plugin_warning: Option<&str>,
 ) {
     let mut buffer = surface.buffer_mut().unwrap();
     let mut sk_surface = SK_SURFACE.with(|cell| {
@@ -108,7 +109,7 @@ pub fn draw_island(
 
         canvas.save();
         canvas.translate((current_w - page_shift, 0.0));
-        draw_widget_page(canvas, offset_x, offset_y, current_w, current_h, alpha, global_scale);
+        draw_widget_page(canvas, offset_x, offset_y, current_w, current_h, alpha, global_scale, invalid_plugin_warning);
         canvas.restore();
 
         if blur_filter.is_some() { canvas.restore(); }

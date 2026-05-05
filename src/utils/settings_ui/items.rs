@@ -60,6 +60,18 @@ pub enum SettingsItem {
     RowLabel {
         label: String,
     },
+    RowPluginItem {
+        name: String,
+        version: String,
+        author: String,
+        description: String,
+        enabled: bool,
+        has_settings: bool,
+    },
+    RowPluginAction {
+        label: String,
+        color: Color,
+    },
     CenterLink {
         label: String,
         color: Color,
@@ -83,6 +95,7 @@ impl SettingsItem {
             SettingsItem::CenterLink { .. } => 40.0,
             SettingsItem::CenterText { .. } => 35.0,
             SettingsItem::Spacer { height } => *height,
+            SettingsItem::RowPluginItem { .. } => 80.0,
             _ => ROW_HEIGHT,
         }
     }
@@ -94,7 +107,9 @@ impl SettingsItem {
             SettingsItem::RowFontPicker { .. } |
             SettingsItem::RowSourceSelect { .. } |
             SettingsItem::RowAppItem { .. } |
-            SettingsItem::RowLabel { .. }
+            SettingsItem::RowLabel { .. } |
+            SettingsItem::RowPluginItem { .. } |
+            SettingsItem::RowPluginAction { .. }
         )
     }
 }

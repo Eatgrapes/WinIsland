@@ -10,6 +10,8 @@ use skia_safe::{surfaces, Color, Paint, Rect};
 use softbuffer::{Context, Surface};
 use std::sync::Arc;
 use std::time::Duration;
+use std::path::PathBuf;
+use dirs;
 use windows::core::w;
 use windows::Win32::System::Threading::{OpenMutexW, MUTEX_ALL_ACCESS};
 use winit::application::ApplicationHandler;
@@ -94,6 +96,25 @@ pub struct SettingsApp {
     popup: Option<PopupState>,
     hover_row: Option<usize>,
     total_rows: usize,
+    plugins: Vec<PluginInfo>,
+}
+
+pub struct PluginInfo {
+    pub name: String,
+    pub version: String,
+    pub author: String,
+    pub description: String,
+    pub file_name: String,
+    pub has_settings: bool,
+    pub enabled: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct PluginDesc {
+    name: Option<String>,
+    version: Option<String>,
+    author: Option<String>,
+    description: Option<String>,
 }
 
 impl SettingsApp {
@@ -109,6 +130,7 @@ impl SettingsApp {
             config.lyrics_fallback,
             config.lyrics_scroll,
         ]);
+        let plugins = Self::load_plugins();
         Self {
             window: None,
             surface: None,
@@ -126,7 +148,91 @@ impl SettingsApp {
             popup: None,
             hover_row: None,
             total_rows: 0,
+            plugins,
         }
+    }
+
+    fn load_plugins() -> Vec<PluginInfo> {
+        let mut plugins = Vec::new();
+        let plugins_path = dirs::data_local_dir()
+            .map(|p| p.join("WinIsland").join("plugins"))
+            .unwrap_or_else(|| PathBuf::from("plugins"));
+
+        if let Ok(entries) = std::fs::read_dir(&plugins_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && path.extension().map(|e| e == "zip").unwrap_or(false) {
+                    if let Some(name) = path.file_stem() {
+                        let file_name = path.file_name().unwrap().to_string_lossy().to_string();
+                        if let Ok(file) = std::fs::File::open(&path) {
+                            if let Ok(mut archive) = zip::ZipArchive::new(file) {
+                                let mut has_main_js = false;
+                                let mut has_desc_json = false;
+                                let mut has_settings_js = false;
+
+                                for i in 0..archive.len() {
+                                    if let Ok(file) = archive.by_index(i) {
+                                        let file_name = file.name().to_string();
+                                        if file_name == "desc.json" {
+                                            has_desc_json = true;
+                                        } else if file_name == "main.js" {
+                                            has_main_js = true;
+                                        } else if file_name == "settings.js" {
+                                            has_settings_js = true;
+                                        }
+                                    }
+                                }
+
+                                if has_main_js && has_desc_json {
+                                    if let Ok(mut desc_file) = archive.by_name("desc.json") {
+                                        use std::io::Read;
+                                        let mut contents = String::new();
+                                        if desc_file.read_to_string(&mut contents).is_ok() {
+                                            if let Ok(desc) = serde_json::from_str::<PluginDesc>(&contents) {
+                                                plugins.push(PluginInfo {
+                                                    name: desc.name.unwrap_or_else(|| name.to_string_lossy().to_string()),
+                                                    version: desc.version.unwrap_or_else(|| "Unknown".to_string()),
+                                                    author: desc.author.unwrap_or_else(|| "Unknown".to_string()),
+                                                    description: desc.description.unwrap_or_else(|| "No description".to_string()),
+                                                    file_name,
+                                                    has_settings: has_settings_js,
+                                                    enabled: true,
+                                                });
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                plugins.push(PluginInfo {
+                                    name: name.to_string_lossy().to_string(),
+                                    version: "Invalid".to_string(),
+                                    author: "Unknown".to_string(),
+                                    description: "Missing desc.json or main.js".to_string(),
+                                    file_name,
+                                    has_settings: has_settings_js,
+                                    enabled: true,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if plugins.is_empty() {
+            plugins.push(PluginInfo {
+                name: "No Plugins".to_string(),
+                version: "".to_string(),
+                author: "".to_string(),
+                description: "Click 'Load Plugin (ZIP)' to add plugins.".to_string(),
+                file_name: String::new(),
+                has_settings: false,
+                enabled: false,
+            });
+        }
+
+        plugins
     }
 
     fn build_general_items(&self) -> Vec<SettingsItem> {
@@ -264,11 +370,43 @@ impl SettingsApp {
         ]
     }
 
+    fn build_plugins_items(&self) -> Vec<SettingsItem> {
+        let mut items = vec![
+            SettingsItem::PageTitle { text: tr("tab_plugins") },
+            SettingsItem::SectionHeader { label: tr("section_plugins") },
+            SettingsItem::GroupStart,
+        ];
+
+        if self.plugins.is_empty() {
+            items.push(SettingsItem::RowLabel { label: tr("plugins_no_plugins") });
+        } else {
+            for plugin in &self.plugins {
+                items.push(SettingsItem::RowPluginItem {
+                    name: plugin.name.clone(),
+                    version: plugin.version.clone(),
+                    author: plugin.author.clone(),
+                    description: plugin.description.clone(),
+                    enabled: plugin.enabled,
+                    has_settings: plugin.has_settings,
+                });
+            }
+        }
+
+        items.push(SettingsItem::GroupEnd);
+        items.push(SettingsItem::Spacer { height: 10.0 });
+        items.push(SettingsItem::RowPluginAction {
+            label: tr("plugin_load"),
+            color: COLOR_ACCENT,
+        });
+        items
+    }
+
     fn build_current_items(&self) -> Vec<SettingsItem> {
         match self.active_page {
             0 => self.build_general_items(),
             1 => self.build_music_items(),
-            2 => self.build_about_items(),
+            2 => self.build_plugins_items(),
+            3 => self.build_about_items(),
             _ => vec![],
         }
     }
@@ -436,7 +574,7 @@ impl SettingsApp {
         sep.set_style(skia_safe::paint::Style::Stroke);
         canvas.draw_line((SIDEBAR_W, 0.0), (SIDEBAR_W, WIN_H), &sep);
 
-        let pages = [tr("tab_general"), tr("tab_music"), tr("tab_about")];
+        let pages = [tr("tab_general"), tr("tab_music"), tr("tab_plugins"), tr("tab_about")];
         let start_y = 20.0;
 
         for (i, label) in pages.iter().enumerate() {
@@ -591,7 +729,7 @@ impl SettingsApp {
         }
 
         if mx < SIDEBAR_W {
-            let pages = 3;
+            let pages = 4;
             let start_y = 20.0;
             for i in 0..pages {
                 let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
@@ -616,7 +754,8 @@ impl SettingsApp {
         match self.active_page {
             0 => self.handle_general_click(&items, content_x, content_y, content_w),
             1 => self.handle_music_click(&items, content_x, content_y, content_w),
-            2 => self.handle_about_click(&items, content_x, content_y, content_w),
+            2 => self.handle_plugins_click(&items, content_x, content_y, content_w),
+            3 => self.handle_about_click(&items, content_x, content_y, content_w),
             _ => {}
         }
     }
@@ -848,6 +987,28 @@ impl SettingsApp {
         }
     }
 
+    fn handle_plugins_click(&mut self, items: &[SettingsItem], mx: f32, my: f32, width: f32) {
+        let result = hit_test(items, mx, my, CONTENT_START_Y, width);
+        match result {
+            ClickResult::PluginAction(_) => {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Plugin Archive", &["zip"])
+                    .pick_file()
+                {
+                    let plugins_dir = dirs::data_local_dir()
+                        .map(|p| p.join("WinIsland").join("plugins"))
+                        .unwrap_or_else(|| PathBuf::from("plugins"));
+                    let _ = std::fs::create_dir_all(&plugins_dir);
+                    let dest = plugins_dir.join(path.file_name().unwrap());
+                    let _ = std::fs::copy(&path, &dest);
+                    self.plugins = Self::load_plugins();
+                    if let Some(win) = &self.window { win.request_redraw(); }
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn handle_about_click(&mut self, items: &[SettingsItem], mx: f32, my: f32, width: f32) {
         let result = hit_test(items, mx, my, CONTENT_START_Y, width);
         if let ClickResult::CenterLink(_) = result {
@@ -867,7 +1028,7 @@ impl SettingsApp {
 
         if mx < SIDEBAR_W {
             let start_y = 20.0;
-            for i in 0..3 {
+            for i in 0..4 {
                 let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
                 if my >= row_y && my <= row_y + SIDEBAR_ROW_H && mx >= SIDEBAR_PAD && mx <= SIDEBAR_W - SIDEBAR_PAD {
                     return true;
