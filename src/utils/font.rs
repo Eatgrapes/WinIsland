@@ -133,21 +133,6 @@ impl FontManager {
         canvas.draw_str(text, pos, &font, paint);
     }
 
-    pub fn draw_text_centered(
-        &self,
-        canvas: &Canvas,
-        text: &str,
-        center_x: f32,
-        y: f32,
-        size: f32,
-        bold: bool,
-        paint: &Paint,
-    ) {
-        let font = self.get_font(size, bold);
-        let (_, rect) = font.measure_str(text, None);
-        canvas.draw_str(text, (center_x - rect.width() / 2.0, y), &font, paint);
-    }
-
     pub fn draw_text_in_rect(
         &self,
         canvas: &Canvas,
