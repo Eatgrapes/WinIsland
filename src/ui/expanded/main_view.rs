@@ -424,13 +424,7 @@ pub fn draw_main_page(
         } else {
             media.position_ms
         };
-        let duration_ms = if media.duration_ms > 0 {
-            media.duration_ms
-        } else if media.duration_secs > 0 {
-            media.duration_secs * 1000
-        } else {
-            0
-        };
+        let duration_ms = media.effective_duration_ms();
         let current_pos_ms = if duration_ms > 0 {
             current_pos_ms.min(duration_ms)
         } else {

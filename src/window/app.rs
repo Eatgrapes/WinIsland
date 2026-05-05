@@ -400,11 +400,7 @@ impl ApplicationHandler for App {
                                         {
                                             let ratio = ((cx - bar_left) / (bar_right - bar_left))
                                                 .clamp(0.0, 1.0);
-                                            let duration_ms = if media.duration_ms > 0 {
-                                                media.duration_ms
-                                            } else {
-                                                media.duration_secs * 1000
-                                            };
+                                            let duration_ms = media.effective_duration_ms();
                                             let seek_ms =
                                                 (ratio as f64 * duration_ms as f64) as u64;
                                             self.seeking_progress = true;

@@ -49,6 +49,16 @@ impl Default for MediaInfo {
 }
 
 impl MediaInfo {
+    pub fn effective_duration_ms(&self) -> u64 {
+        if self.duration_ms > 0 {
+            self.duration_ms
+        } else if self.duration_secs > 0 {
+            self.duration_secs * 1000
+        } else {
+            0
+        }
+    }
+
     pub fn current_lyric(&self, delay_ms: i64) -> Option<String> {
         let lyrics = self.lyrics.as_ref()?;
         if lyrics.is_empty() {
