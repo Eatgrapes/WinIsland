@@ -206,7 +206,7 @@ impl ApplicationHandler for App {
                             style & !(WS_MAXIMIZEBOX.0 as isize | WS_THICKFRAME.0 as isize),
                         );
                     }
-                    set_glass_hwnd(win32_handle.hwnd.get() as isize);
+                    set_glass_hwnd(win32_handle.hwnd.get());
                 }
             }
 
