@@ -14,6 +14,10 @@ pub const TOGGLE_KNOB: f32 = 18.0;
 pub const TOGGLE_INSET: f32 = 2.0;
 
 pub const STEPPER_BTN_SIZE: f32 = 24.0;
+pub const STEPPER_SLIDER_H: f32 = 4.0;
+pub const STEPPER_SLIDER_R: f32 = 2.0;
+pub const STEPPER_SLIDER_KNOB_R: f32 = 7.0;
+pub const STEPPER_SLIDER_BOTTOM_PAD: f32 = 6.0;
 
 pub const POPUP_BTN_W: f32 = 80.0;
 pub const POPUP_BTN_H: f32 = 26.0;
@@ -21,6 +25,14 @@ pub const POPUP_BTN_R: f32 = 6.0;
 pub const POPUP_ITEM_H: f32 = 28.0;
 pub const POPUP_MENU_R: f32 = 8.0;
 pub const POPUP_MENU_PAD: f32 = 4.0;
+
+#[derive(Clone, Copy, Debug)]
+pub struct SliderSpec {
+    pub min: f32,
+    pub max: f32,
+    pub value: f32,
+    pub step: f32,
+}
 
 pub enum SettingsItem {
     PageTitle {
@@ -35,6 +47,7 @@ pub enum SettingsItem {
         label: String,
         value: String,
         enabled: bool,
+        slider: Option<SliderSpec>,
     },
     RowSwitch {
         label: String,

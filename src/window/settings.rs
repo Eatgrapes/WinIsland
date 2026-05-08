@@ -80,6 +80,22 @@ impl PopupState {
     }
 }
 
+#[derive(Clone, Copy)]
+struct StepperSliderSpec {
+    spec: SliderSpec,
+    track_x: f32,
+    track_w: f32,
+}
+
+struct StepperSliderDrag {
+    page: usize,
+    label: String,
+    spec: StepperSliderSpec,
+    changed: bool,
+    pending_save: bool,
+    last_save: Instant,
+}
+
 pub struct SettingsApp {
     window: Option<Arc<Window>>,
     surface: Option<Surface<Arc<Window>, Arc<Window>>>,
@@ -103,6 +119,7 @@ pub struct SettingsApp {
     cached_content_height: f32,
     cached_max_scroll: f32,
     cached_row_tops: Vec<f32>,
+    stepper_slider_drag: Option<StepperSliderDrag>,
 }
 
 impl SettingsApp {
@@ -141,6 +158,138 @@ impl SettingsApp {
             cached_content_height: 0.0,
             cached_max_scroll: 0.0,
             cached_row_tops: Vec::new(),
+            stepper_slider_drag: None,
+        }
+    }
+
+    fn quantize_slider_value(v: f32, step: f32) -> f32 {
+        if step > 0.0 {
+            (v / step).round() * step
+        } else {
+            v
+        }
+    }
+
+    fn apply_stepper_slider_value(&mut self, page: usize, label: &str, spec: SliderSpec, t: f32) -> bool {
+        let raw = spec.min + (spec.max - spec.min) * t.clamp(0.0, 1.0);
+        let mut v = Self::quantize_slider_value(raw, spec.step).clamp(spec.min, spec.max);
+
+        if page == 0 {
+            if label == tr("global_scale") {
+                v = (v * 100.0).round() / 100.0;
+                if (self.config.global_scale - v).abs() > 0.0001 {
+                    self.config.global_scale = v;
+                    return true;
+                }
+            } else if label == tr("base_width") {
+                if (self.config.base_width - v).abs() > 0.0001 {
+                    self.config.base_width = v;
+                    return true;
+                }
+            } else if label == tr("base_height") {
+                if (self.config.base_height - v).abs() > 0.0001 {
+                    self.config.base_height = v;
+                    return true;
+                }
+            } else if label == tr("expanded_width") {
+                if (self.config.expanded_width - v).abs() > 0.0001 {
+                    self.config.expanded_width = v;
+                    return true;
+                }
+            } else if label == tr("expanded_height") {
+                if (self.config.expanded_height - v).abs() > 0.0001 {
+                    self.config.expanded_height = v;
+                    return true;
+                }
+            } else if label == tr("position_x_offset") {
+                let vi = v.round() as i32;
+                if self.config.position_x_offset != vi {
+                    self.config.position_x_offset = vi;
+                    return true;
+                }
+            } else if label == tr("position_y_offset") {
+                let vi = v.round() as i32;
+                if self.config.position_y_offset != vi {
+                    self.config.position_y_offset = vi;
+                    return true;
+                }
+            } else if label == tr("font_size") {
+                v = v.round();
+                if (self.config.font_size - v).abs() > 0.0001 {
+                    self.config.font_size = v;
+                    return true;
+                }
+            } else if label == tr("hide_delay") {
+                v = v.round();
+                if (self.config.auto_hide_delay - v).abs() > 0.0001 {
+                    self.config.auto_hide_delay = v;
+                    return true;
+                }
+            } else if label == tr("update_interval") {
+                v = v.round();
+                if (self.config.update_check_interval - v).abs() > 0.0001 {
+                    self.config.update_check_interval = v;
+                    return true;
+                }
+            }
+        } else if page == 1 {
+            if label == tr("lyrics_delay") {
+                v = (v * 10.0).round() / 10.0;
+                let vf = v as f64;
+                if (self.config.lyrics_delay - vf).abs() > 0.0001 {
+                    self.config.lyrics_delay = vf;
+                    return true;
+                }
+            } else if label == tr("lyrics_scroll_max_width") {
+                v = v.round();
+                if (self.config.lyrics_scroll_max_width - v).abs() > 0.0001 {
+                    self.config.lyrics_scroll_max_width = v;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn end_stepper_slider_drag(&mut self) {
+        if let Some(drag) = &self.stepper_slider_drag {
+            if drag.pending_save {
+                save_config(&self.config);
+                self.items_dirty = true;
+            }
+        }
+        self.stepper_slider_drag = None;
+        if let Some(win) = &self.window {
+            win.request_redraw();
+        }
+    }
+
+    fn sync_stepper_slider_anims(&mut self, slider_key_base: u64) {
+        for (i, item) in self.cached_items.iter().enumerate() {
+            if let SettingsItem::RowStepper {
+                label,
+                enabled,
+                slider: Some(spec),
+                ..
+            } = item
+            {
+                if !*enabled {
+                    continue;
+                }
+                let denom = (spec.max - spec.min).max(f32::EPSILON);
+                let t = ((spec.value - spec.min) / denom).clamp(0.0, 1.0);
+                let key = slider_key_base + i as u64;
+                let speed = if self
+                    .stepper_slider_drag
+                    .as_ref()
+                    .is_some_and(|d| d.label == *label)
+                {
+                    1.0
+                } else {
+                    0.22
+                };
+                self.anim.set_with_speed_init(key, t, speed);
+            }
         }
     }
 
@@ -157,41 +306,89 @@ impl SettingsApp {
                 label: tr("global_scale"),
                 value: format!("{:.2}", self.config.global_scale),
                 enabled: true,
+                slider: Some(SliderSpec {
+                    min: 0.5,
+                    max: 5.0,
+                    value: self.config.global_scale,
+                    step: 0.01,
+                }),
             },
             SettingsItem::RowStepper {
                 label: tr("base_width"),
                 value: self.config.base_width.to_string(),
                 enabled: true,
+                slider: Some(SliderSpec {
+                    min: 60.0,
+                    max: 600.0,
+                    value: self.config.base_width,
+                    step: 1.0,
+                }),
             },
             SettingsItem::RowStepper {
                 label: tr("base_height"),
                 value: self.config.base_height.to_string(),
                 enabled: true,
+                slider: Some(SliderSpec {
+                    min: 20.0,
+                    max: 200.0,
+                    value: self.config.base_height,
+                    step: 1.0,
+                }),
             },
             SettingsItem::RowStepper {
                 label: tr("expanded_width"),
                 value: self.config.expanded_width.to_string(),
                 enabled: true,
+                slider: Some(SliderSpec {
+                    min: 200.0,
+                    max: 1200.0,
+                    value: self.config.expanded_width,
+                    step: 1.0,
+                }),
             },
             SettingsItem::RowStepper {
                 label: tr("expanded_height"),
                 value: self.config.expanded_height.to_string(),
                 enabled: true,
+                slider: Some(SliderSpec {
+                    min: 100.0,
+                    max: 900.0,
+                    value: self.config.expanded_height,
+                    step: 1.0,
+                }),
             },
             SettingsItem::RowStepper {
                 label: tr("position_x_offset"),
                 value: self.config.position_x_offset.to_string(),
                 enabled: true,
+                slider: Some(SliderSpec {
+                    min: -500.0,
+                    max: 500.0,
+                    value: self.config.position_x_offset as f32,
+                    step: 1.0,
+                }),
             },
             SettingsItem::RowStepper {
                 label: tr("position_y_offset"),
                 value: self.config.position_y_offset.to_string(),
                 enabled: true,
+                slider: Some(SliderSpec {
+                    min: -500.0,
+                    max: 500.0,
+                    value: self.config.position_y_offset as f32,
+                    step: 1.0,
+                }),
             },
             SettingsItem::RowStepper {
                 label: tr("font_size"),
                 value: format!("{:.0}", self.config.font_size),
                 enabled: true,
+                slider: Some(SliderSpec {
+                    min: 0.0,
+                    max: 30.0,
+                    value: self.config.font_size,
+                    step: 1.0,
+                }),
             },
         ];
         {
@@ -261,6 +458,12 @@ impl SettingsApp {
                 label: tr("hide_delay"),
                 value: format!("{:.0}", self.config.auto_hide_delay),
                 enabled: true,
+                slider: Some(SliderSpec {
+                    min: 1.0,
+                    max: 60.0,
+                    value: self.config.auto_hide_delay,
+                    step: 1.0,
+                }),
             });
         }
         items.push(SettingsItem::RowSourceSelect {
@@ -287,6 +490,12 @@ impl SettingsApp {
                 label: tr("update_interval"),
                 value: format!("{:.0}", self.config.update_check_interval),
                 enabled: true,
+                slider: Some(SliderSpec {
+                    min: 1.0,
+                    max: 24.0,
+                    value: self.config.update_check_interval,
+                    step: 1.0,
+                }),
             });
         }
         items.push(SettingsItem::GroupEnd);
@@ -348,6 +557,12 @@ impl SettingsApp {
                 label: tr("lyrics_delay"),
                 value: format!("{:.1}", self.config.lyrics_delay),
                 enabled: show_lyrics,
+                slider: Some(SliderSpec {
+                    min: -10.0,
+                    max: 10.0,
+                    value: self.config.lyrics_delay as f32,
+                    step: 0.1,
+                }),
             },
             SettingsItem::RowSwitch {
                 label: tr("lyrics_scroll"),
@@ -362,6 +577,12 @@ impl SettingsApp {
                 label: tr("lyrics_scroll_max_width"),
                 value: format!("{}", self.config.lyrics_scroll_max_width as i32),
                 enabled: show_lyrics && self.config.lyrics_scroll,
+                slider: Some(SliderSpec {
+                    min: 100.0,
+                    max: 500.0,
+                    value: self.config.lyrics_scroll_max_width,
+                    step: 1.0,
+                }),
             },
             SettingsItem::GroupEnd,
             SettingsItem::SectionHeader {
@@ -567,6 +788,8 @@ impl SettingsApp {
             return;
         }
         self.ensure_items_cache();
+        let slider_key_base = SLIDER_KEY_BASE + self.active_page as u64 * 100_000;
+        self.sync_stepper_slider_anims(slider_key_base);
         let anim = self.get_page_anim();
         let mut surface = match self.surface.take() {
             Some(s) => s,
@@ -609,6 +832,7 @@ impl SettingsApp {
                 content_w,
                 &anim,
                 &self.anim,
+                slider_key_base,
                 self.scroll_y,
                 self.scroll_y + WIN_H,
             );
@@ -903,6 +1127,47 @@ impl SettingsApp {
         let mut changed = false;
 
         match result {
+            ClickResult::StepperSlider {
+                idx,
+                track_x,
+                track_w,
+                t,
+            } => {
+                if let Some(SettingsItem::RowStepper {
+                    label,
+                    enabled,
+                    slider: Some(spec),
+                    ..
+                }) = items.get(idx)
+                {
+                    if *enabled {
+                        let spec = StepperSliderSpec {
+                            spec: *spec,
+                            track_x,
+                            track_w,
+                        };
+                        let did = self.apply_stepper_slider_value(0, label, spec.spec, t);
+                        if did {
+                            save_config(&self.config);
+                        }
+                        self.stepper_slider_drag = Some(StepperSliderDrag {
+                            page: 0,
+                            label: label.clone(),
+                            spec,
+                            changed: did,
+                            pending_save: false,
+                            last_save: Instant::now(),
+                        });
+                        if did {
+                            self.items_dirty = true;
+                        }
+                        if let Some(win) = &self.window {
+                            win.request_redraw();
+                        }
+                    }
+                }
+                return;
+            }
             ClickResult::StepperDec(idx) | ClickResult::StepperInc(idx) => {
                 let is_dec = matches!(result, ClickResult::StepperDec(_));
                 if let Some(item) = items.get(idx) {
@@ -1110,6 +1375,47 @@ impl SettingsApp {
         let mut changed = false;
 
         match result {
+            ClickResult::StepperSlider {
+                idx,
+                track_x,
+                track_w,
+                t,
+            } => {
+                if let Some(SettingsItem::RowStepper {
+                    label,
+                    enabled,
+                    slider: Some(spec),
+                    ..
+                }) = items.get(idx)
+                {
+                    if *enabled {
+                        let spec = StepperSliderSpec {
+                            spec: *spec,
+                            track_x,
+                            track_w,
+                        };
+                        let did = self.apply_stepper_slider_value(1, label, spec.spec, t);
+                        if did {
+                            save_config(&self.config);
+                        }
+                        self.stepper_slider_drag = Some(StepperSliderDrag {
+                            page: 1,
+                            label: label.clone(),
+                            spec,
+                            changed: did,
+                            pending_save: false,
+                            last_save: Instant::now(),
+                        });
+                        if did {
+                            self.items_dirty = true;
+                        }
+                        if let Some(win) = &self.window {
+                            win.request_redraw();
+                        }
+                    }
+                }
+                return;
+            }
             ClickResult::Switch(idx) => {
                 match idx {
                     0 => self.config.smtc_enabled = !self.config.smtc_enabled,
@@ -1308,6 +1614,40 @@ impl ApplicationHandler for SettingsApp {
                 let scale = self.window.as_ref().unwrap().scale_factor() as f32;
                 self.logical_mouse_pos = (position.x as f32 / scale, position.y as f32 / scale);
 
+                if self.stepper_slider_drag.is_some() {
+                    let (page, label, spec, track_x, track_w, last_save) = {
+                        let drag = self.stepper_slider_drag.as_ref().unwrap();
+                        (
+                            drag.page,
+                            drag.label.clone(),
+                            drag.spec.spec,
+                            drag.spec.track_x,
+                            drag.spec.track_w,
+                            drag.last_save,
+                        )
+                    };
+                    let (mx, _) = self.logical_mouse_pos;
+                    let content_x = mx - SIDEBAR_W;
+                    let t = ((content_x - track_x) / track_w).clamp(0.0, 1.0);
+                    let did = self.apply_stepper_slider_value(page, &label, spec, t);
+                    if did {
+                        if let Some(drag) = &mut self.stepper_slider_drag {
+                            drag.changed = true;
+                            drag.pending_save = true;
+                            self.items_dirty = true;
+                            if last_save.elapsed() >= Duration::from_millis(40) {
+                                save_config(&self.config);
+                                drag.pending_save = false;
+                                drag.last_save = Instant::now();
+                            }
+                            if let Some(win) = &self.window {
+                                win.request_redraw();
+                            }
+                        }
+                    }
+                    return;
+                }
+
                 if let Some(popup) = &mut self.popup {
                     let (pmx, pmy) = self.logical_mouse_pos;
                     let menu = popup.menu_rect();
@@ -1439,6 +1779,11 @@ impl ApplicationHandler for SettingsApp {
                 button: MouseButton::Left,
                 ..
             } => self.handle_click(),
+            WindowEvent::MouseInput {
+                state: ElementState::Released,
+                button: MouseButton::Left,
+                ..
+            } => self.end_stepper_slider_drag(),
             WindowEvent::RedrawRequested => self.draw(),
             _ => (),
         }

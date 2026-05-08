@@ -6,6 +6,12 @@ pub enum ClickResult {
     Switch(usize),
     StepperDec(usize),
     StepperInc(usize),
+    StepperSlider {
+        idx: usize,
+        track_x: f32,
+        track_w: f32,
+        t: f32,
+    },
     FontSelect(usize),
     FontReset(usize),
     CenterLink(usize),
@@ -25,7 +31,7 @@ pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f
 
     for item in items {
         match item {
-            SettingsItem::RowStepper { enabled, .. } => {
+            SettingsItem::RowStepper { enabled, slider, .. } => {
                 if *enabled {
                     let cy = y + ROW_HEIGHT / 2.0;
                     let btn_inc_x =
@@ -37,6 +43,31 @@ pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f
                     }
                     if in_rect(mx, my, btn_inc_x, btn_y, STEPPER_BTN_SIZE, STEPPER_BTN_SIZE) {
                         return ClickResult::StepperInc(idx);
+                    }
+
+                    if slider.is_some() {
+                        let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
+                        let track_x0 = row_x;
+                        let track_x1 = btn_dec_x - 8.0;
+                        let track_w = (track_x1 - track_x0).max(10.0);
+                        let track_y = y + ROW_HEIGHT - STEPPER_SLIDER_BOTTOM_PAD - STEPPER_SLIDER_H;
+                        let hit_pad = STEPPER_SLIDER_KNOB_R + 4.0;
+                        if in_rect(
+                            mx,
+                            my,
+                            track_x0,
+                            track_y - hit_pad,
+                            track_w,
+                            STEPPER_SLIDER_H + hit_pad * 2.0,
+                        ) {
+                            let t = ((mx - track_x0) / track_w).clamp(0.0, 1.0);
+                            return ClickResult::StepperSlider {
+                                idx,
+                                track_x: track_x0,
+                                track_w,
+                                t,
+                            };
+                        }
                     }
                 }
             }

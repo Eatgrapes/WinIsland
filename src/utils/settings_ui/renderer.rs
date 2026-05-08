@@ -79,6 +79,54 @@ fn draw_stepper_btn(canvas: &Canvas, x: f32, y: f32, label: &str, enabled: bool)
     );
 }
 
+fn draw_stepper_slider(
+    canvas: &Canvas,
+    x: f32,
+    y: f32,
+    w: f32,
+    spec: SliderSpec,
+    enabled: bool,
+) {
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+
+    let denom = (spec.max - spec.min).max(f32::EPSILON);
+    let t = ((spec.value - spec.min) / denom).clamp(0.0, 1.0);
+    let knob_x = x + t * w;
+
+    paint.set_color(if enabled {
+        Color::from_argb(40, 255, 255, 255)
+    } else {
+        Color::from_argb(22, 255, 255, 255)
+    });
+    canvas.draw_round_rect(
+        Rect::from_xywh(x, y, w, STEPPER_SLIDER_H),
+        STEPPER_SLIDER_R,
+        STEPPER_SLIDER_R,
+        &paint,
+    );
+
+    paint.set_color(if enabled { COLOR_TOGGLE_ON } else { COLOR_DISABLED });
+    canvas.draw_round_rect(
+        Rect::from_xywh(x, y, w * t, STEPPER_SLIDER_H),
+        STEPPER_SLIDER_R,
+        STEPPER_SLIDER_R,
+        &paint,
+    );
+
+    let mut shadow = Paint::default();
+    shadow.set_anti_alias(true);
+    shadow.set_color(Color::from_argb(35, 0, 0, 0));
+    canvas.draw_circle(
+        (knob_x, y + STEPPER_SLIDER_H / 2.0 + 1.0),
+        STEPPER_SLIDER_KNOB_R,
+        &shadow,
+    );
+
+    paint.set_color(Color::WHITE);
+    canvas.draw_circle((knob_x, y + STEPPER_SLIDER_H / 2.0), STEPPER_SLIDER_KNOB_R, &paint);
+}
+
 fn draw_pill_btn(
     canvas: &Canvas,
     x: f32,
@@ -152,6 +200,7 @@ pub fn draw_items(
     width: f32,
     anims: &SwitchAnimator,
     hover_anims: &AnimPool,
+    slider_key_base: u64,
     visible_min_y: f32,
     visible_max_y: f32,
 ) {
@@ -229,6 +278,7 @@ pub fn draw_items(
                 label,
                 value,
                 enabled,
+                slider,
             } => {
                 if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
                     draw_row_hover(canvas, y, content_w, row_idx, in_group, hover_anims);
@@ -279,6 +329,20 @@ pub fn draw_items(
                         true,
                         f32::MAX,
                     );
+                }
+
+                if let Some(spec) = slider {
+                    let track_x0 = row_x;
+                    let track_x1 = btn_dec_x - 8.0;
+                    let track_w = (track_x1 - track_x0).max(10.0);
+                    let track_y = y + ROW_HEIGHT - STEPPER_SLIDER_BOTTOM_PAD - STEPPER_SLIDER_H;
+                    if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
+                        let key = slider_key_base + i as u64;
+                        let mut spec = *spec;
+                        let denom = (spec.max - spec.min).max(f32::EPSILON);
+                        spec.value = spec.min + denom * hover_anims.get(key).clamp(0.0, 1.0);
+                        draw_stepper_slider(canvas, track_x0, track_y, track_w, spec, *enabled);
+                    }
                 }
 
                 if in_group {
