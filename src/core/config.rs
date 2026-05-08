@@ -5,6 +5,10 @@ pub const APP_HOMEPAGE: &str = "https://github.com/Eatgrapes/WinIsland";
 pub const WINDOW_TITLE: &str = "WinIsland";
 pub const TOP_OFFSET: i32 = 10;
 pub const PADDING: f32 = 80.0;
+pub const DOCK_TOP_CENTER: &str = "top_center";
+pub const DOCK_TOP_LEFT: &str = "top_left";
+pub const DOCK_BOTTOM_CENTER: &str = "bottom_center";
+pub const DOCK_BOTTOM_LEFT: &str = "bottom_left";
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct AppConfig {
     pub global_scale: f32,
@@ -50,6 +54,8 @@ pub struct AppConfig {
     pub position_x_offset: i32,
     #[serde(default = "default_position_y_offset")]
     pub position_y_offset: i32,
+    #[serde(default = "default_dock_position")]
+    pub dock_position: String,
     #[serde(default = "default_monitor_index")]
     pub monitor_index: i32,
     #[serde(default = "default_font_size")]
@@ -124,6 +130,10 @@ fn default_position_y_offset() -> i32 {
     0
 }
 
+fn default_dock_position() -> String {
+    DOCK_TOP_CENTER.to_string()
+}
+
 fn default_monitor_index() -> i32 {
     0
 }
@@ -161,6 +171,7 @@ impl Default for AppConfig {
             lyrics_scroll_max_width: 300.0,
             position_x_offset: 0,
             position_y_offset: 0,
+            dock_position: DOCK_TOP_CENTER.to_string(),
             monitor_index: 0,
             font_size: 0.0,
         }

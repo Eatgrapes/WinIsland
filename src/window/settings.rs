@@ -39,6 +39,7 @@ enum PopupKind {
     Language,
     Monitor,
     IslandStyle,
+    DockPosition,
 }
 
 struct PopupState {
@@ -186,6 +187,28 @@ impl SettingsApp {
             SettingsItem::RowStepper {
                 label: tr("position_y_offset"),
                 value: self.config.position_y_offset.to_string(),
+                enabled: true,
+            },
+            SettingsItem::RowSourceSelect {
+                label: tr("dock_position"),
+                options: vec![
+                    (
+                        tr("dock_position_top_center"),
+                        self.config.dock_position == crate::core::config::DOCK_TOP_CENTER,
+                    ),
+                    (
+                        tr("dock_position_top_left"),
+                        self.config.dock_position == crate::core::config::DOCK_TOP_LEFT,
+                    ),
+                    (
+                        tr("dock_position_bottom_center"),
+                        self.config.dock_position == crate::core::config::DOCK_BOTTOM_CENTER,
+                    ),
+                    (
+                        tr("dock_position_bottom_left"),
+                        self.config.dock_position == crate::core::config::DOCK_BOTTOM_LEFT,
+                    ),
+                ],
                 enabled: true,
             },
             SettingsItem::RowStepper {
@@ -845,6 +868,9 @@ impl SettingsApp {
                             PopupKind::IslandStyle => {
                                 self.config.island_style = value;
                             }
+                            PopupKind::DockPosition => {
+                                self.config.dock_position = value;
+                            }
                         }
                         save_config(&self.config);
                         self.items_dirty = true;
@@ -1056,6 +1082,31 @@ impl SettingsApp {
                             button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
                             options: vec![tr("style_default"), tr("style_glass")],
                             values: vec!["default".to_string(), "glass".to_string()],
+                            selected_idx,
+                            hover_idx: None,
+                        });
+                    } else if label == &tr("dock_position") {
+                        let selected_idx = match self.config.dock_position.as_str() {
+                            crate::core::config::DOCK_TOP_LEFT => 1,
+                            crate::core::config::DOCK_BOTTOM_CENTER => 2,
+                            crate::core::config::DOCK_BOTTOM_LEFT => 3,
+                            _ => 0,
+                        };
+                        self.popup = Some(PopupState {
+                            kind: PopupKind::DockPosition,
+                            button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+                            options: vec![
+                                tr("dock_position_top_center"),
+                                tr("dock_position_top_left"),
+                                tr("dock_position_bottom_center"),
+                                tr("dock_position_bottom_left"),
+                            ],
+                            values: vec![
+                                crate::core::config::DOCK_TOP_CENTER.to_string(),
+                                crate::core::config::DOCK_TOP_LEFT.to_string(),
+                                crate::core::config::DOCK_BOTTOM_CENTER.to_string(),
+                                crate::core::config::DOCK_BOTTOM_LEFT.to_string(),
+                            ],
                             selected_idx,
                             hover_idx: None,
                         });

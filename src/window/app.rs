@@ -1,5 +1,8 @@
 use crate::core::audio::AudioProcessor;
-use crate::core::config::{AppConfig, PADDING, TOP_OFFSET, WINDOW_TITLE};
+use crate::core::config::{
+    AppConfig, DOCK_BOTTOM_CENTER, DOCK_BOTTOM_LEFT, DOCK_TOP_LEFT, PADDING, TOP_OFFSET,
+    WINDOW_TITLE,
+};
 use crate::core::persistence::load_config;
 use crate::core::render::draw_island;
 use crate::core::smtc::SmtcListener;
@@ -230,10 +233,23 @@ impl ApplicationHandler for App {
                 let mon_pos = monitor.position();
                 self.last_mon_size = (mon_size.width, mon_size.height);
                 self.last_mon_pos = (mon_pos.x, mon_pos.y);
+                let dock_pos = self.config.dock_position.as_str();
+                let dock_bottom = dock_pos == DOCK_BOTTOM_CENTER || dock_pos == DOCK_BOTTOM_LEFT;
+                let dock_left = dock_pos == DOCK_TOP_LEFT || dock_pos == DOCK_BOTTOM_LEFT;
                 let center_x = mon_pos.x + (mon_size.width as i32) / 2;
                 let top_y = mon_pos.y + TOP_OFFSET;
-                self.win_x = center_x - (self.os_w as i32) / 2 + self.config.position_x_offset;
-                self.win_y = top_y - (PADDING / 2.0) as i32 + self.config.position_y_offset;
+                let bottom_y = mon_pos.y + mon_size.height as i32 - TOP_OFFSET;
+                self.win_x = if dock_left {
+                    mon_pos.x - (PADDING / 2.0) as i32 + TOP_OFFSET + self.config.position_x_offset
+                } else {
+                    center_x - (self.os_w as i32) / 2 + self.config.position_x_offset
+                };
+                self.win_y = if dock_bottom {
+                    bottom_y - self.os_h as i32 + (PADDING / 2.0) as i32
+                        + self.config.position_y_offset
+                } else {
+                    top_y - (PADDING / 2.0) as i32 + self.config.position_y_offset
+                };
                 window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
             }
             let context = Context::new(window.clone()).unwrap();
@@ -275,16 +291,36 @@ impl ApplicationHandler for App {
                         let (px, py) = get_global_cursor_pos();
                         let rel_x = px - self.win_x;
                         let rel_y = py - self.win_y;
-                        let island_y = PADDING as f64 / 2.0;
-                        let offset_x = (self.os_w as f64 - self.spring_w.value as f64) / 2.0;
+                        let dock_pos = self.config.dock_position.as_str();
+                        let dock_bottom =
+                            dock_pos == DOCK_BOTTOM_CENTER || dock_pos == DOCK_BOTTOM_LEFT;
+                        let dock_left = dock_pos == DOCK_TOP_LEFT || dock_pos == DOCK_BOTTOM_LEFT;
+
+                        let island_y = if dock_bottom {
+                            self.os_h as f64 - PADDING as f64 / 2.0 - self.spring_h.value as f64
+                        } else {
+                            PADDING as f64 / 2.0
+                        };
+                        let offset_x = if dock_left {
+                            PADDING as f64 / 2.0
+                        } else {
+                            (self.os_w as f64 - self.spring_w.value as f64) / 2.0
+                        };
                         let scale = self.config.global_scale as f64;
 
                         let hidden_peek_h = (5.0 * scale).max(3.0);
-                        let hide_distance = (self.spring_h.value as f64 - hidden_peek_h
-                            + TOP_OFFSET as f64)
-                            .max(0.0);
+                        let hide_distance = if dock_bottom {
+                            (self.spring_h.value as f64 - hidden_peek_h).max(0.0)
+                        } else {
+                            (self.spring_h.value as f64 - hidden_peek_h + TOP_OFFSET as f64)
+                                .max(0.0)
+                        };
                         let hide_y_offset = self.spring_hide.value as f64 * hide_distance;
-                        let current_island_y = island_y - hide_y_offset;
+                        let current_island_y = if dock_bottom {
+                            island_y + hide_y_offset
+                        } else {
+                            island_y - hide_y_offset
+                        };
 
                         let is_hovering_visible = is_point_in_rect(
                             rel_x as f64,
@@ -296,10 +332,14 @@ impl ApplicationHandler for App {
                         );
 
                         let hidden_handle_h = (24.0 * scale).max(14.0);
-                        let hidden_handle_y = (current_island_y + self.spring_h.value as f64
-                            - hidden_peek_h
-                            - hidden_handle_h * 0.35)
-                            .max(0.0);
+                        let hidden_handle_y = if dock_bottom {
+                            (self.os_h as f64 - PADDING as f64 / 2.0 - hidden_handle_h).max(0.0)
+                        } else {
+                            (current_island_y + self.spring_h.value as f64
+                                - hidden_peek_h
+                                - hidden_handle_h * 0.35)
+                                .max(0.0)
+                        };
                         let is_on_hidden_handle = (self.auto_hidden || self.manually_hidden)
                             && is_point_in_rect(
                                 rel_x as f64,
@@ -552,6 +592,7 @@ impl ApplicationHandler for App {
                                 self.spring_hide.value,
                                 self.lyric_scroll_offset,
                                 &self.config.island_style,
+                                &self.config.dock_position,
                                 self.win_x,
                                 self.win_y,
                                 self.config.font_size,
@@ -631,12 +672,27 @@ impl ApplicationHandler for App {
                         if mon_size.width > 0 && mon_size.height > 0 {
                             self.last_mon_size = (mon_size.width, mon_size.height);
                             self.last_mon_pos = (mon_pos.x, mon_pos.y);
+                            let dock_pos = self.config.dock_position.as_str();
+                            let dock_bottom =
+                                dock_pos == DOCK_BOTTOM_CENTER || dock_pos == DOCK_BOTTOM_LEFT;
+                            let dock_left =
+                                dock_pos == DOCK_TOP_LEFT || dock_pos == DOCK_BOTTOM_LEFT;
+
                             let center_x = mon_pos.x + (mon_size.width as i32) / 2;
                             let top_y = mon_pos.y + TOP_OFFSET;
-                            self.win_x =
-                                center_x - (self.os_w as i32) / 2 + self.config.position_x_offset;
-                            self.win_y =
-                                top_y - (PADDING / 2.0) as i32 + self.config.position_y_offset;
+                            let bottom_y = mon_pos.y + mon_size.height as i32 - TOP_OFFSET;
+                            self.win_x = if dock_left {
+                                mon_pos.x - (PADDING / 2.0) as i32 + TOP_OFFSET
+                                    + self.config.position_x_offset
+                            } else {
+                                center_x - (self.os_w as i32) / 2 + self.config.position_x_offset
+                            };
+                            self.win_y = if dock_bottom {
+                                bottom_y - self.os_h as i32 + (PADDING / 2.0) as i32
+                                    + self.config.position_y_offset
+                            } else {
+                                top_y - (PADDING / 2.0) as i32 + self.config.position_y_offset
+                            };
                             window
                                 .set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
                         }
@@ -652,12 +708,27 @@ impl ApplicationHandler for App {
                         if cur_mon_size.0 > 0 && cur_mon_size.1 > 0 {
                             self.last_mon_size = cur_mon_size;
                             self.last_mon_pos = cur_mon_pos;
+                            let dock_pos = self.config.dock_position.as_str();
+                            let dock_bottom =
+                                dock_pos == DOCK_BOTTOM_CENTER || dock_pos == DOCK_BOTTOM_LEFT;
+                            let dock_left =
+                                dock_pos == DOCK_TOP_LEFT || dock_pos == DOCK_BOTTOM_LEFT;
+
                             let center_x = mon_pos.x + (mon_size.width as i32) / 2;
                             let top_y = mon_pos.y + TOP_OFFSET;
-                            self.win_x =
-                                center_x - (self.os_w as i32) / 2 + self.config.position_x_offset;
-                            self.win_y =
-                                top_y - (PADDING / 2.0) as i32 + self.config.position_y_offset;
+                            let bottom_y = mon_pos.y + mon_size.height as i32 - TOP_OFFSET;
+                            self.win_x = if dock_left {
+                                mon_pos.x - (PADDING / 2.0) as i32 + TOP_OFFSET
+                                    + self.config.position_x_offset
+                            } else {
+                                center_x - (self.os_w as i32) / 2 + self.config.position_x_offset
+                            };
+                            self.win_y = if dock_bottom {
+                                bottom_y - self.os_h as i32 + (PADDING / 2.0) as i32
+                                    + self.config.position_y_offset
+                            } else {
+                                top_y - (PADDING / 2.0) as i32 + self.config.position_y_offset
+                            };
                             window
                                 .set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
                         }
@@ -675,13 +746,32 @@ impl ApplicationHandler for App {
             let (px, py) = get_global_cursor_pos();
             let rel_x = px - self.win_x;
             let rel_y = py - self.win_y;
-            let island_y = PADDING as f64 / 2.0;
-            let offset_x = (self.os_w as f64 - self.spring_w.value as f64) / 2.0;
+            let dock_pos = self.config.dock_position.as_str();
+            let dock_bottom = dock_pos == DOCK_BOTTOM_CENTER || dock_pos == DOCK_BOTTOM_LEFT;
+            let dock_left = dock_pos == DOCK_TOP_LEFT || dock_pos == DOCK_BOTTOM_LEFT;
+
+            let island_y = if dock_bottom {
+                self.os_h as f64 - PADDING as f64 / 2.0 - self.spring_h.value as f64
+            } else {
+                PADDING as f64 / 2.0
+            };
+            let offset_x = if dock_left {
+                PADDING as f64 / 2.0
+            } else {
+                (self.os_w as f64 - self.spring_w.value as f64) / 2.0
+            };
             let hidden_peek_h = (5.0 * self.config.global_scale as f64).max(3.0);
-            let hide_distance =
-                (self.spring_h.value as f64 - hidden_peek_h + TOP_OFFSET as f64).max(0.0);
+            let hide_distance = if dock_bottom {
+                (self.spring_h.value as f64 - hidden_peek_h).max(0.0)
+            } else {
+                (self.spring_h.value as f64 - hidden_peek_h + TOP_OFFSET as f64).max(0.0)
+            };
             let hide_y_offset = self.spring_hide.value as f64 * hide_distance;
-            let current_island_y = island_y - hide_y_offset;
+            let current_island_y = if dock_bottom {
+                island_y + hide_y_offset
+            } else {
+                island_y - hide_y_offset
+            };
             let is_hovering_visible = is_point_in_rect(
                 rel_x as f64,
                 rel_y as f64,
@@ -691,10 +781,14 @@ impl ApplicationHandler for App {
                 self.spring_h.value as f64,
             );
             let hidden_handle_h = (24.0 * self.config.global_scale as f64).max(14.0);
-            let hidden_handle_y = (current_island_y + self.spring_h.value as f64
-                - hidden_peek_h
-                - hidden_handle_h * 0.35)
-                .max(0.0);
+            let hidden_handle_y = if dock_bottom {
+                (self.os_h as f64 - PADDING as f64 / 2.0 - hidden_handle_h).max(0.0)
+            } else {
+                (current_island_y + self.spring_h.value as f64
+                    - hidden_peek_h
+                    - hidden_handle_h * 0.35)
+                    .max(0.0)
+            };
             let is_on_hidden_handle = (self.auto_hidden || self.manually_hidden)
                 && is_point_in_rect(
                     rel_x as f64,
@@ -797,7 +891,11 @@ impl ApplicationHandler for App {
             set_progress_dragging(self.seeking_progress);
 
             if self.is_dragging {
-                let diff_y = self.drag_start_py - py;
+                let diff_y = if dock_bottom {
+                    py - self.drag_start_py
+                } else {
+                    self.drag_start_py - py
+                };
                 if diff_y.abs() > 3 {
                     self.drag_has_moved = true;
                 }
@@ -842,9 +940,10 @@ impl ApplicationHandler for App {
 
             if self.config.adaptive_border {
                 if self.frame_count % 30 == 0 {
-                    let island_cx = self.win_x + (self.os_w as i32 / 2);
-                    let island_cy =
-                        self.win_y + (PADDING as i32 / 2) + (self.spring_h.value as i32 / 2);
+                    let island_cx = self.win_x
+                        + (offset_x + (self.spring_w.value as f64) / 2.0).round() as i32;
+                    let island_cy = self.win_y
+                        + (current_island_y + (self.spring_h.value as f64) / 2.0).round() as i32;
                     let raw_weights = get_island_border_weights(
                         island_cx,
                         island_cy,

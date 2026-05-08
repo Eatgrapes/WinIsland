@@ -1,4 +1,6 @@
-use crate::core::config::{PADDING, TOP_OFFSET};
+use crate::core::config::{
+    DOCK_BOTTOM_CENTER, DOCK_BOTTOM_LEFT, DOCK_TOP_LEFT, PADDING, TOP_OFFSET,
+};
 use crate::core::smtc::MediaInfo;
 use crate::ui::expanded::main_view::{
     draw_main_page, draw_text_cached, draw_visualizer, get_cached_media_image, get_media_palette,
@@ -39,6 +41,7 @@ pub fn draw_island(
     hide_progress: f32,
     lyric_scroll_offset: f32,
     island_style: &str,
+    dock_position: &str,
     win_x: i32,
     win_y: i32,
     font_size: f32,
@@ -59,12 +62,31 @@ pub fn draw_island(
     let canvas = sk_surface.canvas();
     canvas.clear(Color::TRANSPARENT);
 
-    let offset_x = (os_w as f32 - current_w) / 2.0;
-    let base_y = PADDING / 2.0;
+    let dock_bottom = dock_position == DOCK_BOTTOM_CENTER || dock_position == DOCK_BOTTOM_LEFT;
+    let dock_left = dock_position == DOCK_TOP_LEFT || dock_position == DOCK_BOTTOM_LEFT;
+
+    let offset_x = if dock_left {
+        PADDING / 2.0
+    } else {
+        (os_w as f32 - current_w) / 2.0
+    };
+    let base_y = if dock_bottom {
+        os_h as f32 - PADDING / 2.0 - current_h
+    } else {
+        PADDING / 2.0
+    };
     let hidden_peek_h = (5.0 * global_scale).max(3.0);
-    let hide_distance = (current_h - hidden_peek_h + TOP_OFFSET as f32).max(0.0);
+    let hide_distance = if dock_bottom {
+        (current_h - hidden_peek_h).max(0.0)
+    } else {
+        (current_h - hidden_peek_h + TOP_OFFSET as f32).max(0.0)
+    };
     let hide_y_offset = hide_progress * hide_distance;
-    let offset_y = base_y - hide_y_offset;
+    let offset_y = if dock_bottom {
+        base_y + hide_y_offset
+    } else {
+        base_y - hide_y_offset
+    };
 
     let rect = Rect::from_xywh(offset_x, offset_y, current_w, current_h);
     let rrect = RRect::new_rect_xy(rect, current_r, current_r);
