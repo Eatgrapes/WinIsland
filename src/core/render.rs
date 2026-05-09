@@ -1,6 +1,4 @@
-use crate::core::config::{
-    DOCK_BOTTOM_CENTER, DOCK_BOTTOM_LEFT, DOCK_TOP_LEFT, PADDING, TOP_OFFSET,
-};
+use crate::core::config::{DockPosition, PADDING, TOP_OFFSET};
 use crate::core::smtc::MediaInfo;
 use crate::ui::expanded::main_view::{
     draw_main_page, draw_text_cached, draw_visualizer, get_cached_media_image, get_media_palette,
@@ -41,7 +39,7 @@ pub fn draw_island(
     hide_progress: f32,
     lyric_scroll_offset: f32,
     island_style: &str,
-    dock_position: &str,
+    dock_position: &DockPosition,
     win_x: i32,
     win_y: i32,
     font_size: f32,
@@ -62,11 +60,11 @@ pub fn draw_island(
     let canvas = sk_surface.canvas();
     canvas.clear(Color::TRANSPARENT);
 
-    let dock_bottom = dock_position == DOCK_BOTTOM_CENTER || dock_position == DOCK_BOTTOM_LEFT;
-    let dock_left = dock_position == DOCK_TOP_LEFT || dock_position == DOCK_BOTTOM_LEFT;
-
-    let offset_x = if dock_left {
+    let dock_bottom = dock_position.is_bottom();
+    let offset_x = if dock_position.is_left() {
         PADDING / 2.0
+    } else if dock_position.is_right() {
+        (os_w as f32 - PADDING / 2.0 - current_w).max(0.0)
     } else {
         (os_w as f32 - current_w) / 2.0
     };

@@ -45,6 +45,7 @@ enum PopupKind {
 struct PopupState {
     kind: PopupKind,
     button_rect: Rect,
+    menu_rect: Rect,
     options: Vec<String>,
     values: Vec<String>,
     selected_idx: usize,
@@ -52,32 +53,76 @@ struct PopupState {
 }
 
 impl PopupState {
-    fn menu_rect(&self) -> Rect {
-        let item_count = self.options.len() as f32;
+    fn new(
+        kind: PopupKind,
+        button_rect: Rect,
+        options: Vec<String>,
+        values: Vec<String>,
+        selected_idx: usize,
+    ) -> Self {
+        let item_count = options.len() as f32;
         let menu_h = POPUP_MENU_PAD * 2.0 + item_count * POPUP_ITEM_H;
+
         let fm = FontManager::global();
-        let mut max_text_w: f32 = self.button_rect.width();
-        for opt in &self.options {
-            let (w, _) = fm.measure(opt, 12.0, false);
+        let mut max_text_w: f32 = button_rect.width();
+        for opt in &options {
+            let w = fm.measure_text_cached(opt, 12.0, skia_safe::FontStyle::normal());
             let needed = w + 36.0;
             if needed > max_text_w {
                 max_text_w = needed;
             }
         }
+
         let menu_w = max_text_w;
-        let right_edge = self.button_rect.right;
+        let right_edge = button_rect.right;
         let menu_x = right_edge - menu_w;
-        Rect::from_xywh(menu_x, self.button_rect.bottom + 2.0, menu_w, menu_h)
+        let menu_rect = Rect::from_xywh(menu_x, button_rect.bottom + 2.0, menu_w, menu_h);
+
+        Self {
+            kind,
+            button_rect,
+            menu_rect,
+            options,
+            values,
+            selected_idx,
+            hover_idx: None,
+        }
+    }
+
+    fn menu_rect(&self) -> Rect {
+        self.menu_rect
     }
 
     fn item_rect(&self, idx: usize) -> Rect {
-        let menu = self.menu_rect();
+        let menu = self.menu_rect;
         Rect::from_xywh(
             menu.left + POPUP_MENU_PAD,
             menu.top + POPUP_MENU_PAD + idx as f32 * POPUP_ITEM_H,
             menu.width() - POPUP_MENU_PAD * 2.0,
             POPUP_ITEM_H,
         )
+    }
+
+    fn hit_test_item(&self, mx: f32, my: f32) -> Option<usize> {
+        let menu = self.menu_rect;
+        if mx < menu.left || mx > menu.right || my < menu.top || my > menu.bottom {
+            return None;
+        }
+        let inner_top = menu.top + POPUP_MENU_PAD;
+        let inner_bottom = menu.bottom - POPUP_MENU_PAD;
+        if my < inner_top || my > inner_bottom {
+            return None;
+        }
+        let rel_y = my - inner_top;
+        let idx = (rel_y / POPUP_ITEM_H).floor() as i32;
+        if idx < 0 {
+            return None;
+        }
+        let idx = idx as usize;
+        if idx >= self.options.len() {
+            return None;
+        }
+        Some(idx)
     }
 }
 
@@ -194,19 +239,29 @@ impl SettingsApp {
                 options: vec![
                     (
                         tr("dock_position_top_center"),
-                        self.config.dock_position == crate::core::config::DOCK_TOP_CENTER,
+                        self.config.dock_position == crate::core::config::DockPosition::TopCenter,
                     ),
                     (
                         tr("dock_position_top_left"),
-                        self.config.dock_position == crate::core::config::DOCK_TOP_LEFT,
+                        self.config.dock_position == crate::core::config::DockPosition::TopLeft,
+                    ),
+                    (
+                        tr("dock_position_top_right"),
+                        self.config.dock_position == crate::core::config::DockPosition::TopRight,
                     ),
                     (
                         tr("dock_position_bottom_center"),
-                        self.config.dock_position == crate::core::config::DOCK_BOTTOM_CENTER,
+                        self.config.dock_position
+                            == crate::core::config::DockPosition::BottomCenter,
                     ),
                     (
                         tr("dock_position_bottom_left"),
-                        self.config.dock_position == crate::core::config::DOCK_BOTTOM_LEFT,
+                        self.config.dock_position == crate::core::config::DockPosition::BottomLeft,
+                    ),
+                    (
+                        tr("dock_position_bottom_right"),
+                        self.config.dock_position
+                            == crate::core::config::DockPosition::BottomRight,
                     ),
                 ],
                 enabled: true,
@@ -758,6 +813,11 @@ impl SettingsApp {
         border.set_stroke_width(0.5);
         canvas.draw_round_rect(menu, POPUP_MENU_R, POPUP_MENU_R, &border);
 
+        let mut sep = Paint::default();
+        sep.set_anti_alias(true);
+        sep.set_stroke_width(0.5);
+        sep.set_style(skia_safe::paint::Style::Stroke);
+
         let text_alpha = (255.0 * opacity) as u8;
         for (i, opt_label) in popup.options.iter().enumerate() {
             let item_rect = popup.item_rect(i);
@@ -781,13 +841,15 @@ impl SettingsApp {
                 COLOR_TEXT_PRI.b(),
             ));
             paint.set_style(skia_safe::paint::Style::Fill);
-            fm.draw_text(
+            fm.draw_text_cached(
                 canvas,
                 opt_label,
                 (item_rect.left + 8.0, item_rect.top + 19.0),
                 12.0,
-                false,
+                skia_safe::FontStyle::normal(),
                 &paint,
+                false,
+                item_rect.width() - 28.0,
             );
 
             if i == popup.selected_idx {
@@ -806,27 +868,13 @@ impl SettingsApp {
                 paint.set_stroke_width(2.0);
                 let cx = item_rect.right - 14.0;
                 let cy = item_rect.top + POPUP_ITEM_H / 2.0;
-                let svg = format!(
-                    "M {} {} L {} {} L {} {}",
-                    cx - 4.0,
-                    cy,
-                    cx - 1.0,
-                    cy + 3.0,
-                    cx + 4.0,
-                    cy - 3.0,
-                );
-                if let Some(path) = skia_safe::Path::from_svg(&svg) {
-                    canvas.draw_path(&path, &paint);
-                }
+                canvas.draw_line((cx - 4.0, cy), (cx - 1.0, cy + 3.0), &paint);
+                canvas.draw_line((cx - 1.0, cy + 3.0), (cx + 4.0, cy - 3.0), &paint);
                 paint.set_style(skia_safe::paint::Style::Fill);
             }
 
             if i < popup.options.len() - 1 {
-                let mut sep = Paint::default();
-                sep.set_anti_alias(true);
                 sep.set_color(Color::from_argb((30.0 * opacity) as u8, 255, 255, 255));
-                sep.set_stroke_width(0.5);
-                sep.set_style(skia_safe::paint::Style::Stroke);
                 canvas.draw_line(
                     (item_rect.left, item_rect.bottom),
                     (item_rect.right, item_rect.bottom),
@@ -848,35 +896,28 @@ impl SettingsApp {
         let (mx, my) = self.logical_mouse_pos;
 
         if let Some(popup) = &self.popup {
-            let menu = popup.menu_rect();
-            if mx >= menu.left && mx <= menu.right && my >= menu.top && my <= menu.bottom {
-                for i in 0..popup.options.len() {
-                    let ir = popup.item_rect(i);
-                    if my >= ir.top && my <= ir.bottom {
-                        let value = popup.values[i].clone();
-                        match popup.kind {
-                            PopupKind::LyricsSource => {
-                                self.config.lyrics_source = value;
-                            }
-                            PopupKind::Language => {
-                                self.config.language = value.clone();
-                                set_lang(&value);
-                            }
-                            PopupKind::Monitor => {
-                                self.config.monitor_index = value.parse::<i32>().unwrap_or(0);
-                            }
-                            PopupKind::IslandStyle => {
-                                self.config.island_style = value;
-                            }
-                            PopupKind::DockPosition => {
-                                self.config.dock_position = value;
-                            }
-                        }
-                        save_config(&self.config);
-                        self.items_dirty = true;
-                        break;
+            if let Some(i) = popup.hit_test_item(mx, my) {
+                let value = popup.values[i].clone();
+                match popup.kind {
+                    PopupKind::LyricsSource => {
+                        self.config.lyrics_source = value;
+                    }
+                    PopupKind::Language => {
+                        self.config.language = value.clone();
+                        set_lang(&value);
+                    }
+                    PopupKind::Monitor => {
+                        self.config.monitor_index = value.parse::<i32>().unwrap_or(0);
+                    }
+                    PopupKind::IslandStyle => {
+                        self.config.island_style = value;
+                    }
+                    PopupKind::DockPosition => {
+                        self.config.dock_position = value.parse().unwrap_or_default();
                     }
                 }
+                save_config(&self.config);
+                self.items_dirty = true;
             }
             self.popup = None;
             self.anim.set_with_speed(POPUP_OPACITY_KEY, 0.0, 0.3);
@@ -1063,63 +1104,65 @@ impl SettingsApp {
                             .min(monitors.len().saturating_sub(1));
                         let values: Vec<String> =
                             (0..monitors.len()).map(|i| i.to_string()).collect();
-                        self.popup = Some(PopupState {
-                            kind: PopupKind::Monitor,
-                            button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                            options: monitors,
+                        self.popup = Some(PopupState::new(
+                            PopupKind::Monitor,
+                            Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+                            monitors,
                             values,
                             selected_idx,
-                            hover_idx: None,
-                        });
+                        ));
                     } else if label == &tr("island_style") {
                         let selected_idx = if self.config.island_style == "glass" {
                             1
                         } else {
                             0
                         };
-                        self.popup = Some(PopupState {
-                            kind: PopupKind::IslandStyle,
-                            button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                            options: vec![tr("style_default"), tr("style_glass")],
-                            values: vec!["default".to_string(), "glass".to_string()],
+                        self.popup = Some(PopupState::new(
+                            PopupKind::IslandStyle,
+                            Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+                            vec![tr("style_default"), tr("style_glass")],
+                            vec!["default".to_string(), "glass".to_string()],
                             selected_idx,
-                            hover_idx: None,
-                        });
+                        ));
                     } else if label == &tr("dock_position") {
-                        let selected_idx = match self.config.dock_position.as_str() {
-                            crate::core::config::DOCK_TOP_LEFT => 1,
-                            crate::core::config::DOCK_BOTTOM_CENTER => 2,
-                            crate::core::config::DOCK_BOTTOM_LEFT => 3,
-                            _ => 0,
+                        let selected_idx = match self.config.dock_position {
+                            crate::core::config::DockPosition::TopLeft => 1,
+                            crate::core::config::DockPosition::TopRight => 2,
+                            crate::core::config::DockPosition::BottomCenter => 3,
+                            crate::core::config::DockPosition::BottomLeft => 4,
+                            crate::core::config::DockPosition::BottomRight => 5,
+                            crate::core::config::DockPosition::TopCenter => 0,
                         };
-                        self.popup = Some(PopupState {
-                            kind: PopupKind::DockPosition,
-                            button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                            options: vec![
+                        self.popup = Some(PopupState::new(
+                            PopupKind::DockPosition,
+                            Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+                            vec![
                                 tr("dock_position_top_center"),
                                 tr("dock_position_top_left"),
+                                tr("dock_position_top_right"),
                                 tr("dock_position_bottom_center"),
                                 tr("dock_position_bottom_left"),
+                                tr("dock_position_bottom_right"),
                             ],
-                            values: vec![
-                                crate::core::config::DOCK_TOP_CENTER.to_string(),
-                                crate::core::config::DOCK_TOP_LEFT.to_string(),
-                                crate::core::config::DOCK_BOTTOM_CENTER.to_string(),
-                                crate::core::config::DOCK_BOTTOM_LEFT.to_string(),
+                            vec![
+                                crate::core::config::DockPosition::TopCenter.to_string(),
+                                crate::core::config::DockPosition::TopLeft.to_string(),
+                                crate::core::config::DockPosition::TopRight.to_string(),
+                                crate::core::config::DockPosition::BottomCenter.to_string(),
+                                crate::core::config::DockPosition::BottomLeft.to_string(),
+                                crate::core::config::DockPosition::BottomRight.to_string(),
                             ],
                             selected_idx,
-                            hover_idx: None,
-                        });
+                        ));
                     } else {
                         let lang = current_lang();
-                        self.popup = Some(PopupState {
-                            kind: PopupKind::Language,
-                            button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                            options: vec!["English".to_string(), "中文".to_string()],
-                            values: vec!["en".to_string(), "zh".to_string()],
-                            selected_idx: if lang == "zh" { 1 } else { 0 },
-                            hover_idx: None,
-                        });
+                        self.popup = Some(PopupState::new(
+                            PopupKind::Language,
+                            Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+                            vec!["English".to_string(), "中文".to_string()],
+                            vec!["en".to_string(), "zh".to_string()],
+                            if lang == "zh" { 1 } else { 0 },
+                        ));
                     }
                     self.anim.set_with_speed(POPUP_OPACITY_KEY, 1.0, 0.25);
                     if let Some(win) = &self.window {
@@ -1191,14 +1234,13 @@ impl SettingsApp {
                 let btn_y = cy - POPUP_BTN_H / 2.0 - self.scroll_y;
 
                 let source = &self.config.lyrics_source;
-                self.popup = Some(PopupState {
-                    kind: PopupKind::LyricsSource,
-                    button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                    options: vec!["163".to_string(), "LRCLIB".to_string()],
-                    values: vec!["163".to_string(), "lrclib".to_string()],
-                    selected_idx: if source == "163" { 0 } else { 1 },
-                    hover_idx: None,
-                });
+                self.popup = Some(PopupState::new(
+                    PopupKind::LyricsSource,
+                    Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+                    vec!["163".to_string(), "LRCLIB".to_string()],
+                    vec!["163".to_string(), "lrclib".to_string()],
+                    if source == "163" { 0 } else { 1 },
+                ));
                 self.anim.set_with_speed(POPUP_OPACITY_KEY, 1.0, 0.25);
                 if let Some(win) = &self.window {
                     win.request_redraw();
@@ -1361,21 +1403,7 @@ impl ApplicationHandler for SettingsApp {
 
                 if let Some(popup) = &mut self.popup {
                     let (pmx, pmy) = self.logical_mouse_pos;
-                    let menu = popup.menu_rect();
-                    let mut new_hover = None;
-                    if pmx >= menu.left
-                        && pmx <= menu.right
-                        && pmy >= menu.top
-                        && pmy <= menu.bottom
-                    {
-                        for i in 0..popup.options.len() {
-                            let ir = popup.item_rect(i);
-                            if pmy >= ir.top && pmy <= ir.bottom {
-                                new_hover = Some(i);
-                                break;
-                            }
-                        }
-                    }
+                    let new_hover = popup.hit_test_item(pmx, pmy);
                     if new_hover != popup.hover_idx {
                         popup.hover_idx = new_hover;
                         if let Some(win) = &self.window {
