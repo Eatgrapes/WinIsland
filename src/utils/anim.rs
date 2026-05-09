@@ -40,7 +40,7 @@ impl AnimPool {
         }
     }
 
-    pub fn set_with_speed_init(&mut self, key: u64, target: f32, speed: f32) {
+    pub fn set_with_speed_no_transition(&mut self, key: u64, target: f32, speed: f32) {
         if let Some(v) = self.values.get_mut(&key) {
             v.target = target;
             v.speed = speed;

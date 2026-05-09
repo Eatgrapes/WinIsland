@@ -32,6 +32,7 @@ pub struct SliderSpec {
     pub max: f32,
     pub value: f32,
     pub step: f32,
+    pub config_key: &'static str,
 }
 
 pub enum SettingsItem {
