@@ -260,8 +260,7 @@ impl SettingsApp {
                     ),
                     (
                         tr("dock_position_bottom_right"),
-                        self.config.dock_position
-                            == crate::core::config::DockPosition::BottomRight,
+                        self.config.dock_position == crate::core::config::DockPosition::BottomRight,
                     ),
                 ],
                 enabled: true,
@@ -639,7 +638,11 @@ impl SettingsApp {
         let (p_w, p_h, scale) = {
             let win = self.window.as_ref().unwrap();
             let size = win.inner_size();
-            (size.width as i32, size.height as i32, win.scale_factor() as f32)
+            (
+                size.width as i32,
+                size.height as i32,
+                win.scale_factor() as f32,
+            )
         };
         if p_w <= 0 || p_h <= 0 {
             return;
@@ -1551,7 +1554,11 @@ impl ApplicationHandler for SettingsApp {
         self.ensure_items_cache();
         let max_scroll = self.cached_max_scroll;
         self.target_scroll_y = self.target_scroll_y.clamp(0.0, max_scroll);
-        let dt = self.last_frame_time.elapsed().as_secs_f32().clamp(0.001, 0.05);
+        let dt = self
+            .last_frame_time
+            .elapsed()
+            .as_secs_f32()
+            .clamp(0.001, 0.05);
         self.last_frame_time = Instant::now();
 
         let diff = self.target_scroll_y - self.scroll_y;

@@ -64,10 +64,7 @@ pub struct DrawIslandParams<'a> {
     pub style: StyleParams<'a>,
 }
 
-pub fn draw_island(
-    surface: &mut Surface<Arc<Window>, Arc<Window>>,
-    params: DrawIslandParams<'_>,
-) {
+pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: DrawIslandParams<'_>) {
     let DrawIslandParams {
         layout,
         media,
@@ -89,7 +86,10 @@ pub fn draw_island(
         hide_progress,
         dock_position,
     } = layout;
-    let MediaParams { media, music_active } = media;
+    let MediaParams {
+        media,
+        music_active,
+    } = media;
     let LyricsParams {
         current_lyric,
         old_lyric,
@@ -108,9 +108,11 @@ pub fn draw_island(
     let mut sk_surface = SK_SURFACE.with(|cell| {
         let mut opt = cell.borrow_mut();
         if let Some(ref s) = *opt
-            && s.width() == os_w as i32 && s.height() == os_h as i32 {
-                return s.clone();
-            }
+            && s.width() == os_w as i32
+            && s.height() == os_h as i32
+        {
+            return s.clone();
+        }
         let new_surface =
             surfaces::raster_n32_premul(ISize::new(os_w as i32, os_h as i32)).unwrap();
         *opt = Some(new_surface.clone());

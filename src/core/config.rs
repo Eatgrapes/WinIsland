@@ -19,7 +19,10 @@ pub enum DockPosition {
 
 impl DockPosition {
     pub fn is_bottom(&self) -> bool {
-        matches!(self, Self::BottomCenter | Self::BottomLeft | Self::BottomRight)
+        matches!(
+            self,
+            Self::BottomCenter | Self::BottomLeft | Self::BottomRight
+        )
     }
 
     pub fn is_left(&self) -> bool {

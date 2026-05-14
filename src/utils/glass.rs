@@ -27,13 +27,13 @@ pub fn get_glass_background(
         let cache = cell.borrow();
         if let Some((img, time, cx, cy, cw, ch)) = cache.as_ref()
             && time.elapsed().as_millis() < 100
-                && *cx == screen_x
-                && *cy == screen_y
-                && *cw == w
-                && *ch == h
-            {
-                return Some(img.clone());
-            }
+            && *cx == screen_x
+            && *cy == screen_y
+            && *cw == w
+            && *ch == h
+        {
+            return Some(img.clone());
+        }
         None
     });
     if let Some(img) = cached {

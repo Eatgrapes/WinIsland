@@ -13,9 +13,10 @@ pub fn get_config_path() -> PathBuf {
 pub fn load_config() -> AppConfig {
     let path = get_config_path();
     if let Ok(content) = fs::read_to_string(path)
-        && let Ok(config) = toml::from_str(&content) {
-            return config;
-        }
+        && let Ok(config) = toml::from_str(&content)
+    {
+        return config;
+    }
     let default = AppConfig::default();
     save_config(&default);
     default

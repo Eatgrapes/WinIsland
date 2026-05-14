@@ -60,15 +60,17 @@ impl AudioProcessor {
                             let count = enumerator.GetCount().unwrap_or(0);
                             for i in 0..count {
                                 if let Ok(session) = enumerator.GetSession(i)
-                                    && let Ok(session2) = session.cast::<IAudioSessionControl2>() {
-                                        if session2.IsSystemSoundsSession() == S_OK {
-                                            continue;
-                                        }
-                                        if let Ok(meter) = session.cast::<IAudioMeterInformation>()
-                                            && let Ok(peak) = meter.GetPeakValue() {
-                                                max_peak = max_peak.max(peak);
-                                            }
+                                    && let Ok(session2) = session.cast::<IAudioSessionControl2>()
+                                {
+                                    if session2.IsSystemSoundsSession() == S_OK {
+                                        continue;
                                     }
+                                    if let Ok(meter) = session.cast::<IAudioMeterInformation>()
+                                        && let Ok(peak) = meter.GetPeakValue()
+                                    {
+                                        max_peak = max_peak.max(peak);
+                                    }
+                                }
                             }
                         }
                     }

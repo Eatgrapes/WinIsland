@@ -115,9 +115,10 @@ async fn do_check(app_dir: &Path) {
         .await;
 
         if let Ok(r) = result
-            && (r == IDOK || r == IDYES) {
-                perform_update(remote_json_str, app_dir.to_path_buf()).await;
-            }
+            && (r == IDOK || r == IDYES)
+        {
+            perform_update(remote_json_str, app_dir.to_path_buf()).await;
+        }
     }
 }
 

@@ -1,6 +1,6 @@
+use super::HOVER_ROW_KEY_BASE;
 use super::anim::SwitchAnimator;
 use super::items::*;
-use super::HOVER_ROW_KEY_BASE;
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
 use crate::utils::font::FontManager;
@@ -284,21 +284,23 @@ pub fn draw_items(
                 if in_group {
                     group_current_row += 1;
                     if group_current_row < group_row_count
-                        && y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
-                            let mut sep = Paint::default();
-                            sep.set_anti_alias(true);
-                            sep.set_color(color_separator());
-                            sep.set_stroke_width(0.5);
-                            sep.set_style(skia_safe::paint::Style::Stroke);
-                            canvas.draw_line(
-                                (row_x, y + ROW_HEIGHT),
-                                (
-                                    CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                    y + ROW_HEIGHT,
-                                ),
-                                &sep,
-                            );
-                        }
+                        && y + ROW_HEIGHT >= visible_min_y
+                        && y <= visible_max_y
+                    {
+                        let mut sep = Paint::default();
+                        sep.set_anti_alias(true);
+                        sep.set_color(color_separator());
+                        sep.set_stroke_width(0.5);
+                        sep.set_style(skia_safe::paint::Style::Stroke);
+                        canvas.draw_line(
+                            (row_x, y + ROW_HEIGHT),
+                            (
+                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
+                                y + ROW_HEIGHT,
+                            ),
+                            &sep,
+                        );
+                    }
                 }
                 row_idx += 1;
             }
@@ -341,21 +343,23 @@ pub fn draw_items(
                 if in_group {
                     group_current_row += 1;
                     if group_current_row < group_row_count
-                        && y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
-                            let mut sep = Paint::default();
-                            sep.set_anti_alias(true);
-                            sep.set_color(color_separator());
-                            sep.set_stroke_width(0.5);
-                            sep.set_style(skia_safe::paint::Style::Stroke);
-                            canvas.draw_line(
-                                (row_x, y + ROW_HEIGHT),
-                                (
-                                    CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                    y + ROW_HEIGHT,
-                                ),
-                                &sep,
-                            );
-                        }
+                        && y + ROW_HEIGHT >= visible_min_y
+                        && y <= visible_max_y
+                    {
+                        let mut sep = Paint::default();
+                        sep.set_anti_alias(true);
+                        sep.set_color(color_separator());
+                        sep.set_stroke_width(0.5);
+                        sep.set_style(skia_safe::paint::Style::Stroke);
+                        canvas.draw_line(
+                            (row_x, y + ROW_HEIGHT),
+                            (
+                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
+                                y + ROW_HEIGHT,
+                            ),
+                            &sep,
+                        );
+                    }
                 }
                 row_idx += 1;
             }
@@ -415,22 +419,21 @@ pub fn draw_items(
 
                 if in_group {
                     group_current_row += 1;
-                    if group_current_row < group_row_count
-                        && visible {
-                            let mut sep = Paint::default();
-                            sep.set_anti_alias(true);
-                            sep.set_color(color_separator());
-                            sep.set_stroke_width(0.5);
-                            sep.set_style(skia_safe::paint::Style::Stroke);
-                            canvas.draw_line(
-                                (row_x, y + ROW_HEIGHT),
-                                (
-                                    CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                    y + ROW_HEIGHT,
-                                ),
-                                &sep,
-                            );
-                        }
+                    if group_current_row < group_row_count && visible {
+                        let mut sep = Paint::default();
+                        sep.set_anti_alias(true);
+                        sep.set_color(color_separator());
+                        sep.set_stroke_width(0.5);
+                        sep.set_style(skia_safe::paint::Style::Stroke);
+                        canvas.draw_line(
+                            (row_x, y + ROW_HEIGHT),
+                            (
+                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
+                                y + ROW_HEIGHT,
+                            ),
+                            &sep,
+                        );
+                    }
                 }
                 row_idx += 1;
             }
@@ -530,22 +533,21 @@ pub fn draw_items(
 
                 if in_group {
                     group_current_row += 1;
-                    if group_current_row < group_row_count
-                        && visible {
-                            let mut sep = Paint::default();
-                            sep.set_anti_alias(true);
-                            sep.set_color(color_separator());
-                            sep.set_stroke_width(0.5);
-                            sep.set_style(skia_safe::paint::Style::Stroke);
-                            canvas.draw_line(
-                                (row_x, y + ROW_HEIGHT),
-                                (
-                                    CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                    y + ROW_HEIGHT,
-                                ),
-                                &sep,
-                            );
-                        }
+                    if group_current_row < group_row_count && visible {
+                        let mut sep = Paint::default();
+                        sep.set_anti_alias(true);
+                        sep.set_color(color_separator());
+                        sep.set_stroke_width(0.5);
+                        sep.set_style(skia_safe::paint::Style::Stroke);
+                        canvas.draw_line(
+                            (row_x, y + ROW_HEIGHT),
+                            (
+                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
+                                y + ROW_HEIGHT,
+                            ),
+                            &sep,
+                        );
+                    }
                 }
                 row_idx += 1;
             }
@@ -627,22 +629,21 @@ pub fn draw_items(
 
                 if in_group {
                     group_current_row += 1;
-                    if group_current_row < group_row_count
-                        && visible {
-                            let mut sep = Paint::default();
-                            sep.set_anti_alias(true);
-                            sep.set_color(color_separator());
-                            sep.set_stroke_width(0.5);
-                            sep.set_style(skia_safe::paint::Style::Stroke);
-                            canvas.draw_line(
-                                (row_x, y + ROW_HEIGHT),
-                                (
-                                    CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                    y + ROW_HEIGHT,
-                                ),
-                                &sep,
-                            );
-                        }
+                    if group_current_row < group_row_count && visible {
+                        let mut sep = Paint::default();
+                        sep.set_anti_alias(true);
+                        sep.set_color(color_separator());
+                        sep.set_stroke_width(0.5);
+                        sep.set_style(skia_safe::paint::Style::Stroke);
+                        canvas.draw_line(
+                            (row_x, y + ROW_HEIGHT),
+                            (
+                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
+                                y + ROW_HEIGHT,
+                            ),
+                            &sep,
+                        );
+                    }
                 }
                 row_idx += 1;
             }
@@ -669,22 +670,21 @@ pub fn draw_items(
 
                 if in_group {
                     group_current_row += 1;
-                    if group_current_row < group_row_count
-                        && visible {
-                            let mut sep = Paint::default();
-                            sep.set_anti_alias(true);
-                            sep.set_color(color_separator());
-                            sep.set_stroke_width(0.5);
-                            sep.set_style(skia_safe::paint::Style::Stroke);
-                            canvas.draw_line(
-                                (row_x, y + ROW_HEIGHT),
-                                (
-                                    CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                    y + ROW_HEIGHT,
-                                ),
-                                &sep,
-                            );
-                        }
+                    if group_current_row < group_row_count && visible {
+                        let mut sep = Paint::default();
+                        sep.set_anti_alias(true);
+                        sep.set_color(color_separator());
+                        sep.set_stroke_width(0.5);
+                        sep.set_style(skia_safe::paint::Style::Stroke);
+                        canvas.draw_line(
+                            (row_x, y + ROW_HEIGHT),
+                            (
+                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
+                                y + ROW_HEIGHT,
+                            ),
+                            &sep,
+                        );
+                    }
                 }
                 row_idx += 1;
             }

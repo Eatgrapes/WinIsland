@@ -43,14 +43,16 @@ fn get_custom_typeface() -> Option<Typeface> {
         CUSTOM_TYPEFACE.with(|cache| {
             let mut cache_mut = cache.borrow_mut();
             if let Some((ref cached_path, ref tf)) = *cache_mut
-                && cached_path == &path {
-                    return Some(tf.clone());
-                }
+                && cached_path == &path
+            {
+                return Some(tf.clone());
+            }
             if let Ok(data) = std::fs::read(&path)
-                && let Some(tf) = FONT_MGR.with(|mgr| mgr.new_from_data(&data, None)) {
-                    *cache_mut = Some((path, tf.clone()));
-                    return Some(tf);
-                }
+                && let Some(tf) = FONT_MGR.with(|mgr| mgr.new_from_data(&data, None))
+            {
+                *cache_mut = Some((path, tf.clone()));
+                return Some(tf);
+            }
             None
         })
     } else {
@@ -180,10 +182,11 @@ impl FontManager {
                 for c in text.chars() {
                     let (tf, embolden) = get_typeface_for_char(c, style);
                     if let Some(ref ltf) = last_tf
-                        && (ltf.unique_id() != tf.unique_id() || last_embolden != embolden) {
-                            groups.push((current_group.clone(), ltf.clone(), last_embolden));
-                            current_group.clear();
-                        }
+                        && (ltf.unique_id() != tf.unique_id() || last_embolden != embolden)
+                    {
+                        groups.push((current_group.clone(), ltf.clone(), last_embolden));
+                        current_group.clear();
+                    }
                     last_tf = Some(tf);
                     last_embolden = embolden;
                     current_group.push(c);
@@ -250,10 +253,11 @@ impl FontManager {
                 for c in truncated.chars() {
                     let (tf, embolden) = get_typeface_for_char(c, style);
                     if let Some(ref ltf) = last_tf
-                        && (ltf.unique_id() != tf.unique_id() || last_embolden != embolden) {
-                            groups.push((current_group.clone(), ltf.clone(), last_embolden));
-                            current_group.clear();
-                        }
+                        && (ltf.unique_id() != tf.unique_id() || last_embolden != embolden)
+                    {
+                        groups.push((current_group.clone(), ltf.clone(), last_embolden));
+                        current_group.clear();
+                    }
                     last_tf = Some(tf);
                     last_embolden = embolden;
                     current_group.push(c);

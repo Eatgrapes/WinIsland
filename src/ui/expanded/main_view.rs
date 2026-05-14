@@ -164,10 +164,11 @@ pub fn get_cached_media_image(media: &MediaInfo) -> Option<Image> {
     IMG_CACHE.with(|cache| {
         let mut cache_mut = cache.borrow_mut();
         if let Some((key, img)) = cache_mut.as_ref()
-            && key == &cache_key {
-                result = Some(img.clone());
-                return;
-            }
+            && key == &cache_key
+        {
+            result = Some(img.clone());
+            return;
+        }
         if let Some(ref bytes_arc) = media.thumbnail {
             let data = Data::new_copy(bytes_arc);
             if let Some(image) = Image::from_encoded(data) {
