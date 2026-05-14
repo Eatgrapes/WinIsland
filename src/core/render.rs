@@ -15,43 +15,102 @@ use std::sync::Arc;
 use winit::window::Window;
 
 thread_local! {
-    static SK_SURFACE: RefCell<Option<SkSurface>> = RefCell::new(None);
+    static SK_SURFACE: RefCell<Option<SkSurface>> = const { RefCell::new(None) };
+}
+
+pub struct LayoutParams {
+    pub current_w: f32,
+    pub current_h: f32,
+    pub current_r: f32,
+    pub os_w: u32,
+    pub os_h: u32,
+    pub sigmas: (f32, f32),
+    pub expansion_progress: f32,
+    pub view_offset: f32,
+    pub global_scale: f32,
+    pub hide_progress: f32,
+    pub dock_position: DockPosition,
+}
+
+pub struct MediaParams<'a> {
+    pub media: &'a MediaInfo,
+    pub music_active: bool,
+}
+
+pub struct LyricsParams<'a> {
+    pub current_lyric: &'a str,
+    pub old_lyric: &'a str,
+    pub lyric_transition: f32,
+    pub lyric_scroll_offset: f32,
+}
+
+pub struct WindowParams {
+    pub win_x: i32,
+    pub win_y: i32,
+}
+
+pub struct StyleParams<'a> {
+    pub island_style: &'a str,
+    pub use_blur: bool,
+    pub font_size: f32,
+    pub weights: [f32; 4],
+}
+
+pub struct DrawIslandParams<'a> {
+    pub layout: LayoutParams,
+    pub media: MediaParams<'a>,
+    pub lyrics: LyricsParams<'a>,
+    pub window: WindowParams,
+    pub style: StyleParams<'a>,
 }
 
 pub fn draw_island(
     surface: &mut Surface<Arc<Window>, Arc<Window>>,
-    current_w: f32,
-    current_h: f32,
-    current_r: f32,
-    os_w: u32,
-    os_h: u32,
-    _weights: [f32; 4],
-    sigmas: (f32, f32),
-    expansion_progress: f32,
-    view_offset: f32,
-    media: &MediaInfo,
-    music_active: bool,
-    global_scale: f32,
-    current_lyric: &str,
-    old_lyric: &str,
-    lyric_transition: f32,
-    use_blur: bool,
-    hide_progress: f32,
-    lyric_scroll_offset: f32,
-    island_style: &str,
-    dock_position: &DockPosition,
-    win_x: i32,
-    win_y: i32,
-    font_size: f32,
+    params: DrawIslandParams<'_>,
 ) {
+    let DrawIslandParams {
+        layout,
+        media,
+        lyrics,
+        window,
+        style,
+    } = params;
+
+    let LayoutParams {
+        current_w,
+        current_h,
+        current_r,
+        os_w,
+        os_h,
+        sigmas,
+        expansion_progress,
+        view_offset,
+        global_scale,
+        hide_progress,
+        dock_position,
+    } = layout;
+    let MediaParams { media, music_active } = media;
+    let LyricsParams {
+        current_lyric,
+        old_lyric,
+        lyric_transition,
+        lyric_scroll_offset,
+    } = lyrics;
+    let WindowParams { win_x, win_y } = window;
+    let StyleParams {
+        island_style,
+        use_blur,
+        font_size,
+        weights: _weights,
+    } = style;
+
     let mut buffer = surface.buffer_mut().unwrap();
     let mut sk_surface = SK_SURFACE.with(|cell| {
         let mut opt = cell.borrow_mut();
-        if let Some(ref s) = *opt {
-            if s.width() == os_w as i32 && s.height() == os_h as i32 {
+        if let Some(ref s) = *opt
+            && s.width() == os_w as i32 && s.height() == os_h as i32 {
                 return s.clone();
             }
-        }
         let new_surface =
             surfaces::raster_n32_premul(ISize::new(os_w as i32, os_h as i32)).unwrap();
         *opt = Some(new_surface.clone());
@@ -358,7 +417,7 @@ pub fn draw_island(
         None,
     );
     let dst_row_bytes = (os_w * 4) as usize;
-    let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut *buffer);
+    let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut buffer);
     let _ = sk_surface.read_pixels(&info, u8_buffer, dst_row_bytes, (0, 0));
     buffer.present().unwrap();
 }

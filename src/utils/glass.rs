@@ -7,7 +7,7 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::*;
 
 thread_local! {
-    static GLASS_CACHE: RefCell<Option<(Image, Instant, i32, i32, u32, u32)>> = RefCell::new(None);
+    static GLASS_CACHE: RefCell<Option<(Image, Instant, i32, i32, u32, u32)>> = const { RefCell::new(None) };
 }
 
 pub fn set_glass_hwnd(_hwnd_raw: isize) {}
@@ -25,8 +25,8 @@ pub fn get_glass_background(
 
     let cached = GLASS_CACHE.with(|cell| {
         let cache = cell.borrow();
-        if let Some((img, time, cx, cy, cw, ch)) = cache.as_ref() {
-            if time.elapsed().as_millis() < 100
+        if let Some((img, time, cx, cy, cw, ch)) = cache.as_ref()
+            && time.elapsed().as_millis() < 100
                 && *cx == screen_x
                 && *cy == screen_y
                 && *cw == w
@@ -34,7 +34,6 @@ pub fn get_glass_background(
             {
                 return Some(img.clone());
             }
-        }
         None
     });
     if let Some(img) = cached {
@@ -74,12 +73,12 @@ unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) ->
         );
 
         let mut bmi: BITMAPINFO = std::mem::zeroed();
-        bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+        bmi.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
         bmi.bmiHeader.biWidth = cap_w;
         bmi.bmiHeader.biHeight = -cap_h;
         bmi.bmiHeader.biPlanes = 1;
         bmi.bmiHeader.biBitCount = 32;
-        bmi.bmiHeader.biCompression = BI_RGB.0 as u32;
+        bmi.bmiHeader.biCompression = BI_RGB.0;
 
         let pixel_count = (cap_w * cap_h * 4) as usize;
         let mut pixels = vec![0u8; pixel_count];

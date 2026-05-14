@@ -283,8 +283,8 @@ pub fn draw_items(
 
                 if in_group {
                     group_current_row += 1;
-                    if group_current_row < group_row_count {
-                        if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
+                    if group_current_row < group_row_count
+                        && y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
                             let mut sep = Paint::default();
                             sep.set_anti_alias(true);
                             sep.set_color(color_separator());
@@ -299,7 +299,6 @@ pub fn draw_items(
                                 &sep,
                             );
                         }
-                    }
                 }
                 row_idx += 1;
             }
@@ -341,8 +340,8 @@ pub fn draw_items(
 
                 if in_group {
                     group_current_row += 1;
-                    if group_current_row < group_row_count {
-                        if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
+                    if group_current_row < group_row_count
+                        && y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
                             let mut sep = Paint::default();
                             sep.set_anti_alias(true);
                             sep.set_color(color_separator());
@@ -357,7 +356,6 @@ pub fn draw_items(
                                 &sep,
                             );
                         }
-                    }
                 }
                 row_idx += 1;
             }
@@ -417,8 +415,8 @@ pub fn draw_items(
 
                 if in_group {
                     group_current_row += 1;
-                    if group_current_row < group_row_count {
-                        if visible {
+                    if group_current_row < group_row_count
+                        && visible {
                             let mut sep = Paint::default();
                             sep.set_anti_alias(true);
                             sep.set_color(color_separator());
@@ -433,7 +431,6 @@ pub fn draw_items(
                                 &sep,
                             );
                         }
-                    }
                 }
                 row_idx += 1;
             }
@@ -533,8 +530,8 @@ pub fn draw_items(
 
                 if in_group {
                     group_current_row += 1;
-                    if group_current_row < group_row_count {
-                        if visible {
+                    if group_current_row < group_row_count
+                        && visible {
                             let mut sep = Paint::default();
                             sep.set_anti_alias(true);
                             sep.set_color(color_separator());
@@ -549,7 +546,6 @@ pub fn draw_items(
                                 &sep,
                             );
                         }
-                    }
                 }
                 row_idx += 1;
             }
@@ -631,8 +627,8 @@ pub fn draw_items(
 
                 if in_group {
                     group_current_row += 1;
-                    if group_current_row < group_row_count {
-                        if visible {
+                    if group_current_row < group_row_count
+                        && visible {
                             let mut sep = Paint::default();
                             sep.set_anti_alias(true);
                             sep.set_color(color_separator());
@@ -647,7 +643,6 @@ pub fn draw_items(
                                 &sep,
                             );
                         }
-                    }
                 }
                 row_idx += 1;
             }
@@ -674,8 +669,8 @@ pub fn draw_items(
 
                 if in_group {
                     group_current_row += 1;
-                    if group_current_row < group_row_count {
-                        if visible {
+                    if group_current_row < group_row_count
+                        && visible {
                             let mut sep = Paint::default();
                             sep.set_anti_alias(true);
                             sep.set_color(color_separator());
@@ -690,7 +685,6 @@ pub fn draw_items(
                                 &sep,
                             );
                         }
-                    }
                 }
                 row_idx += 1;
             }

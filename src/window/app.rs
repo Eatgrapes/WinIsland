@@ -1,7 +1,10 @@
 use crate::core::audio::AudioProcessor;
 use crate::core::config::{AppConfig, PADDING, TOP_OFFSET, WINDOW_TITLE};
 use crate::core::persistence::load_config;
-use crate::core::render::draw_island;
+use crate::core::render::{
+    DrawIslandParams, LayoutParams, LyricsParams, MediaParams, StyleParams, WindowParams,
+    draw_island,
+};
 use crate::core::smtc::SmtcListener;
 use crate::ui::expanded::main_view::{
     get_next_btn_rect, get_pause_btn_rect, get_prev_btn_rect, get_progress_bar_rect,
@@ -161,8 +164,8 @@ impl App {
     }
 
     fn enforce_topmost(window: &Window, win_x: i32, win_y: i32, os_w: u32, os_h: u32) {
-        if let Ok(handle) = window.window_handle() {
-            if let RawWindowHandle::Win32(raw) = handle.as_raw() {
+        if let Ok(handle) = window.window_handle()
+            && let RawWindowHandle::Win32(raw) = handle.as_raw() {
                 let hwnd = HWND(raw.hwnd.get() as *mut core::ffi::c_void);
                 unsafe {
                     let _ = SetWindowPos(
@@ -176,7 +179,6 @@ impl App {
                     );
                 }
             }
-        }
     }
 
     fn compute_window_position(
@@ -278,8 +280,8 @@ impl ApplicationHandler for App {
                 .with_window_icon(get_app_icon());
             let window = Arc::new(event_loop.create_window(attrs).unwrap());
 
-            if let Ok(handle) = window.window_handle() {
-                if let RawWindowHandle::Win32(win32_handle) = handle.as_raw() {
+            if let Ok(handle) = window.window_handle()
+                && let RawWindowHandle::Win32(win32_handle) = handle.as_raw() {
                     let hwnd = HWND(win32_handle.hwnd.get() as _);
                     unsafe {
                         let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
@@ -297,7 +299,6 @@ impl ApplicationHandler for App {
                     }
                     set_glass_hwnd(win32_handle.hwnd.get());
                 }
-            }
 
             self.window = Some(window.clone());
 
@@ -338,8 +339,8 @@ impl ApplicationHandler for App {
         }
     }
     fn window_event(&mut self, _event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
-        if let Some(win) = &self.window {
-            if win.id() == id {
+        if let Some(win) = &self.window
+            && win.id() == id {
                 match event {
                     WindowEvent::ThemeChanged(theme) => {
                         let is_light = theme == winit::window::Theme::Light;
@@ -470,8 +471,7 @@ impl ApplicationHandler for App {
                                             music_on,
                                             self.config.global_scale,
                                         )
-                                    {
-                                        if cx >= bar_left
+                                        && cx >= bar_left
                                             && cx <= bar_right
                                             && cy >= bar_top
                                             && cy <= bar_top + bar_hit_h
@@ -488,7 +488,6 @@ impl ApplicationHandler for App {
                                             self.seeking_preview_ms = seek_ms;
                                             return;
                                         }
-                                    }
                                 }
 
                                 if view_val > 0.5 {
@@ -530,13 +529,11 @@ impl ApplicationHandler for App {
                                     self.expanded = false;
                                     self.widget_view = false;
                                 }
-                            } else {
-                                if is_hovering_visible || is_on_hidden_handle {
-                                    self.is_dragging = true;
-                                    self.drag_start_py = py;
-                                    self.drag_start_hide_val = self.spring_hide.value;
-                                    self.drag_has_moved = false;
-                                }
+                            } else if is_hovering_visible || is_on_hidden_handle {
+                                self.is_dragging = true;
+                                self.drag_start_py = py;
+                                self.drag_start_hide_val = self.spring_hide.value;
+                                self.drag_has_moved = false;
                             }
                         } else if state == ElementState::Released {
                             if self.seeking_progress {
@@ -557,14 +554,12 @@ impl ApplicationHandler for App {
                                     } else {
                                         self.expanded = true;
                                     }
+                                } else if self.spring_hide.value > 0.3 {
+                                    self.manually_hidden = true;
+                                    self.auto_hidden = false;
                                 } else {
-                                    if self.spring_hide.value > 0.3 {
-                                        self.manually_hidden = true;
-                                        self.auto_hidden = false;
-                                    } else {
-                                        self.manually_hidden = false;
-                                        self.auto_hidden = false;
-                                    }
+                                    self.manually_hidden = false;
+                                    self.auto_hidden = false;
                                 }
                             }
                         }
@@ -611,43 +606,54 @@ impl ApplicationHandler for App {
 
                             draw_island(
                                 surface,
-                                self.spring_w.value,
-                                self.spring_h.value,
-                                self.spring_r.value,
-                                self.os_w,
-                                self.os_h,
-                                self.border_weights,
-                                sigmas,
-                                progress,
-                                self.spring_view.value,
-                                &media_info,
-                                music_active,
-                                self.config.global_scale,
-                                &self.current_lyric_text,
-                                &self.old_lyric_text,
-                                self.lyric_transition,
-                                self.config.motion_blur,
-                                self.spring_hide.value,
-                                self.lyric_scroll_offset,
-                                &self.config.island_style,
-                                &self.config.dock_position,
-                                self.win_x,
-                                self.win_y,
-                                self.config.font_size,
+                                DrawIslandParams {
+                                    layout: LayoutParams {
+                                        current_w: self.spring_w.value,
+                                        current_h: self.spring_h.value,
+                                        current_r: self.spring_r.value,
+                                        os_w: self.os_w,
+                                        os_h: self.os_h,
+                                        sigmas,
+                                        expansion_progress: progress,
+                                        view_offset: self.spring_view.value,
+                                        global_scale: self.config.global_scale,
+                                        hide_progress: self.spring_hide.value,
+                                        dock_position: self.config.dock_position,
+                                    },
+                                    media: MediaParams {
+                                        media: &media_info,
+                                        music_active,
+                                    },
+                                    lyrics: LyricsParams {
+                                        current_lyric: self.current_lyric_text.as_str(),
+                                        old_lyric: self.old_lyric_text.as_str(),
+                                        lyric_transition: self.lyric_transition,
+                                        lyric_scroll_offset: self.lyric_scroll_offset,
+                                    },
+                                    window: WindowParams {
+                                        win_x: self.win_x,
+                                        win_y: self.win_y,
+                                    },
+                                    style: StyleParams {
+                                        island_style: self.config.island_style.as_str(),
+                                        use_blur: self.config.motion_blur,
+                                        font_size: self.config.font_size,
+                                        weights: self.border_weights,
+                                    },
+                                },
                             );
                         }
                     }
                     _ => (),
                 }
             }
-        }
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if let Some(window) = &self.window {
             Self::enforce_topmost(window, self.win_x, self.win_y, self.os_w, self.os_h);
             let frame_start = Instant::now();
-            if let Some(tray) = &self.tray {
-                if let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
+            if let Some(tray) = &self.tray
+                && let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
                     match TrayAction::from_id(event.id, tray) {
                         Some(TrayAction::ToggleVisibility) => {
                             self.visible = !self.visible;
@@ -665,8 +671,7 @@ impl ApplicationHandler for App {
                         None => (),
                     }
                 }
-            }
-            if self.frame_count % 60 == 0 {
+            if self.frame_count.is_multiple_of(60) {
                 let current_config = load_config();
                 if current_config != self.config {
                     let old_scale = self.config.global_scale;
@@ -723,8 +728,8 @@ impl ApplicationHandler for App {
                     let mon_pos = monitor.position();
                     let cur_mon_size = (mon_size.width, mon_size.height);
                     let cur_mon_pos = (mon_pos.x, mon_pos.y);
-                    if cur_mon_size != self.last_mon_size || cur_mon_pos != self.last_mon_pos {
-                        if cur_mon_size.0 > 0 && cur_mon_size.1 > 0 {
+                    if (cur_mon_size != self.last_mon_size || cur_mon_pos != self.last_mon_pos)
+                        && cur_mon_size.0 > 0 && cur_mon_size.1 > 0 {
                             self.last_mon_size = cur_mon_size;
                             self.last_mon_pos = cur_mon_pos;
                             (self.win_x, self.win_y) =
@@ -732,7 +737,6 @@ impl ApplicationHandler for App {
                             window
                                 .set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
                         }
-                    }
                 }
             }
 
@@ -794,26 +798,24 @@ impl ApplicationHandler for App {
             if !self.config.auto_hide {
                 self.auto_hidden = false;
                 self.idle_timer = Instant::now();
-            } else {
-                if music_active && self.auto_hidden && !self.manually_hidden {
+            } else if music_active && self.auto_hidden && !self.manually_hidden {
+                self.auto_hidden = false;
+                self.idle_timer = Instant::now();
+                self.spring_hide.velocity = -0.65;
+            } else if self.auto_hidden {
+                if is_on_hidden_handle || is_hovering_visible {
                     self.auto_hidden = false;
                     self.idle_timer = Instant::now();
-                    self.spring_hide.velocity = -0.65;
-                } else if self.auto_hidden {
-                    if is_on_hidden_handle || is_hovering_visible {
-                        self.auto_hidden = false;
-                        self.idle_timer = Instant::now();
-                        self.spring_hide.velocity = -0.45;
-                    } else if !self.expanded && !music_active {
-                        // Let idle_timer expire
-                    }
-                } else if is_idle && !self.manually_hidden {
-                    if self.idle_timer.elapsed().as_secs_f32() > self.config.auto_hide_delay {
-                        self.auto_hidden = true;
-                    }
-                } else if !self.manually_hidden && !is_idle {
-                    self.idle_timer = Instant::now();
+                    self.spring_hide.velocity = -0.45;
+                } else if !self.expanded && !music_active {
+                    // Let idle_timer expire
                 }
+            } else if is_idle && !self.manually_hidden {
+                if self.idle_timer.elapsed().as_secs_f32() > self.config.auto_hide_delay {
+                    self.auto_hidden = true;
+                }
+            } else if !self.manually_hidden && !is_idle {
+                self.idle_timer = Instant::now();
             }
 
             // Handle dragging on the progress bar while mouse is held
@@ -912,7 +914,7 @@ impl ApplicationHandler for App {
             }
 
             if self.config.adaptive_border {
-                if self.frame_count % 30 == 0 {
+                if self.frame_count.is_multiple_of(30) {
                     let island_cx = self.win_x
                         + (offset_x + (self.spring_w.value as f64) / 2.0).round() as i32;
                     let island_cy = self.win_y

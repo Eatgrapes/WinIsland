@@ -12,21 +12,21 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 thread_local! {
-    static IMG_CACHE: RefCell<Option<(String, Image)>> = RefCell::new(None);
+    static IMG_CACHE: RefCell<Option<(String, Image)>> = const { RefCell::new(None) };
     static COLOR_CACHE: RefCell<HashMap<String, Vec<Color>>> = RefCell::new(HashMap::new());
-    static VIZ_HEIGHTS: RefCell<[f32; 6]> = RefCell::new([3.0; 6]);
-    static PROGRESS_SMOOTH: RefCell<f32> = RefCell::new(0.0);
-    static PAUSE_ANIM: RefCell<f32> = RefCell::new(0.0);
+    static VIZ_HEIGHTS: RefCell<[f32; 6]> = const { RefCell::new([3.0; 6]) };
+    static PROGRESS_SMOOTH: RefCell<f32> = const { RefCell::new(0.0) };
+    static PAUSE_ANIM: RefCell<f32> = const { RefCell::new(0.0) };
     static PAUSE_SPRING: RefCell<Spring> = RefCell::new(Spring::new(1.0));
-    static PREV_SKIP_ANIM: RefCell<Option<std::time::Instant>> = RefCell::new(None);
-    static NEXT_SKIP_ANIM: RefCell<Option<std::time::Instant>> = RefCell::new(None);
-    static LOCAL_PLAY_STATE: RefCell<Option<(bool, std::time::Instant)>> = RefCell::new(None);
+    static PREV_SKIP_ANIM: RefCell<Option<std::time::Instant>> = const { RefCell::new(None) };
+    static NEXT_SKIP_ANIM: RefCell<Option<std::time::Instant>> = const { RefCell::new(None) };
+    static LOCAL_PLAY_STATE: RefCell<Option<(bool, std::time::Instant)>> = const { const { RefCell::new(None) } };
     static TITLE_SCROLL: RefCell<ScrollText> = RefCell::new(ScrollText::new());
     static ARTIST_SCROLL: RefCell<ScrollText> = RefCell::new(ScrollText::new());
-    static COVER_FLIP_ANIM: RefCell<Option<std::time::Instant>> = RefCell::new(None);
-    static COVER_FLIP_OLD_IMG: RefCell<Option<Image>> = RefCell::new(None);
-    static PROGRESS_HOVER: RefCell<(bool, f32)> = RefCell::new((false, 0.0));
-    static PROGRESS_DRAGGING: RefCell<bool> = RefCell::new(false);
+    static COVER_FLIP_ANIM: RefCell<Option<std::time::Instant>> = const { RefCell::new(None) };
+    static COVER_FLIP_OLD_IMG: RefCell<Option<Image>> = const { RefCell::new(None) };
+    static PROGRESS_HOVER: RefCell<(bool, f32)> = const { RefCell::new((false, 0.0)) };
+    static PROGRESS_DRAGGING: RefCell<bool> = const { RefCell::new(false) };
 }
 
 pub fn trigger_pause_click(current_is_playing: bool) {
@@ -163,14 +163,13 @@ pub fn get_cached_media_image(media: &MediaInfo) -> Option<Image> {
     let mut result = None;
     IMG_CACHE.with(|cache| {
         let mut cache_mut = cache.borrow_mut();
-        if let Some((key, img)) = cache_mut.as_ref() {
-            if key == &cache_key {
+        if let Some((key, img)) = cache_mut.as_ref()
+            && key == &cache_key {
                 result = Some(img.clone());
                 return;
             }
-        }
         if let Some(ref bytes_arc) = media.thumbnail {
-            let data = Data::new_copy(&**bytes_arc);
+            let data = Data::new_copy(bytes_arc);
             if let Some(image) = Image::from_encoded(data) {
                 *cache_mut = Some((cache_key.clone(), image.clone()));
                 result = Some(image);
@@ -811,7 +810,7 @@ pub fn draw_visualizer(
             .unwrap();
             paint.set_shader(shader);
         } else {
-            paint.set_color(colors_with_alpha.get(0).cloned().unwrap_or(Color::WHITE));
+            paint.set_color(colors_with_alpha.first().cloned().unwrap_or(Color::WHITE));
         }
         for i in 0..bar_count {
             let h = heights[i];

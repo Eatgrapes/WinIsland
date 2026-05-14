@@ -14,7 +14,7 @@ thread_local! {
     static FONT_MGR: FontMgr = FontMgr::new();
     static FALLBACK_CACHE: RefCell<HashMap<(char, u32), Typeface>> = RefCell::new(HashMap::new());
     static TEXT_CACHE: RefCell<HashMap<String, (String, Vec<(String, Typeface, bool)>)>> = RefCell::new(HashMap::new());
-    static CUSTOM_TYPEFACE: RefCell<Option<(String, Typeface)>> = RefCell::new(None);
+    static CUSTOM_TYPEFACE: RefCell<Option<(String, Typeface)>> = const { RefCell::new(None) };
 }
 
 fn style_to_key(style: FontStyle) -> u32 {
@@ -42,17 +42,15 @@ fn get_custom_typeface() -> Option<Typeface> {
     if let Some(path) = config.custom_font_path {
         CUSTOM_TYPEFACE.with(|cache| {
             let mut cache_mut = cache.borrow_mut();
-            if let Some((ref cached_path, ref tf)) = *cache_mut {
-                if cached_path == &path {
+            if let Some((ref cached_path, ref tf)) = *cache_mut
+                && cached_path == &path {
                     return Some(tf.clone());
                 }
-            }
-            if let Ok(data) = std::fs::read(&path) {
-                if let Some(tf) = FONT_MGR.with(|mgr| mgr.new_from_data(&data, None)) {
+            if let Ok(data) = std::fs::read(&path)
+                && let Some(tf) = FONT_MGR.with(|mgr| mgr.new_from_data(&data, None)) {
                     *cache_mut = Some((path, tf.clone()));
                     return Some(tf);
                 }
-            }
             None
         })
     } else {
@@ -154,7 +152,7 @@ impl FontManager {
             let (ellipsis_w, _) = font.measure_str("...", None);
             let max_w = w - ellipsis_w;
             for c in text.chars() {
-                let (cw, _) = font.measure_str(&c.to_string(), None);
+                let (cw, _) = font.measure_str(c.to_string(), None);
                 if current_w + cw > max_w {
                     break;
                 }
@@ -181,12 +179,11 @@ impl FontManager {
                 let mut last_embolden = false;
                 for c in text.chars() {
                     let (tf, embolden) = get_typeface_for_char(c, style);
-                    if let Some(ref ltf) = last_tf {
-                        if ltf.unique_id() != tf.unique_id() || last_embolden != embolden {
+                    if let Some(ref ltf) = last_tf
+                        && (ltf.unique_id() != tf.unique_id() || last_embolden != embolden) {
                             groups.push((current_group.clone(), ltf.clone(), last_embolden));
                             current_group.clear();
                         }
-                    }
                     last_tf = Some(tf);
                     last_embolden = embolden;
                     current_group.push(c);
@@ -238,7 +235,7 @@ impl FontManager {
                     if embolden {
                         font.set_embolden(true);
                     }
-                    let (w, _) = font.measure_str(&c.to_string(), None);
+                    let (w, _) = font.measure_str(c.to_string(), None);
                     if current_w + w > max_w {
                         truncated.push_str("...");
                         break;
@@ -252,12 +249,11 @@ impl FontManager {
                 let mut last_embolden = false;
                 for c in truncated.chars() {
                     let (tf, embolden) = get_typeface_for_char(c, style);
-                    if let Some(ref ltf) = last_tf {
-                        if ltf.unique_id() != tf.unique_id() || last_embolden != embolden {
+                    if let Some(ref ltf) = last_tf
+                        && (ltf.unique_id() != tf.unique_id() || last_embolden != embolden) {
                             groups.push((current_group.clone(), ltf.clone(), last_embolden));
                             current_group.clear();
                         }
-                    }
                     last_tf = Some(tf);
                     last_embolden = embolden;
                     current_group.push(c);

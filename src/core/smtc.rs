@@ -238,12 +238,10 @@ fn smtc_poll_loop(
         // Refresh manager every 30 seconds
         if last_manager_refresh.elapsed() > Duration::from_secs(30) {
             if let Ok(new_mgr_op) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
-            {
-                if let Ok(new_mgr) = new_mgr_op.get() {
+                && let Ok(new_mgr) = new_mgr_op.get() {
                     current_manager = new_mgr;
                     let _ = current_manager.SessionsChanged(&handler);
                 }
-            }
             last_manager_refresh = Instant::now();
         }
 
@@ -289,8 +287,8 @@ fn smtc_poll_loop(
         while let Ok(v) = seek_rx.try_recv() {
             seek_pos = Some(v);
         }
-        if let Some(seek_pos) = seek_pos {
-            if let Some(session) = get_target_session(&current_manager, &current_allowed_apps) {
+        if let Some(seek_pos) = seek_pos
+            && let Some(session) = get_target_session(&current_manager, &current_allowed_apps) {
                 let ticks = seek_pos as i64 * 10_000;
                 let _ = session.TryChangePlaybackPositionAsync(ticks);
                 let mut info = info_tx.borrow().clone();
@@ -300,22 +298,20 @@ fn smtc_poll_loop(
                 // seek_pos as authoritative would make the next poll think SMTC changed and sync back.
                 let _ = info_tx.send(info);
             }
-        }
 
         // Handle playback commands
         while let Ok(cmd) = playback_rx.try_recv() {
             if let Some(session) = get_target_session(&current_manager, &current_allowed_apps) {
                 match cmd {
                     PlaybackCommand::Toggle => {
-                        if let Ok(pb_info) = session.GetPlaybackInfo() {
-                            if let Ok(status) = pb_info.PlaybackStatus() {
+                        if let Ok(pb_info) = session.GetPlaybackInfo()
+                            && let Ok(status) = pb_info.PlaybackStatus() {
                                 if status == windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
                                     let _ = session.TryPauseAsync();
                                 } else {
                                     let _ = session.TryPlayAsync();
                                 }
                             }
-                        }
                     }
                     PlaybackCommand::Next => {
                         let _ = session.TrySkipNextAsync();
@@ -376,15 +372,15 @@ fn auto_allow_new_apps(
     allowed: &[String],
 ) -> Vec<String> {
     let mut new_allowed = allowed.to_vec();
-    if let Ok(sessions) = mgr.GetSessions() {
-        if let Ok(count) = sessions.Size() {
+    if let Ok(sessions) = mgr.GetSessions()
+        && let Ok(count) = sessions.Size() {
             for i in 0..count {
-                if let Ok(session) = sessions.GetAt(i) {
-                    if let Ok(pb_info) = session.GetPlaybackInfo() {
-                        if let Ok(playback_type) = pb_info.PlaybackType() {
-                            if let Ok(value) = playback_type.Value() {
-                                if value == windows::Media::MediaPlaybackType::Music {
-                                    if let Ok(id) = session.SourceAppUserModelId() {
+                if let Ok(session) = sessions.GetAt(i)
+                    && let Ok(pb_info) = session.GetPlaybackInfo()
+                        && let Ok(playback_type) = pb_info.PlaybackType()
+                            && let Ok(value) = playback_type.Value()
+                                && value == windows::Media::MediaPlaybackType::Music
+                                    && let Ok(id) = session.SourceAppUserModelId() {
                                         let app_id = id.to_string();
                                         let mut config = load_config();
                                         let mut changed = false;
@@ -406,14 +402,8 @@ fn auto_allow_new_apps(
                                             save_config(&config);
                                         }
                                     }
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
-    }
     new_allowed
 }
 
@@ -425,8 +415,8 @@ fn get_target_session(
         return None;
     }
     let mut audio_session = None;
-    if let Ok(sessions) = mgr.GetSessions() {
-        if let Ok(count) = sessions.Size() {
+    if let Ok(sessions) = mgr.GetSessions()
+        && let Ok(count) = sessions.Size() {
             for i in 0..count {
                 if let Ok(session) = sessions.GetAt(i) {
                     if let Ok(id) = session.SourceAppUserModelId() {
@@ -440,20 +430,17 @@ fn get_target_session(
                     if !is_music_session(&session) {
                         continue;
                     }
-                    if let Ok(pb_info) = session.GetPlaybackInfo() {
-                        if let Ok(status) = pb_info.PlaybackStatus() {
-                            if status == windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
+                    if let Ok(pb_info) = session.GetPlaybackInfo()
+                        && let Ok(status) = pb_info.PlaybackStatus()
+                            && status == windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
                                 return Some(session);
                             }
-                        }
-                    }
                     if audio_session.is_none() {
                         audio_session = Some(session);
                     }
                 }
             }
         }
-    }
     if let Some(session) = audio_session {
         return Some(session);
     }
@@ -474,15 +461,12 @@ fn get_target_session(
 }
 
 fn is_music_session(session: &GlobalSystemMediaTransportControlsSession) -> bool {
-    if let Ok(pb_info) = session.GetPlaybackInfo() {
-        if let Ok(playback_type) = pb_info.PlaybackType() {
-            if let Ok(value) = playback_type.Value() {
-                if value == windows::Media::MediaPlaybackType::Video {
+    if let Ok(pb_info) = session.GetPlaybackInfo()
+        && let Ok(playback_type) = pb_info.PlaybackType()
+            && let Ok(value) = playback_type.Value()
+                && value == windows::Media::MediaPlaybackType::Video {
                     return false;
                 }
-            }
-        }
-    }
     true
 }
 
@@ -595,11 +579,7 @@ fn fetch_properties(
             true
         } else if smtc_pos > 0 && info.position_ms == 0 {
             true
-        } else if smtc_changed && !is_playing {
-            true
-        } else {
-            false
-        };
+        } else { smtc_changed && !is_playing };
 
         if should_sync {
             info.position_ms = smtc_pos;
@@ -653,15 +633,14 @@ fn fetch_properties(
                     let hash = hasher.finish();
 
                     let current = info_tx_clone.borrow();
-                    if current.title == title_clone && current.artist == artist_clone {
-                        if current.thumbnail_hash != hash {
+                    if current.title == title_clone && current.artist == artist_clone
+                        && current.thumbnail_hash != hash {
                             drop(current);
                             let mut new_info = info_tx_clone.borrow().clone();
                             new_info.thumbnail = Some(Arc::new(bytes));
                             new_info.thumbnail_hash = hash;
                             let _ = info_tx_clone.send(new_info);
                         }
-                    }
                     return;
                 }
                 std::thread::sleep(Duration::from_millis(500));
