@@ -604,25 +604,20 @@ impl SettingsApp {
         use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
         let mut changed = false;
         if let Ok(manager_async) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
-        {
-            if let Ok(manager) = manager_async.get() {
-                if let Ok(sessions) = manager.GetSessions() {
-                    if let Ok(size) = sessions.Size() {
+            && let Ok(manager) = manager_async.get()
+                && let Ok(sessions) = manager.GetSessions()
+                    && let Ok(size) = sessions.Size() {
                         for i in 0..size {
-                            if let Ok(session) = sessions.GetAt(i) {
-                                if let Ok(id) = session.SourceAppUserModelId() {
+                            if let Ok(session) = sessions.GetAt(i)
+                                && let Ok(id) = session.SourceAppUserModelId() {
                                     let name = id.to_string();
                                     if !self.detected_apps.contains(&name) {
                                         self.detected_apps.push(name);
                                         changed = true;
                                     }
                                 }
-                            }
                         }
                     }
-                }
-            }
-        }
         for app in &self.config.smtc_known_apps {
             if !self.detected_apps.contains(app) {
                 self.detected_apps.push(app.clone());
@@ -663,7 +658,7 @@ impl SettingsApp {
                 None,
             );
             let dst_row_bytes = (p_w * 4) as usize;
-            let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut *buffer);
+            let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut buffer);
             let mut sk_surface =
                 surfaces::wrap_pixels(&info, u8_buffer, dst_row_bytes, None).unwrap();
 
@@ -937,8 +932,7 @@ impl SettingsApp {
                 let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
                 if my >= row_y
                     && my <= row_y + SIDEBAR_ROW_H
-                    && mx >= SIDEBAR_PAD
-                    && mx <= SIDEBAR_W - SIDEBAR_PAD
+                    && (SIDEBAR_PAD..=SIDEBAR_W - SIDEBAR_PAD).contains(&mx)
                 {
                     if self.active_page != i as usize {
                         self.active_page = i as usize;
@@ -975,8 +969,8 @@ impl SettingsApp {
         match result {
             ClickResult::StepperDec(idx) | ClickResult::StepperInc(idx) => {
                 let is_dec = matches!(result, ClickResult::StepperDec(_));
-                if let Some(item) = items.get(idx) {
-                    if let SettingsItem::RowStepper { label, .. } = item {
+                if let Some(item) = items.get(idx)
+                    && let SettingsItem::RowStepper { label, .. } = item {
                         let l = label.clone();
                         if l == tr("global_scale") {
                             if is_dec {
@@ -1058,7 +1052,6 @@ impl SettingsApp {
                             changed = true;
                         }
                     }
-                }
             }
             ClickResult::Switch(idx) => {
                 match idx {
@@ -1251,8 +1244,8 @@ impl SettingsApp {
             }
             ClickResult::StepperDec(idx) | ClickResult::StepperInc(idx) => {
                 let is_dec = matches!(result, ClickResult::StepperDec(_));
-                if let Some(item) = items.get(idx) {
-                    if let SettingsItem::RowStepper { label, .. } = item {
+                if let Some(item) = items.get(idx)
+                    && let SettingsItem::RowStepper { label, .. } = item {
                         if label == &tr("lyrics_delay") && self.config.show_lyrics {
                             if is_dec {
                                 self.config.lyrics_delay =
@@ -1278,7 +1271,6 @@ impl SettingsApp {
                             changed = true;
                         }
                     }
-                }
             }
             ClickResult::AppItem(idx) => {
                 if self.config.smtc_enabled && !self.detected_apps.is_empty() {
@@ -1336,8 +1328,7 @@ impl SettingsApp {
                 let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
                 if my >= row_y
                     && my <= row_y + SIDEBAR_ROW_H
-                    && mx >= SIDEBAR_PAD
-                    && mx <= SIDEBAR_W - SIDEBAR_PAD
+                    && (SIDEBAR_PAD..=SIDEBAR_W - SIDEBAR_PAD).contains(&mx)
                 {
                     return true;
                 }
@@ -1396,9 +1387,8 @@ impl ApplicationHandler for SettingsApp {
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                if event.state == ElementState::Pressed {
-                    if let Key::Named(NamedKey::F11) = event.logical_key {}
-                }
+                if event.state == ElementState::Pressed
+                    && let Key::Named(NamedKey::F11) = event.logical_key {}
             }
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = self.window.as_ref().unwrap().scale_factor() as f32;
@@ -1423,8 +1413,7 @@ impl ApplicationHandler for SettingsApp {
                         let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
                         if my >= row_y
                             && my <= row_y + SIDEBAR_ROW_H
-                            && mx >= SIDEBAR_PAD
-                            && mx <= SIDEBAR_W - SIDEBAR_PAD
+                            && (SIDEBAR_PAD..=SIDEBAR_W - SIDEBAR_PAD).contains(&mx)
                         {
                             new_hover = i;
                         }
@@ -1459,11 +1448,10 @@ impl ApplicationHandler for SettingsApp {
                             Err(0) => None,
                             Err(i) => Some(i - 1),
                         };
-                        if let Some(i) = idx {
-                            if content_y <= self.cached_row_tops[i] + ROW_HEIGHT {
+                        if let Some(i) = idx
+                            && content_y <= self.cached_row_tops[i] + ROW_HEIGHT {
                                 new_row = Some(i);
                             }
-                        }
                     }
                     if new_row != self.hover_row {
                         if let Some(old) = self.hover_row {
@@ -1474,13 +1462,11 @@ impl ApplicationHandler for SettingsApp {
                         }
                         self.hover_row = new_row;
                     }
-                } else {
-                    if self.hover_row.is_some() {
-                        if let Some(old) = self.hover_row {
-                            self.anim.set(HOVER_ROW_KEY_BASE + old as u64, 0.0);
-                        }
-                        self.hover_row = None;
+                } else if self.hover_row.is_some() {
+                    if let Some(old) = self.hover_row {
+                        self.anim.set(HOVER_ROW_KEY_BASE + old as u64, 0.0);
                     }
+                    self.hover_row = None;
                 }
 
                 let cursor = if self.get_hover_state() {
@@ -1532,7 +1518,7 @@ impl ApplicationHandler for SettingsApp {
         }
         let frame_start = Instant::now();
         self.frame_count += 1;
-        if self.frame_count % 60 == 0 {
+        if self.frame_count.is_multiple_of(60) {
             unsafe {
                 let h = OpenMutexW(
                     MUTEX_ALL_ACCESS,
