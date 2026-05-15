@@ -2,21 +2,23 @@
 
 感谢你对 WinIsland 项目的关注！这份文档将帮助你了解如何为项目做出贡献。
 
-## ⭐ 可接受 PR 贡献范围
+## PR 贡献范围
 
-对于非项目认可成员，你的 PR 可贡献范围如下：
+对于非项目成员，你的 PR 可贡献范围如下：
 
 1. 已获得 `accepted` 标签的 Issue，你可以提交 PR。
 2. 文档、注释、代码清理（如 fix clippy warnings）、小幅 UI 调整等改动较小且明确的方向。
-3. 改动大的功能性 PR（如添加新功能、重构核心模块）需要先在 Issue 中提出详细设计方案，并获得项目成员的认可后才能提交 PR。
+3. 改动大的功能性 PR（如添加新功能、重构核心模块）需要先在 PR 中提出详细的设计方案，随后项目成员会进行review。
 
 ⛔ 对于范围以外的 PR，项目成员**有权直接拒绝**。
 
 > 我们的原则：**任何贡献对项目的价值都应大于审查它所需的工作量**。请在动手前与项目成员沟通，避免方向冲突。
+> 
+> (当然可能在issue中已经有了讨论，你可以直接动手:P 记得说一下就行:D)
 
 ## 开发环境要求
 
-- **Rust**：1.70+（推荐通过 [rustup](https://rustup.rs/) 安装）
+- **Rust**：1.80+（推荐通过 [rustup](https://rustup.rs/) 安装）
 - **Git**：最新版本
 - **Windows**：WinIsland 强依赖 Windows API，建议在 Windows 10/11 开发（x86_64 或 ARM64）
 
@@ -46,18 +48,12 @@ cargo clippy --workspace -- -D warnings
 - 常量/静态变量：`SCREAMING_SNAKE_CASE`（如 `MAX_SAMPLE_RATE`）
 
 **注释规范**：
-- 公共 API（`pub` 结构体、函数、模块）必须添加文档注释（`///`）
 - 复杂逻辑或 `unsafe` 代码块需要行内注释解释原因
 - 避免无意义的注释（如重复代码内容）
 
-**错误处理**：
-- 优先使用 `?` 传播错误，避免在非 main 函数中随意 `unwrap()`
-- `main` 函数中可适当使用 `unwrap()`，但需确保不会在正常使用中 panic
-- Windows API 调用使用 `windows` crate 返回值处理，常见 `unsafe` 中的 `?` 模式
-
 **Windows 相关**：
 - 所有 Win32 API 调用必须包裹在 `unsafe {}` 块内
-- 涉及窗口、音频、SMTC 的代码需注意线程安全，使用 `Send + Sync` 约束
+- 涉及窗口、音频、SMTC 的代码需注意线程安全
 
 ### 渲染相关（Skia）
 
@@ -166,26 +162,20 @@ docs(contributing): 补充 Skia 渲染相关规范
 
 ## 常见问题
 
-### 如何运行 WinIsland 开发版？
+### 如何运行 WinIsland？
 ```bash
-cargo run --release
+cargo run --package WinIsland --bin WinIsland --profile dev
 ```
-注意：同一时间只能运行一个实例（Windows 互斥锁保护）。
-
-### 如何调试渲染问题？
-- 在 `src/core/render.rs` 的 `draw_island()` 中添加 `println!` 输出尺寸、坐标
-- 使用 `cargo build` 而非 `--release` 加快调试迭代
-- 查看控制台输出获取媒体状态（SMTC 监听日志）
+> 注意：同一时间只能运行一个实例（Windows 互斥锁保护）。
 
 ### clippy 警告太多怎么办？
 ```bash
-cargo clippy --fix --allow-dirty   # 自动修复部分问题
-# 剩余手动修复
+cargo clippy --fix --allow-dirty
 ```
 
 ### 如何测试音频可视化？
-- 播放任意音频，确保 SMTC 可识别（如系统媒体控制显示歌曲信息）
-- 查看 `src/core/audio.rs` 的频谱数据是否正常（可在开发时添加临时打印）
+- 播放任意音频，确保 SMTC 可识别
+- 查看 `src/core/audio.rs` 是否正常（可在开发时添加临时打印）
 
 ## 行为准则
 
@@ -194,6 +184,4 @@ cargo clippy --fix --allow-dirty   # 自动修复部分问题
 - 帮助新手贡献者理解 Windows API 和 Skia 的用法
 
 ---
-
-再次感谢你的贡献！你的每一行代码都在让 Windows 的任务栏更灵动。
-```
+再次感谢你的贡献！我们期待看到你的 PR！如果有任何问题，欢迎在 Issue 中提问或联系项目成员。
