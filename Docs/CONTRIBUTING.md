@@ -136,7 +136,7 @@ docs(contributing): 补充 Skia 渲染相关规范
 3. 提交：
    ```bash
    git add .
-   git commit -m "feat(scope): 功能描述"
+   git commit -s -m "feat(scope): 功能描述"
    ```
 
 4. 推送分支并发起 PR。
