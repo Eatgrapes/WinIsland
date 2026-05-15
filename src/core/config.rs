@@ -8,7 +8,9 @@ pub const PADDING: f32 = 80.0;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(from = "String", into = "String")]
+#[derive(Default)]
 pub enum DockPosition {
+    #[default]
     TopCenter,
     TopLeft,
     TopRight,
@@ -45,11 +47,6 @@ impl DockPosition {
     }
 }
 
-impl Default for DockPosition {
-    fn default() -> Self {
-        Self::TopCenter
-    }
-}
 
 impl std::fmt::Display for DockPosition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
