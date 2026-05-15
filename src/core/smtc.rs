@@ -558,17 +558,15 @@ fn fetch_properties(
             info.last_thumbnail_fetch = Instant::now();
             should_fetch_lyrics = true;
             should_fetch_thumbnail = true;
-        } else if info.is_playing != is_playing && info.thumbnail.is_none() && !new_title.is_empty()
-        {
-            info.last_thumbnail_fetch = Instant::now();
-            should_fetch_thumbnail = true;
-        } else if !new_title.is_empty()
-            && info.last_thumbnail_fetch.elapsed() >= Duration::from_secs(5)
+        } else if (info.is_playing != is_playing
+            && info.thumbnail.is_none()
+            && !new_title.is_empty())
+            || (!new_title.is_empty()
+                && info.last_thumbnail_fetch.elapsed() >= Duration::from_secs(5))
         {
             info.last_thumbnail_fetch = Instant::now();
             should_fetch_thumbnail = true;
         }
-
         let current_extrapolated = if info.is_playing {
             info.position_ms + info.last_update.elapsed().as_millis() as u64
         } else {
