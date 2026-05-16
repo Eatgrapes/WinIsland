@@ -68,19 +68,18 @@ pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f
                     return ClickResult::SourceButton(idx);
                 }
             }
-            SettingsItem::RowAppItem { enabled, .. } if *enabled => {
-                if in_rect(mx, my, CONTENT_PADDING, y, content_w, ROW_HEIGHT) {
-                    return ClickResult::AppItem(idx);
-                }
+            SettingsItem::RowAppItem { enabled, .. }
+                if *enabled && in_rect(mx, my, CONTENT_PADDING, y, content_w, ROW_HEIGHT) =>
+            {
+                return ClickResult::AppItem(idx);
             }
-            SettingsItem::CenterLink { .. } => {
+            SettingsItem::CenterLink { .. }
                 if mx >= width / 2.0 - 100.0
                     && mx <= width / 2.0 + 100.0
                     && my >= y
-                    && my <= y + 40.0
-                {
-                    return ClickResult::CenterLink(idx);
-                }
+                    && my <= y + 40.0 =>
+            {
+                return ClickResult::CenterLink(idx);
             }
             _ => {}
         }

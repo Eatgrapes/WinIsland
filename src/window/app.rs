@@ -349,10 +349,8 @@ impl ApplicationHandler for App {
                         tray.update_theme(is_light);
                     }
                 }
-                WindowEvent::Resized(_) => {
-                    if win.is_maximized() {
-                        win.set_maximized(false);
-                    }
+                WindowEvent::Resized(_) if win.is_maximized() => {
+                    win.set_maximized(false);
                 }
                 WindowEvent::CloseRequested => (),
                 WindowEvent::MouseInput {
