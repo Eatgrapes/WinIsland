@@ -115,11 +115,6 @@ impl FontManager {
         make_font(typeface, size, style)
     }
 
-    pub fn measure(&self, text: &str, size: f32, bold: bool) -> (f32, skia_safe::Rect) {
-        let font = self.get_font(size, bold);
-        font.measure_str(text, None)
-    }
-
     pub fn draw_text(
         &self,
         canvas: &Canvas,

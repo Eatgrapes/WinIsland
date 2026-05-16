@@ -12,7 +12,10 @@ use crate::utils::blur::calculate_blur_sigmas;
 use crate::utils::color::get_island_border_weights;
 use crate::utils::glass::set_glass_hwnd;
 use crate::utils::icon::get_app_icon;
-use crate::utils::mouse::{get_global_cursor_pos, is_left_button_pressed, is_point_in_rect};
+use crate::utils::mouse::{
+    get_global_cursor_pos, is_cursor_hidden, is_foreground_fullscreen, is_left_button_pressed,
+    is_point_in_rect,
+};
 use crate::utils::physics::Spring;
 use crate::window::tray::{TrayAction, TrayManager};
 use softbuffer::{Context, Surface};
@@ -76,6 +79,8 @@ pub struct App {
     seeking_bar_right: f32,
     seeking_duration_ms: u64,
     seeking_preview_ms: u64,
+    is_fullscreen_suppressed: bool,
+    is_cursor_suppressed: bool,
 }
 
 impl Default for App {
@@ -130,6 +135,8 @@ impl Default for App {
             seeking_bar_right: 0.0,
             seeking_duration_ms: 0,
             seeking_preview_ms: 0,
+            is_fullscreen_suppressed: false,
+            is_cursor_suppressed: false,
         }
     }
 }
@@ -358,6 +365,9 @@ impl ApplicationHandler for App {
                         button: MouseButton::Left,
                         ..
                     } => {
+                        if self.is_fullscreen_suppressed || self.is_cursor_suppressed {
+                            return;
+                        }
                         let (px, py) = get_global_cursor_pos();
                         let rel_x = px - self.win_x;
                         let rel_y = py - self.win_y;
@@ -771,7 +781,17 @@ impl ApplicationHandler for App {
                     self.spring_w.value as f64,
                     hidden_handle_h,
                 );
-            let _ = window.set_cursor_hittest(is_hovering_visible || is_on_hidden_handle);
+
+            if self.frame_count % 10 == 0 {
+                self.is_fullscreen_suppressed = is_foreground_fullscreen();
+                self.is_cursor_suppressed = is_cursor_hidden();
+            }
+
+            if self.is_fullscreen_suppressed || self.is_cursor_suppressed {
+                let _ = window.set_cursor_hittest(false);
+            } else {
+                let _ = window.set_cursor_hittest(is_hovering_visible || is_on_hidden_handle);
+            }
 
             let mut music_active = false;
             let media = self.smtc.get_info();

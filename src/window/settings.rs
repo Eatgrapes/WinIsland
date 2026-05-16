@@ -44,6 +44,7 @@ enum PopupKind {
 
 struct PopupState {
     kind: PopupKind,
+    #[allow(dead_code)]
     button_rect: Rect,
     menu_rect: Rect,
     options: Vec<String>,
