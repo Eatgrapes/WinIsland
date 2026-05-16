@@ -44,6 +44,7 @@ enum PopupKind {
 
 struct PopupState {
     kind: PopupKind,
+    #[allow(dead_code)]
     button_rect: Rect,
     menu_rect: Rect,
     options: Vec<String>,
@@ -345,7 +346,7 @@ impl SettingsApp {
             label: tr("language"),
             options: vec![
                 ("English".to_string(), current_lang() == "en"),
-                ("涓枃".to_string(), current_lang() == "zh"),
+                ("中文".to_string(), current_lang() == "zh"),
             ],
             enabled: true,
         });
