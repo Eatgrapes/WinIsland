@@ -3,6 +3,10 @@ name: Rust Build & Docs
 on:
   push:
     branches: [ "master", "main" ]
+    paths-ignore:
+      - 'Docs/**/*.md'
+      - '*.md'
+      - '.github/**'
   workflow_dispatch:
 
 permissions:
