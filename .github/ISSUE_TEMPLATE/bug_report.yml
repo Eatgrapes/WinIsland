@@ -57,7 +57,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: 软件版本 (因为当前版本的版本系统并不完善，请填写nightly) 请确保是最新版本 | Software version (please fill in nightly due to current versioning system) Please make sure it's the latest
+      label: 软件版本 请确保是最新版本 | Software version Please make sure it's the latest
       description: nightly
       placeholder: nightly
     validations:
