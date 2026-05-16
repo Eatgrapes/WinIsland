@@ -249,7 +249,7 @@ impl SettingsApp {
             label: tr("language"),
             options: vec![
                 ("English".to_string(), current_lang() == "en"),
-                ("涓枃".to_string(), current_lang() == "zh"),
+                ("中文".to_string(), current_lang() == "zh"),
             ],
             enabled: true,
         });
