@@ -4,7 +4,7 @@ use crate::core::persistence::save_config;
 use crate::utils::anim::AnimPool;
 use crate::utils::autostart::set_autostart;
 use crate::utils::color::*;
-use crate::utils::font::FontManager;
+use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::icon::get_app_icon;
 use crate::utils::settings_ui::items::*;
 use crate::utils::settings_ui::*;
@@ -44,6 +44,7 @@ enum PopupKind {
 
 struct PopupState {
     kind: PopupKind,
+    #[allow(dead_code)]
     button_rect: Rect,
     menu_rect: Rect,
     options: Vec<String>,
@@ -680,16 +681,16 @@ impl SettingsApp {
             );
             canvas.translate((SIDEBAR_W, -self.scroll_y));
 
-            draw_items(
+            draw_items(DrawItemsParams {
                 canvas,
-                &self.cached_items,
-                CONTENT_START_Y,
-                content_w,
-                &anim,
-                &self.anim,
-                self.scroll_y,
-                self.scroll_y + WIN_H,
-            );
+                items: &self.cached_items,
+                start_y: CONTENT_START_Y,
+                width: content_w,
+                anims: &anim,
+                hover_anims: &self.anim,
+                visible_min_y: self.scroll_y,
+                visible_max_y: self.scroll_y + WIN_H,
+            });
             canvas.restore();
 
             let ch = self.cached_content_height;
@@ -841,16 +842,16 @@ impl SettingsApp {
                 COLOR_TEXT_PRI.b(),
             ));
             paint.set_style(skia_safe::paint::Style::Fill);
-            fm.draw_text_cached(
+            fm.draw_text_cached(DrawTextCachedParams {
                 canvas,
-                opt_label,
-                (item_rect.left + 8.0, item_rect.top + 19.0),
-                12.0,
-                skia_safe::FontStyle::normal(),
-                &paint,
-                false,
-                item_rect.width() - 28.0,
-            );
+                text: opt_label,
+                pos: (item_rect.left + 8.0, item_rect.top + 19.0),
+                size: 12.0,
+                style: skia_safe::FontStyle::normal(),
+                paint: &paint,
+                align_center: false,
+                max_w: item_rect.width() - 28.0,
+            });
 
             if i == popup.selected_idx {
                 let check_base = if popup.hover_idx == Some(i) {

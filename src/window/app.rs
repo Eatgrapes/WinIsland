@@ -595,12 +595,12 @@ impl ApplicationHandler for App {
                         }
                         media_info.spectrum = self.audio.get_spectrum();
                         let mut music_active = false;
-                        if self.config.smtc_enabled && !media_info.title.is_empty() {
-                            if media_info.is_playing {
-                                music_active = true;
-                            } else if self.last_playing_time.elapsed() < Duration::from_secs(5) {
-                                music_active = true;
-                            }
+                        if self.config.smtc_enabled
+                            && !media_info.title.is_empty()
+                            && (media_info.is_playing
+                                || self.last_playing_time.elapsed() < Duration::from_secs(5))
+                        {
+                            music_active = true;
                         }
 
                         draw_island(

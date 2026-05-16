@@ -19,11 +19,10 @@ fn in_rect(mx: f32, my: f32, x: f32, y: f32, w: f32, h: f32) -> bool {
 
 pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f32) -> ClickResult {
     let mut y = start_y;
-    let mut idx = 0;
     let mut switch_idx = 0;
     let content_w = width - CONTENT_PADDING * 2.0;
 
-    for item in items {
+    for (idx, item) in items.iter().enumerate() {
         match item {
             SettingsItem::RowStepper { enabled, .. } => {
                 if *enabled {
@@ -93,7 +92,6 @@ pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f
             _ => {}
         }
         y += item.height();
-        idx += 1;
     }
     ClickResult::None
 }

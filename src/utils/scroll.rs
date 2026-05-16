@@ -1,6 +1,18 @@
-use crate::utils::font::FontManager;
+use crate::utils::font::{DrawTextCachedParams, FontManager};
 use skia_safe::{Canvas, ClipOp, FontStyle, Paint, Rect};
 use std::time::Instant;
+
+pub struct ScrollDrawParams<'a> {
+    pub canvas: &'a Canvas,
+    pub text: &'a str,
+    pub x: f32,
+    pub y: f32,
+    pub max_w: f32,
+    pub size: f32,
+    pub style: FontStyle,
+    pub paint: &'a Paint,
+    pub scale: f32,
+}
 
 pub struct ScrollText {
     last_text: String,
@@ -19,18 +31,17 @@ impl ScrollText {
         }
     }
 
-    pub fn draw(
-        &mut self,
-        canvas: &Canvas,
-        text: &str,
-        x: f32,
-        y: f32,
-        max_w: f32,
-        size: f32,
-        style: FontStyle,
-        paint: &Paint,
-        scale: f32,
-    ) {
+    pub fn draw(&mut self, params: ScrollDrawParams<'_>) {
+        let canvas = params.canvas;
+        let text = params.text;
+        let x = params.x;
+        let y = params.y;
+        let max_w = params.max_w;
+        let size = params.size;
+        let style = params.style;
+        let paint = params.paint;
+        let scale = params.scale;
+
         if self.last_text != text {
             self.last_text = text.to_string();
             self.offset = 0.0;
@@ -61,42 +72,42 @@ impl ScrollText {
                 true,
             );
 
-            FontManager::global().draw_text_cached(
+            FontManager::global().draw_text_cached(DrawTextCachedParams {
                 canvas,
                 text,
-                (x - self.offset, y),
+                pos: (x - self.offset, y),
                 size,
                 style,
                 paint,
-                false,
-                f32::MAX,
-            );
+                align_center: false,
+                max_w: f32::MAX,
+            });
             let next_x = x - self.offset + full_w + 50.0 * scale;
             if next_x < x + max_w {
-                FontManager::global().draw_text_cached(
+                FontManager::global().draw_text_cached(DrawTextCachedParams {
                     canvas,
                     text,
-                    (next_x, y),
+                    pos: (next_x, y),
                     size,
                     style,
                     paint,
-                    false,
-                    f32::MAX,
-                );
+                    align_center: false,
+                    max_w: f32::MAX,
+                });
             }
             canvas.restore();
         } else {
             self.offset = 0.0;
-            FontManager::global().draw_text_cached(
+            FontManager::global().draw_text_cached(DrawTextCachedParams {
                 canvas,
                 text,
-                (x, y),
+                pos: (x, y),
                 size,
                 style,
                 paint,
-                false,
+                align_center: false,
                 max_w,
-            );
+            });
         }
     }
 }

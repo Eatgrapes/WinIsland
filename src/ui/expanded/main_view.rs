@@ -1,9 +1,9 @@
 use crate::core::smtc::MediaInfo;
 use crate::icons::arrows::draw_arrow_right;
 use crate::icons::controls::{draw_control_triangle, draw_pause_button, draw_play_button};
-use crate::utils::font::FontManager;
+use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::physics::Spring;
-use crate::utils::scroll::ScrollText;
+use crate::utils::scroll::{ScrollDrawParams, ScrollText};
 use skia_safe::{
     Canvas, Color, Data, FilterMode, FontStyle, Image, MipmapMode, Paint, Point, RRect, Rect,
     SamplingOptions, TileMode, gradient_shader, image_filters,
@@ -134,25 +134,39 @@ pub fn get_progress_bar_rect(
 }
 
 pub fn draw_text_cached(
-    canvas: &Canvas,
-    text: &str,
-    pos: (f32, f32),
-    size: f32,
-    style: FontStyle,
-    paint: &Paint,
-    align_center: bool,
-    max_w: f32,
+    params: DrawTextCachedParams<'_>,
 ) {
-    FontManager::global().draw_text_cached(
-        canvas,
-        text,
-        pos,
-        size,
-        style,
-        paint,
-        align_center,
-        max_w,
-    );
+    FontManager::global().draw_text_cached(params);
+}
+
+pub struct DrawMainPageParams<'a> {
+    pub canvas: &'a Canvas,
+    pub ox: f32,
+    pub oy: f32,
+    pub w: f32,
+    pub h: f32,
+    pub alpha: u8,
+    pub media: &'a MediaInfo,
+    pub music_active: bool,
+    pub view_offset: f32,
+    pub scale: f32,
+    pub expansion_progress: f32,
+    pub viz_h_scale: f32,
+    pub use_blur: bool,
+    pub font_size: f32,
+}
+
+pub struct DrawVisualizerParams<'a> {
+    pub canvas: &'a Canvas,
+    pub x: f32,
+    pub y: f32,
+    pub alpha: u8,
+    pub is_playing: bool,
+    pub palette: &'a [Color],
+    pub spectrum: &'a [f32; 6],
+    pub w_scale: f32,
+    pub h_scale: f32,
+    pub smooth_factors: (f32, f32),
 }
 
 pub fn get_cached_media_image(media: &MediaInfo) -> Option<Image> {
@@ -192,22 +206,24 @@ pub fn get_media_palette(media: &MediaInfo) -> Vec<Color> {
     }
 }
 
-pub fn draw_main_page(
-    canvas: &Canvas,
-    ox: f32,
-    oy: f32,
-    w: f32,
-    h: f32,
-    alpha: u8,
-    media: &MediaInfo,
-    music_active: bool,
-    view_offset: f32,
-    scale: f32,
-    expansion_progress: f32,
-    viz_h_scale: f32,
-    use_blur: bool,
-    font_size: f32,
-) {
+pub fn draw_main_page(params: DrawMainPageParams<'_>) {
+    let DrawMainPageParams {
+        canvas,
+        ox,
+        oy,
+        w,
+        h,
+        alpha,
+        media,
+        music_active,
+        view_offset,
+        scale,
+        expansion_progress,
+        viz_h_scale,
+        use_blur,
+        font_size,
+    } = params;
+
     let arrow_alpha = (alpha as f32 * (1.0 - view_offset * 5.0).clamp(0.0, 1.0)) as u8;
     if arrow_alpha > 0 {
         draw_arrow_right(
@@ -373,17 +389,17 @@ pub fn draw_main_page(
 
     TITLE_SCROLL.with(|cell| {
         let mut scroll = cell.borrow_mut();
-        scroll.draw(
+        scroll.draw(ScrollDrawParams {
             canvas,
-            title,
-            text_x,
-            title_y,
-            max_text_w,
-            title_font_size,
-            title_style,
-            &text_paint,
+            text: title,
+            x: text_x,
+            y: title_y,
+            max_w: max_text_w,
+            size: title_font_size,
+            style: title_style,
+            paint: &text_paint,
             scale,
-        );
+        });
     });
 
     text_paint.set_color(Color::from_argb((alpha as f32 * 0.6) as u8, 255, 255, 255));
@@ -397,17 +413,17 @@ pub fn draw_main_page(
 
     ARTIST_SCROLL.with(|cell| {
         let mut scroll = cell.borrow_mut();
-        scroll.draw(
+        scroll.draw(ScrollDrawParams {
             canvas,
-            artist,
-            text_x,
-            artist_y,
-            max_text_w,
-            artist_font_size,
-            artist_style,
-            &text_paint,
+            text: artist,
+            x: text_x,
+            y: artist_y,
+            max_w: max_text_w,
+            size: artist_font_size,
+            style: artist_style,
+            paint: &text_paint,
             scale,
-        );
+        });
     });
 
     if music_active {
@@ -499,27 +515,27 @@ pub fn draw_main_page(
             time_font_size,
             FontStyle::normal(),
         );
-        draw_text_cached(
+        draw_text_cached(DrawTextCachedParams {
             canvas,
-            &elapsed_str,
-            (bar_left - elapsed_w - 6.0 * scale, text_baseline_y),
-            time_font_size,
-            FontStyle::normal(),
-            &time_paint,
-            false,
-            f32::MAX,
-        );
+            text: &elapsed_str,
+            pos: (bar_left - elapsed_w - 6.0 * scale, text_baseline_y),
+            size: time_font_size,
+            style: FontStyle::normal(),
+            paint: &time_paint,
+            align_center: false,
+            max_w: f32::MAX,
+        });
 
-        draw_text_cached(
+        draw_text_cached(DrawTextCachedParams {
             canvas,
-            &remaining_str,
-            (bar_right + 6.0 * scale, text_baseline_y),
-            time_font_size,
-            FontStyle::normal(),
-            &time_paint,
-            false,
-            f32::MAX,
-        );
+            text: &remaining_str,
+            pos: (bar_right + 6.0 * scale, text_baseline_y),
+            size: time_font_size,
+            style: FontStyle::normal(),
+            paint: &time_paint,
+            align_center: false,
+            max_w: f32::MAX,
+        });
 
         let mut track_paint = Paint::default();
         track_paint.set_anti_alias(true);
@@ -743,32 +759,34 @@ pub fn draw_main_page(
     }
 
     let viz_x_offset = 17.0 + (45.0 - 17.0) * expansion_progress;
-    draw_visualizer(
+    draw_visualizer(DrawVisualizerParams {
         canvas,
-        ox + w - viz_x_offset * scale,
-        title_y - 4.0 * scale,
+        x: ox + w - viz_x_offset * scale,
+        y: title_y - 4.0 * scale,
         alpha,
-        music_active && media.is_playing,
-        &palette,
-        &media.spectrum,
-        scale,
-        viz_h_scale,
-        (0.6, 0.08),
-    );
+        is_playing: music_active && media.is_playing,
+        palette: &palette,
+        spectrum: &media.spectrum,
+        w_scale: scale,
+        h_scale: viz_h_scale,
+        smooth_factors: (0.6, 0.08),
+    });
 }
 
-pub fn draw_visualizer(
-    canvas: &Canvas,
-    x: f32,
-    y: f32,
-    alpha: u8,
-    is_playing: bool,
-    palette: &[Color],
-    spectrum: &[f32; 6],
-    w_scale: f32,
-    h_scale: f32,
-    smooth_factors: (f32, f32),
-) {
+pub fn draw_visualizer(params: DrawVisualizerParams<'_>) {
+    let DrawVisualizerParams {
+        canvas,
+        x,
+        y,
+        alpha,
+        is_playing,
+        palette,
+        spectrum,
+        w_scale,
+        h_scale,
+        smooth_factors,
+    } = params;
+
     let (rise, fall) = smooth_factors;
     let bar_count = 6;
     let bar_w = 3.0 * w_scale;

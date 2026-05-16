@@ -3,8 +3,30 @@ use super::anim::SwitchAnimator;
 use super::items::*;
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
-use crate::utils::font::FontManager;
+use crate::utils::font::{DrawTextCachedParams, DrawTextInRectParams, FontManager};
 use skia_safe::{Canvas, Color, FontStyle, Paint, Rect};
+
+struct PillBtnParams<'a> {
+    canvas: &'a Canvas,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    label: &'a str,
+    text_color: Color,
+    bg_color: Color,
+}
+
+pub struct DrawItemsParams<'a> {
+    pub canvas: &'a Canvas,
+    pub items: &'a [SettingsItem],
+    pub start_y: f32,
+    pub width: f32,
+    pub anims: &'a SwitchAnimator,
+    pub hover_anims: &'a AnimPool,
+    pub visible_min_y: f32,
+    pub visible_max_y: f32,
+}
 
 fn draw_switch(canvas: &Canvas, x: f32, y: f32, pos: f32, enabled: bool) {
     let mut paint = Paint::default();
@@ -67,35 +89,41 @@ fn draw_stepper_btn(canvas: &Canvas, x: f32, y: f32, label: &str, enabled: bool)
     } else {
         COLOR_TEXT_SEC
     });
-    fm.draw_text_in_rect(
+    fm.draw_text_in_rect(DrawTextInRectParams {
         canvas,
-        label,
+        text: label,
         x,
-        y + 17.0,
-        STEPPER_BTN_SIZE,
-        16.0,
-        false,
-        &paint,
-    );
+        y: y + 17.0,
+        w: STEPPER_BTN_SIZE,
+        size: 16.0,
+        bold: false,
+        paint: &paint,
+    });
 }
 
-fn draw_pill_btn(
-    canvas: &Canvas,
-    x: f32,
-    y: f32,
-    w: f32,
-    h: f32,
-    label: &str,
-    text_color: Color,
-    bg_color: Color,
-) {
+fn draw_pill_btn(params: PillBtnParams<'_>) {
     let fm = FontManager::global();
+    let canvas = params.canvas;
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
-    paint.set_color(bg_color);
-    canvas.draw_round_rect(Rect::from_xywh(x, y, w, h), h / 2.0, h / 2.0, &paint);
-    paint.set_color(text_color);
-    fm.draw_text_in_rect(canvas, label, x, y + 17.0, w, 12.0, true, &paint);
+    paint.set_color(params.bg_color);
+    canvas.draw_round_rect(
+        Rect::from_xywh(params.x, params.y, params.w, params.h),
+        params.h / 2.0,
+        params.h / 2.0,
+        &paint,
+    );
+    paint.set_color(params.text_color);
+    fm.draw_text_in_rect(DrawTextInRectParams {
+        canvas,
+        text: params.label,
+        x: params.x,
+        y: params.y + 17.0,
+        w: params.w,
+        size: 12.0,
+        bold: true,
+        paint: &paint,
+    });
 }
 
 fn count_group_rows(items: &[SettingsItem], start: usize) -> usize {
@@ -145,16 +173,16 @@ fn draw_row_hover(
     }
 }
 
-pub fn draw_items(
-    canvas: &Canvas,
-    items: &[SettingsItem],
-    start_y: f32,
-    width: f32,
-    anims: &SwitchAnimator,
-    hover_anims: &AnimPool,
-    visible_min_y: f32,
-    visible_max_y: f32,
-) {
+pub fn draw_items(params: DrawItemsParams<'_>) {
+    let canvas = params.canvas;
+    let items = params.items;
+    let start_y = params.start_y;
+    let width = params.width;
+    let anims = params.anims;
+    let hover_anims = params.hover_anims;
+    let visible_min_y = params.visible_min_y;
+    let visible_max_y = params.visible_max_y;
+
     let fm = FontManager::global();
     let mut y = start_y;
     let mut switch_idx = 0;
@@ -177,32 +205,32 @@ pub fn draw_items(
                 let h = item.height();
                 if y + h >= visible_min_y && y <= visible_max_y {
                     paint.set_color(COLOR_TEXT_PRI);
-                    fm.draw_text_cached(
+                    fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
                         text,
-                        (CONTENT_PADDING, y + 35.0),
-                        20.0,
-                        FontStyle::bold(),
-                        &paint,
-                        false,
-                        f32::MAX,
-                    );
+                        pos: (CONTENT_PADDING, y + 35.0),
+                        size: 20.0,
+                        style: FontStyle::bold(),
+                        paint: &paint,
+                        align_center: false,
+                        max_w: f32::MAX,
+                    });
                 }
             }
             SettingsItem::SectionHeader { label } => {
                 let h = item.height();
                 if y + h >= visible_min_y && y <= visible_max_y {
                     paint.set_color(COLOR_TEXT_SEC);
-                    fm.draw_text_cached(
+                    fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
-                        label,
-                        (CONTENT_PADDING + 4.0, y + 22.0),
-                        12.0,
-                        FontStyle::normal(),
-                        &paint,
-                        false,
-                        f32::MAX,
-                    );
+                        text: label,
+                        pos: (CONTENT_PADDING + 4.0, y + 22.0),
+                        size: 12.0,
+                        style: FontStyle::normal(),
+                        paint: &paint,
+                        align_center: false,
+                        max_w: f32::MAX,
+                    });
                 }
             }
             SettingsItem::GroupStart => {
@@ -242,16 +270,16 @@ pub fn draw_items(
                     } else {
                         COLOR_TEXT_SEC
                     });
-                    fm.draw_text_cached(
+                    fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
-                        label,
-                        (row_x, cy + 5.0),
-                        13.0,
-                        FontStyle::normal(),
-                        &paint,
-                        false,
-                        f32::MAX,
-                    );
+                        text: label,
+                        pos: (row_x, cy + 5.0),
+                        size: 13.0,
+                        style: FontStyle::normal(),
+                        paint: &paint,
+                        align_center: false,
+                        max_w: f32::MAX,
+                    });
                 }
 
                 let btn_inc_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - STEPPER_BTN_SIZE;
@@ -269,16 +297,16 @@ pub fn draw_items(
                     } else {
                         COLOR_TEXT_SEC
                     });
-                    fm.draw_text_cached(
+                    fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
-                        value,
-                        (val_center, cy + 5.0),
-                        13.0,
-                        FontStyle::normal(),
-                        &paint,
-                        true,
-                        f32::MAX,
-                    );
+                        text: value,
+                        pos: (val_center, cy + 5.0),
+                        size: 13.0,
+                        style: FontStyle::normal(),
+                        paint: &paint,
+                        align_center: true,
+                        max_w: f32::MAX,
+                    });
                 }
 
                 if in_group {
@@ -321,16 +349,16 @@ pub fn draw_items(
                     } else {
                         COLOR_TEXT_SEC
                     });
-                    fm.draw_text_cached(
+                    fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
-                        label,
-                        (row_x, cy + 5.0),
-                        13.0,
-                        FontStyle::normal(),
-                        &paint,
-                        false,
-                        f32::MAX,
-                    );
+                        text: label,
+                        pos: (row_x, cy + 5.0),
+                        size: 13.0,
+                        style: FontStyle::normal(),
+                        paint: &paint,
+                        align_center: false,
+                        max_w: f32::MAX,
+                    });
                 }
 
                 let toggle_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - TOGGLE_W;
@@ -377,43 +405,43 @@ pub fn draw_items(
 
                 if visible {
                     paint.set_color(COLOR_TEXT_PRI);
-                    fm.draw_text_cached(
+                    fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
-                        label,
-                        (row_x, cy + 5.0),
-                        13.0,
-                        FontStyle::normal(),
-                        &paint,
-                        false,
-                        f32::MAX,
-                    );
+                        text: label,
+                        pos: (row_x, cy + 5.0),
+                        size: 13.0,
+                        style: FontStyle::normal(),
+                        paint: &paint,
+                        align_center: false,
+                        max_w: f32::MAX,
+                    });
 
                     let sel_w: f32 = 60.0;
                     let sel_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - sel_w;
-                    draw_pill_btn(
+                    draw_pill_btn(PillBtnParams {
                         canvas,
-                        sel_x,
-                        cy - 13.0,
-                        sel_w,
-                        26.0,
-                        btn_label,
-                        COLOR_TEXT_PRI,
-                        COLOR_CARD_HIGHLIGHT,
-                    );
+                        x: sel_x,
+                        y: cy - 13.0,
+                        w: sel_w,
+                        h: 26.0,
+                        label: btn_label,
+                        text_color: COLOR_TEXT_PRI,
+                        bg_color: COLOR_CARD_HIGHLIGHT,
+                    });
 
                     if let Some(rl) = reset_label {
                         let rst_w: f32 = 60.0;
                         let rst_x = sel_x - rst_w - 6.0;
-                        draw_pill_btn(
+                        draw_pill_btn(PillBtnParams {
                             canvas,
-                            rst_x,
-                            cy - 13.0,
-                            rst_w,
-                            26.0,
-                            rl,
-                            COLOR_DANGER,
-                            COLOR_CARD_HIGHLIGHT,
-                        );
+                            x: rst_x,
+                            y: cy - 13.0,
+                            w: rst_w,
+                            h: 26.0,
+                            label: rl,
+                            text_color: COLOR_DANGER,
+                            bg_color: COLOR_CARD_HIGHLIGHT,
+                        });
                     }
                 }
 
@@ -455,16 +483,16 @@ pub fn draw_items(
                     } else {
                         COLOR_TEXT_SEC
                     });
-                    fm.draw_text_cached(
+                    fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
-                        label,
-                        (row_x, cy + 5.0),
-                        13.0,
-                        FontStyle::normal(),
-                        &paint,
-                        false,
-                        f32::MAX,
-                    );
+                        text: label,
+                        pos: (row_x, cy + 5.0),
+                        size: 13.0,
+                        style: FontStyle::normal(),
+                        paint: &paint,
+                        align_center: false,
+                        max_w: f32::MAX,
+                    });
                 }
 
                 let selected_label = options
@@ -497,16 +525,16 @@ pub fn draw_items(
                         COLOR_TEXT_SEC
                     });
                     let text_w = POPUP_BTN_W - 22.0;
-                    fm.draw_text_in_rect(
+                    fm.draw_text_in_rect(DrawTextInRectParams {
                         canvas,
-                        selected_label,
-                        btn_x + 4.0,
-                        btn_y + 17.0,
-                        text_w,
-                        12.0,
-                        true,
-                        &p,
-                    );
+                        text: selected_label,
+                        x: btn_x + 4.0,
+                        y: btn_y + 17.0,
+                        w: text_w,
+                        size: 12.0,
+                        bold: true,
+                        paint: &p,
+                    });
 
                     let chev_cx = btn_x + POPUP_BTN_W - 12.0;
                     let chev_cy = cy;
@@ -615,16 +643,16 @@ pub fn draw_items(
                         COLOR_TEXT_SEC
                     });
                     let max_label_w = check_x - row_x - 8.0;
-                    fm.draw_text_cached(
+                    fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
-                        label,
-                        (row_x, cy + 5.0),
-                        13.0,
-                        FontStyle::normal(),
-                        &paint,
-                        false,
-                        max_label_w,
-                    );
+                        text: label,
+                        pos: (row_x, cy + 5.0),
+                        size: 13.0,
+                        style: FontStyle::normal(),
+                        paint: &paint,
+                        align_center: false,
+                        max_w: max_label_w,
+                    });
                 }
 
                 if in_group {
@@ -656,16 +684,16 @@ pub fn draw_items(
                 let cy = y + ROW_HEIGHT / 2.0;
                 if visible {
                     paint.set_color(COLOR_TEXT_SEC);
-                    fm.draw_text_cached(
+                    fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
-                        label,
-                        (row_x, cy + 5.0),
-                        13.0,
-                        FontStyle::normal(),
-                        &paint,
-                        false,
-                        f32::MAX,
-                    );
+                        text: label,
+                        pos: (row_x, cy + 5.0),
+                        size: 13.0,
+                        style: FontStyle::normal(),
+                        paint: &paint,
+                        align_center: false,
+                        max_w: f32::MAX,
+                    });
                 }
 
                 if in_group {
@@ -692,32 +720,32 @@ pub fn draw_items(
                 let h = item.height();
                 if y + h >= visible_min_y && y <= visible_max_y {
                     paint.set_color(*color);
-                    fm.draw_text_cached(
+                    fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
-                        label,
-                        (width / 2.0, y + 24.0),
-                        13.0,
-                        FontStyle::normal(),
-                        &paint,
-                        true,
-                        f32::MAX,
-                    );
+                        text: label,
+                        pos: (width / 2.0, y + 24.0),
+                        size: 13.0,
+                        style: FontStyle::normal(),
+                        paint: &paint,
+                        align_center: true,
+                        max_w: f32::MAX,
+                    });
                 }
             }
             SettingsItem::CenterText { text, size, color } => {
                 let h = item.height();
                 if y + h >= visible_min_y && y <= visible_max_y {
                     paint.set_color(*color);
-                    fm.draw_text_cached(
+                    fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
                         text,
-                        (width / 2.0, y + 22.0),
-                        *size,
-                        FontStyle::normal(),
-                        &paint,
-                        true,
-                        f32::MAX,
-                    );
+                        pos: (width / 2.0, y + 22.0),
+                        size: *size,
+                        style: FontStyle::normal(),
+                        paint: &paint,
+                        align_center: true,
+                        max_w: f32::MAX,
+                    });
                 }
             }
             SettingsItem::Spacer { .. } => {}

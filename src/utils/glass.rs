@@ -6,8 +6,10 @@ use std::time::Instant;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::*;
 
+type GlassCacheEntry = (Image, Instant, i32, i32, u32, u32);
+
 thread_local! {
-    static GLASS_CACHE: RefCell<Option<(Image, Instant, i32, i32, u32, u32)>> = const { RefCell::new(None) };
+    static GLASS_CACHE: RefCell<Option<GlassCacheEntry>> = const { RefCell::new(None) };
 }
 
 pub fn set_glass_hwnd(_hwnd_raw: isize) {}
