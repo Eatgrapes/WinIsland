@@ -4,15 +4,15 @@ use realfft::RealFftPlanner;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
+use windows::core::Interface;
 use windows::Win32::Foundation::S_OK;
 use windows::Win32::Media::Audio::{
-    Endpoints::IAudioMeterInformation, IAudioSessionControl2, IAudioSessionManager2,
-    IMMDeviceEnumerator, MMDeviceEnumerator, eConsole, eRender,
+    eConsole, eRender, Endpoints::IAudioMeterInformation,
+    IAudioSessionControl2, IAudioSessionManager2, IMMDeviceEnumerator, MMDeviceEnumerator,
 };
 use windows::Win32::System::Com::{
-    CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
+    CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED,
 };
-use windows::core::Interface;
 
 pub struct AudioProcessor {
     spectrum: Arc<Mutex<[f32; 6]>>,

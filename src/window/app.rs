@@ -2,8 +2,8 @@ use crate::core::audio::AudioProcessor;
 use crate::core::config::{AppConfig, PADDING, TOP_OFFSET, WINDOW_TITLE};
 use crate::core::persistence::load_config;
 use crate::core::render::{
-    DrawIslandParams, LayoutParams, LyricsParams, MediaParams, StyleParams, WindowParams,
-    draw_island,
+    draw_island, DrawIslandParams, LayoutParams, LyricsParams, MediaParams, StyleParams,
+    WindowParams,
 };
 use crate::core::smtc::SmtcListener;
 use crate::ui::expanded::main_view::{
@@ -26,8 +26,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, SWP_NOACTIVATE, SetWindowLongPtrW,
-    SetWindowPos, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
+    GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, GWL_STYLE, HWND_TOPMOST,
+    SWP_NOACTIVATE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -940,13 +940,19 @@ impl ApplicationHandler for App {
                 window.request_redraw();
             }
 
-            if self.expanded && !is_hovering_visible && (is_left_button_pressed() || self.touch_id.is_some()) {
+            if self.expanded
+                && !is_hovering_visible
+                && (is_left_button_pressed() || self.touch_id.is_some())
+            {
                 self.expanded = false;
                 self.widget_view = false;
                 window.request_redraw();
             }
 
-            if !self.expanded && is_hovering_visible && (is_left_button_pressed() || self.touch_id.is_some()) {
+            if !self.expanded
+                && is_hovering_visible
+                && (is_left_button_pressed() || self.touch_id.is_some())
+            {
                 self.idle_timer = Instant::now();
             }
 

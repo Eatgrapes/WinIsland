@@ -1,6 +1,6 @@
-use super::HOVER_ROW_KEY_BASE;
 use super::anim::SwitchAnimator;
 use super::items::*;
+use super::HOVER_ROW_KEY_BASE;
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
 use crate::utils::font::{DrawTextCachedParams, DrawTextInRectParams, FontManager};

@@ -5,8 +5,8 @@ use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::physics::Spring;
 use crate::utils::scroll::{ScrollDrawParams, ScrollText};
 use skia_safe::{
-    Canvas, Color, Data, FilterMode, FontStyle, Image, MipmapMode, Paint, Point, RRect, Rect,
-    SamplingOptions, TileMode, gradient_shader, image_filters,
+    gradient_shader, image_filters, Canvas, Color, Data, FilterMode, FontStyle, Image, MipmapMode, Paint, Point,
+    RRect, Rect, SamplingOptions, TileMode,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;

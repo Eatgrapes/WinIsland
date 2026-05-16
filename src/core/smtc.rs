@@ -1,4 +1,4 @@
-use crate::core::lyrics::{LyricLine, fetch_lyrics};
+use crate::core::lyrics::{fetch_lyrics, LyricLine};
 use crate::core::persistence::{load_config, save_config};
 use std::sync::Arc;
 use std::time::{Duration, Instant};

@@ -7,10 +7,10 @@ mod window;
 use crate::core::i18n::init_i18n;
 use crate::window::app::App;
 use std::env;
-use windows::Win32::Foundation::ERROR_ALREADY_EXISTS;
-use windows::Win32::Foundation::GetLastError;
-use windows::Win32::System::Threading::CreateMutexW;
 use windows::core::w;
+use windows::Win32::Foundation::GetLastError;
+use windows::Win32::Foundation::ERROR_ALREADY_EXISTS;
+use windows::Win32::System::Threading::CreateMutexW;
 use winit::event_loop::EventLoop;
 
 fn main() {

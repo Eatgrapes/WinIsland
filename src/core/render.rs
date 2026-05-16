@@ -1,15 +1,15 @@
 use crate::core::config::{DockPosition, PADDING, TOP_OFFSET};
 use crate::core::smtc::MediaInfo;
 use crate::ui::expanded::main_view::{
-    DrawMainPageParams, DrawVisualizerParams, draw_main_page, draw_text_cached, draw_visualizer,
-    get_cached_media_image, get_media_palette,
+    draw_main_page, draw_text_cached, draw_visualizer, get_cached_media_image, get_media_palette,
+    DrawMainPageParams, DrawVisualizerParams,
 };
 use crate::ui::expanded::widget_view::draw_widget_page;
 use crate::utils::font::DrawTextCachedParams;
 use crate::utils::glass::get_glass_background;
 use skia_safe::{
-    ClipOp, Color, FilterMode, ISize, MipmapMode, Paint, RRect, Rect, SamplingOptions,
-    Surface as SkSurface, image_filters, surfaces,
+    image_filters, surfaces, ClipOp, Color, FilterMode, ISize, MipmapMode, Paint, RRect,
+    Rect, SamplingOptions, Surface as SkSurface,
 };
 use softbuffer::Surface;
 use std::cell::RefCell;

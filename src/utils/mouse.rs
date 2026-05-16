@@ -2,12 +2,12 @@
 use windows::Win32::Foundation::{HWND, POINT, RECT};
 #[allow(unused_imports)]
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
+    GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CURSOR_SHOWING, CURSORINFO, GetClassNameW, GetCursorInfo, GetCursorPos, GetForegroundWindow,
-    GetWindowRect, GetWindowThreadProcessId, IsIconic,
+    GetClassNameW, GetCursorInfo, GetCursorPos, GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId,
+    IsIconic, CURSORINFO, CURSOR_SHOWING,
 };
 
 pub fn get_global_cursor_pos() -> (i32, i32) {
