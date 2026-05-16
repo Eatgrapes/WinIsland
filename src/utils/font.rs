@@ -240,10 +240,7 @@ impl FontManager {
     pub fn draw_text_cached(&self, params: DrawTextCachedParams<'_>) {
         let cache_key = format!(
             "{}\0{}\0{:?}\0{}",
-            params.text,
-            params.max_w as i32,
-            params.style,
-            params.size as i32
+            params.text, params.max_w as i32, params.style, params.size as i32
         );
         TEXT_CACHE.with(|cache| {
             let mut cache_mut = cache.borrow_mut();

@@ -133,9 +133,7 @@ pub fn get_progress_bar_rect(
     Some((bar_left, bar_right, bar_y - hit_h / 2.0, hit_h))
 }
 
-pub fn draw_text_cached(
-    params: DrawTextCachedParams<'_>,
-) {
+pub fn draw_text_cached(params: DrawTextCachedParams<'_>) {
     FontManager::global().draw_text_cached(params);
 }
 
