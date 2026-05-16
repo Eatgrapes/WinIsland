@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="resources/info-en.png" width="2000" alt="">
+  <img src="resources/info-en.png" width="350" alt="">
 </p>
 
 ## WinIsland
