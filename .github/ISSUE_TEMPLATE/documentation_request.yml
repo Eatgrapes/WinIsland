@@ -21,12 +21,3 @@ body:
       placeholder: explain why you want to update this content
     validations:
       required: true
-
-  - type: textarea
-    id: additional
-    attributes:
-      label: 附加内容 | additional content
-      description: 可选 - ui草图 (如果你会画的话 那就挺好的了😋) | ui sketch (if you can draw, that would be great😋)
-      placeholder: ui sketch
-    validations:
-      required: false
