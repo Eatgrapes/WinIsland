@@ -1208,15 +1208,11 @@ impl SettingsApp {
                 match idx {
                     0 => self.config.smtc_enabled = !self.config.smtc_enabled,
                     1 => self.config.show_lyrics = !self.config.show_lyrics,
-                    2 => {
-                        if self.config.show_lyrics {
-                            self.config.lyrics_fallback = !self.config.lyrics_fallback
-                        }
+                    2 if self.config.show_lyrics => {
+                        self.config.lyrics_fallback = !self.config.lyrics_fallback
                     }
-                    3 => {
-                        if self.config.show_lyrics {
-                            self.config.lyrics_scroll = !self.config.lyrics_scroll
-                        }
+                    3 if self.config.show_lyrics => {
+                        self.config.lyrics_scroll = !self.config.lyrics_scroll
                     }
                     _ => {}
                 }
@@ -1275,25 +1271,25 @@ impl SettingsApp {
                     }
                 }
             }
-            ClickResult::AppItem(idx) => {
-                if self.config.smtc_enabled && !self.detected_apps.is_empty() {
-                    let app_start = items
-                        .iter()
-                        .position(|i| matches!(i, SettingsItem::RowAppItem { .. }))
-                        .unwrap_or(items.len());
-                    let app_idx = idx - app_start;
-                    if app_idx < self.detected_apps.len() {
-                        let app = &self.detected_apps[app_idx];
-                        if self.config.smtc_apps.contains(app) {
-                            self.config.smtc_apps.retain(|a| a != app);
-                        } else {
-                            self.config.smtc_apps.push(app.clone());
-                            if !self.config.smtc_known_apps.contains(app) {
-                                self.config.smtc_known_apps.push(app.clone());
-                            }
+            ClickResult::AppItem(idx)
+                if self.config.smtc_enabled && !self.detected_apps.is_empty() =>
+            {
+                let app_start = items
+                    .iter()
+                    .position(|i| matches!(i, SettingsItem::RowAppItem { .. }))
+                    .unwrap_or(items.len());
+                let app_idx = idx - app_start;
+                if app_idx < self.detected_apps.len() {
+                    let app = &self.detected_apps[app_idx];
+                    if self.config.smtc_apps.contains(app) {
+                        self.config.smtc_apps.retain(|a| a != app);
+                    } else {
+                        self.config.smtc_apps.push(app.clone());
+                        if !self.config.smtc_known_apps.contains(app) {
+                            self.config.smtc_known_apps.push(app.clone());
                         }
-                        changed = true;
                     }
+                    changed = true;
                 }
             }
             _ => {}
