@@ -59,17 +59,16 @@ impl AudioProcessor {
                         if let Ok(enumerator) = mgr.GetSessionEnumerator() {
                             let count = enumerator.GetCount().unwrap_or(0);
                             for i in 0..count {
-                                if let Ok(session) = enumerator.GetSession(i) {
-                                    if let Ok(session2) = session.cast::<IAudioSessionControl2>() {
-                                        if session2.IsSystemSoundsSession() == S_OK {
-                                            continue;
-                                        }
-                                        if let Ok(meter) = session.cast::<IAudioMeterInformation>()
-                                        {
-                                            if let Ok(peak) = meter.GetPeakValue() {
-                                                max_peak = max_peak.max(peak);
-                                            }
-                                        }
+                                if let Ok(session) = enumerator.GetSession(i)
+                                    && let Ok(session2) = session.cast::<IAudioSessionControl2>()
+                                {
+                                    if session2.IsSystemSoundsSession() == S_OK {
+                                        continue;
+                                    }
+                                    if let Ok(meter) = session.cast::<IAudioMeterInformation>()
+                                        && let Ok(peak) = meter.GetPeakValue()
+                                    {
+                                        max_peak = max_peak.max(peak);
                                     }
                                 }
                             }
@@ -161,7 +160,7 @@ where
 
 fn update_spectrum(
     pcm_buffer: &mut Vec<f32>,
-    fft: &std::sync::Arc<dyn realfft::RealToComplex<f32>>,
+    fft: &Arc<dyn realfft::RealToComplex<f32>>,
     output: &mut [realfft::num_complex::Complex32],
     adaptive_max: &mut [f32; 6],
     spectrum_arc: &Arc<Mutex<[f32; 6]>>,
@@ -174,9 +173,7 @@ fn update_spectrum(
     let ranges = [(2, 8), (8, 20), (20, 50), (50, 120), (120, 280), (280, 511)];
     for (j, (start, end)) in ranges.iter().enumerate() {
         let mut sum = 0.0f32;
-        for k in *start..*end {
-            sum += output[k].norm();
-        }
+        sum += output[*start..*end].iter().map(|v| v.norm()).sum::<f32>();
         let avg = sum / (*end - *start) as f32;
         adaptive_max[j] = adaptive_max[j] * 0.995 + avg.max(0.01) * 0.005;
         raw_bins[j] = (avg / (adaptive_max[j] * 2.3) * gate).clamp(0.0, 1.0);

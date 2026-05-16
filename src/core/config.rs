@@ -8,7 +8,9 @@ pub const PADDING: f32 = 80.0;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(from = "String", into = "String")]
+#[derive(Default)]
 pub enum DockPosition {
+    #[default]
     TopCenter,
     TopLeft,
     TopRight,
@@ -19,7 +21,10 @@ pub enum DockPosition {
 
 impl DockPosition {
     pub fn is_bottom(&self) -> bool {
-        matches!(self, Self::BottomCenter | Self::BottomLeft | Self::BottomRight)
+        matches!(
+            self,
+            Self::BottomCenter | Self::BottomLeft | Self::BottomRight
+        )
     }
 
     pub fn is_left(&self) -> bool {
@@ -39,12 +44,6 @@ impl DockPosition {
             Self::BottomLeft => "bottom_left",
             Self::BottomRight => "bottom_right",
         }
-    }
-}
-
-impl Default for DockPosition {
-    fn default() -> Self {
-        Self::TopCenter
     }
 }
 

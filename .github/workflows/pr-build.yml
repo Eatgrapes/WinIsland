@@ -1,0 +1,32 @@
+name: PR Build & Test
+
+on:
+  pull_request:
+    branches: [ "master", "main" ]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: choco install ninja
+
+      - name: Build (release)
+        run: cargo build --release --verbose
+
+      - name: Run tests
+        run: cargo test --verbose

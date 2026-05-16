@@ -4,7 +4,7 @@ use crate::core::persistence::save_config;
 use crate::utils::anim::AnimPool;
 use crate::utils::autostart::set_autostart;
 use crate::utils::color::*;
-use crate::utils::font::FontManager;
+use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::icon::get_app_icon;
 use crate::utils::settings_ui::items::*;
 use crate::utils::settings_ui::*;
@@ -261,8 +261,7 @@ impl SettingsApp {
                     ),
                     (
                         tr("dock_position_bottom_right"),
-                        self.config.dock_position
-                            == crate::core::config::DockPosition::BottomRight,
+                        self.config.dock_position == crate::core::config::DockPosition::BottomRight,
                     ),
                 ],
                 enabled: true,
@@ -606,21 +605,18 @@ impl SettingsApp {
         use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
         let mut changed = false;
         if let Ok(manager_async) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
+            && let Ok(manager) = manager_async.get()
+            && let Ok(sessions) = manager.GetSessions()
+            && let Ok(size) = sessions.Size()
         {
-            if let Ok(manager) = manager_async.get() {
-                if let Ok(sessions) = manager.GetSessions() {
-                    if let Ok(size) = sessions.Size() {
-                        for i in 0..size {
-                            if let Ok(session) = sessions.GetAt(i) {
-                                if let Ok(id) = session.SourceAppUserModelId() {
-                                    let name = id.to_string();
-                                    if !self.detected_apps.contains(&name) {
-                                        self.detected_apps.push(name);
-                                        changed = true;
-                                    }
-                                }
-                            }
-                        }
+            for i in 0..size {
+                if let Ok(session) = sessions.GetAt(i)
+                    && let Ok(id) = session.SourceAppUserModelId()
+                {
+                    let name = id.to_string();
+                    if !self.detected_apps.contains(&name) {
+                        self.detected_apps.push(name);
+                        changed = true;
                     }
                 }
             }
@@ -640,7 +636,11 @@ impl SettingsApp {
         let (p_w, p_h, scale) = {
             let win = self.window.as_ref().unwrap();
             let size = win.inner_size();
-            (size.width as i32, size.height as i32, win.scale_factor() as f32)
+            (
+                size.width as i32,
+                size.height as i32,
+                win.scale_factor() as f32,
+            )
         };
         if p_w <= 0 || p_h <= 0 {
             return;
@@ -661,7 +661,7 @@ impl SettingsApp {
                 None,
             );
             let dst_row_bytes = (p_w * 4) as usize;
-            let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut *buffer);
+            let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut buffer);
             let mut sk_surface =
                 surfaces::wrap_pixels(&info, u8_buffer, dst_row_bytes, None).unwrap();
 
@@ -681,16 +681,16 @@ impl SettingsApp {
             );
             canvas.translate((SIDEBAR_W, -self.scroll_y));
 
-            draw_items(
+            draw_items(DrawItemsParams {
                 canvas,
-                &self.cached_items,
-                CONTENT_START_Y,
-                content_w,
-                &anim,
-                &self.anim,
-                self.scroll_y,
-                self.scroll_y + WIN_H,
-            );
+                items: &self.cached_items,
+                start_y: CONTENT_START_Y,
+                width: content_w,
+                anims: &anim,
+                hover_anims: &self.anim,
+                visible_min_y: self.scroll_y,
+                visible_max_y: self.scroll_y + WIN_H,
+            });
             canvas.restore();
 
             let ch = self.cached_content_height;
@@ -842,16 +842,16 @@ impl SettingsApp {
                 COLOR_TEXT_PRI.b(),
             ));
             paint.set_style(skia_safe::paint::Style::Fill);
-            fm.draw_text_cached(
+            fm.draw_text_cached(DrawTextCachedParams {
                 canvas,
-                opt_label,
-                (item_rect.left + 8.0, item_rect.top + 19.0),
-                12.0,
-                skia_safe::FontStyle::normal(),
-                &paint,
-                false,
-                item_rect.width() - 28.0,
-            );
+                text: opt_label,
+                pos: (item_rect.left + 8.0, item_rect.top + 19.0),
+                size: 12.0,
+                style: skia_safe::FontStyle::normal(),
+                paint: &paint,
+                align_center: false,
+                max_w: item_rect.width() - 28.0,
+            });
 
             if i == popup.selected_idx {
                 let check_base = if popup.hover_idx == Some(i) {
@@ -935,8 +935,7 @@ impl SettingsApp {
                 let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
                 if my >= row_y
                     && my <= row_y + SIDEBAR_ROW_H
-                    && mx >= SIDEBAR_PAD
-                    && mx <= SIDEBAR_W - SIDEBAR_PAD
+                    && (SIDEBAR_PAD..=SIDEBAR_W - SIDEBAR_PAD).contains(&mx)
                 {
                     if self.active_page != i as usize {
                         self.active_page = i as usize;
@@ -973,88 +972,88 @@ impl SettingsApp {
         match result {
             ClickResult::StepperDec(idx) | ClickResult::StepperInc(idx) => {
                 let is_dec = matches!(result, ClickResult::StepperDec(_));
-                if let Some(item) = items.get(idx) {
-                    if let SettingsItem::RowStepper { label, .. } = item {
-                        let l = label.clone();
-                        if l == tr("global_scale") {
-                            if is_dec {
-                                self.config.global_scale =
-                                    ((self.config.global_scale - 0.05) * 100.0).round() / 100.0;
-                                self.config.global_scale = self.config.global_scale.max(0.5);
-                            } else {
-                                self.config.global_scale =
-                                    ((self.config.global_scale + 0.05) * 100.0).round() / 100.0;
-                                self.config.global_scale = self.config.global_scale.min(5.0);
-                            }
-                            changed = true;
-                        } else if l == tr("base_width") {
-                            if is_dec {
-                                self.config.base_width -= 5.0;
-                            } else {
-                                self.config.base_width += 5.0;
-                            }
-                            changed = true;
-                        } else if l == tr("base_height") {
-                            if is_dec {
-                                self.config.base_height -= 2.0;
-                            } else {
-                                self.config.base_height += 2.0;
-                            }
-                            changed = true;
-                        } else if l == tr("expanded_width") {
-                            if is_dec {
-                                self.config.expanded_width -= 10.0;
-                            } else {
-                                self.config.expanded_width += 10.0;
-                            }
-                            changed = true;
-                        } else if l == tr("expanded_height") {
-                            if is_dec {
-                                self.config.expanded_height -= 10.0;
-                            } else {
-                                self.config.expanded_height += 10.0;
-                            }
-                            changed = true;
-                        } else if l == tr("position_x_offset") {
-                            if is_dec {
-                                self.config.position_x_offset -= 5;
-                            } else {
-                                self.config.position_x_offset += 5;
-                            }
-                            changed = true;
-                        } else if l == tr("position_y_offset") {
-                            if is_dec {
-                                self.config.position_y_offset -= 5;
-                            } else {
-                                self.config.position_y_offset += 5;
-                            }
-                            changed = true;
-                        } else if l == tr("font_size") {
-                            if is_dec {
-                                self.config.font_size = (self.config.font_size - 1.0).max(0.0);
-                            } else {
-                                self.config.font_size = (self.config.font_size + 1.0).min(30.0);
-                            }
-                            changed = true;
-                        } else if l == tr("hide_delay") {
-                            if is_dec {
-                                self.config.auto_hide_delay =
-                                    (self.config.auto_hide_delay - 1.0).max(1.0);
-                            } else {
-                                self.config.auto_hide_delay =
-                                    (self.config.auto_hide_delay + 1.0).min(60.0);
-                            }
-                            changed = true;
-                        } else if l == tr("update_interval") {
-                            if is_dec {
-                                self.config.update_check_interval =
-                                    (self.config.update_check_interval - 1.0).max(1.0);
-                            } else {
-                                self.config.update_check_interval =
-                                    (self.config.update_check_interval + 1.0).min(24.0);
-                            }
-                            changed = true;
+                if let Some(item) = items.get(idx)
+                    && let SettingsItem::RowStepper { label, .. } = item
+                {
+                    let l = label.clone();
+                    if l == tr("global_scale") {
+                        if is_dec {
+                            self.config.global_scale =
+                                ((self.config.global_scale - 0.05) * 100.0).round() / 100.0;
+                            self.config.global_scale = self.config.global_scale.max(0.5);
+                        } else {
+                            self.config.global_scale =
+                                ((self.config.global_scale + 0.05) * 100.0).round() / 100.0;
+                            self.config.global_scale = self.config.global_scale.min(5.0);
                         }
+                        changed = true;
+                    } else if l == tr("base_width") {
+                        if is_dec {
+                            self.config.base_width -= 5.0;
+                        } else {
+                            self.config.base_width += 5.0;
+                        }
+                        changed = true;
+                    } else if l == tr("base_height") {
+                        if is_dec {
+                            self.config.base_height -= 2.0;
+                        } else {
+                            self.config.base_height += 2.0;
+                        }
+                        changed = true;
+                    } else if l == tr("expanded_width") {
+                        if is_dec {
+                            self.config.expanded_width -= 10.0;
+                        } else {
+                            self.config.expanded_width += 10.0;
+                        }
+                        changed = true;
+                    } else if l == tr("expanded_height") {
+                        if is_dec {
+                            self.config.expanded_height -= 10.0;
+                        } else {
+                            self.config.expanded_height += 10.0;
+                        }
+                        changed = true;
+                    } else if l == tr("position_x_offset") {
+                        if is_dec {
+                            self.config.position_x_offset -= 5;
+                        } else {
+                            self.config.position_x_offset += 5;
+                        }
+                        changed = true;
+                    } else if l == tr("position_y_offset") {
+                        if is_dec {
+                            self.config.position_y_offset -= 5;
+                        } else {
+                            self.config.position_y_offset += 5;
+                        }
+                        changed = true;
+                    } else if l == tr("font_size") {
+                        if is_dec {
+                            self.config.font_size = (self.config.font_size - 1.0).max(0.0);
+                        } else {
+                            self.config.font_size = (self.config.font_size + 1.0).min(30.0);
+                        }
+                        changed = true;
+                    } else if l == tr("hide_delay") {
+                        if is_dec {
+                            self.config.auto_hide_delay =
+                                (self.config.auto_hide_delay - 1.0).max(1.0);
+                        } else {
+                            self.config.auto_hide_delay =
+                                (self.config.auto_hide_delay + 1.0).min(60.0);
+                        }
+                        changed = true;
+                    } else if l == tr("update_interval") {
+                        if is_dec {
+                            self.config.update_check_interval =
+                                (self.config.update_check_interval - 1.0).max(1.0);
+                        } else {
+                            self.config.update_check_interval =
+                                (self.config.update_check_interval + 1.0).min(24.0);
+                        }
+                        changed = true;
                     }
                 }
             }
@@ -1209,15 +1208,11 @@ impl SettingsApp {
                 match idx {
                     0 => self.config.smtc_enabled = !self.config.smtc_enabled,
                     1 => self.config.show_lyrics = !self.config.show_lyrics,
-                    2 => {
-                        if self.config.show_lyrics {
-                            self.config.lyrics_fallback = !self.config.lyrics_fallback
-                        }
+                    2 if self.config.show_lyrics => {
+                        self.config.lyrics_fallback = !self.config.lyrics_fallback
                     }
-                    3 => {
-                        if self.config.show_lyrics {
-                            self.config.lyrics_scroll = !self.config.lyrics_scroll
-                        }
+                    3 if self.config.show_lyrics => {
+                        self.config.lyrics_scroll = !self.config.lyrics_scroll
                     }
                     _ => {}
                 }
@@ -1249,54 +1244,52 @@ impl SettingsApp {
             }
             ClickResult::StepperDec(idx) | ClickResult::StepperInc(idx) => {
                 let is_dec = matches!(result, ClickResult::StepperDec(_));
-                if let Some(item) = items.get(idx) {
-                    if let SettingsItem::RowStepper { label, .. } = item {
-                        if label == &tr("lyrics_delay") && self.config.show_lyrics {
-                            if is_dec {
-                                self.config.lyrics_delay =
-                                    ((self.config.lyrics_delay * 10.0 - 1.0).round() / 10.0)
-                                        .max(-10.0);
-                            } else {
-                                self.config.lyrics_delay =
-                                    ((self.config.lyrics_delay * 10.0 + 1.0).round() / 10.0)
-                                        .min(10.0);
-                            }
-                            changed = true;
-                        } else if label == &tr("lyrics_scroll_max_width")
-                            && self.config.show_lyrics
-                            && self.config.lyrics_scroll
-                        {
-                            if is_dec {
-                                self.config.lyrics_scroll_max_width =
-                                    (self.config.lyrics_scroll_max_width - 10.0).max(100.0);
-                            } else {
-                                self.config.lyrics_scroll_max_width =
-                                    (self.config.lyrics_scroll_max_width + 10.0).min(500.0);
-                            }
-                            changed = true;
-                        }
-                    }
-                }
-            }
-            ClickResult::AppItem(idx) => {
-                if self.config.smtc_enabled && !self.detected_apps.is_empty() {
-                    let app_start = items
-                        .iter()
-                        .position(|i| matches!(i, SettingsItem::RowAppItem { .. }))
-                        .unwrap_or(items.len());
-                    let app_idx = idx - app_start;
-                    if app_idx < self.detected_apps.len() {
-                        let app = &self.detected_apps[app_idx];
-                        if self.config.smtc_apps.contains(app) {
-                            self.config.smtc_apps.retain(|a| a != app);
+                if let Some(item) = items.get(idx)
+                    && let SettingsItem::RowStepper { label, .. } = item
+                {
+                    if label == &tr("lyrics_delay") && self.config.show_lyrics {
+                        if is_dec {
+                            self.config.lyrics_delay =
+                                ((self.config.lyrics_delay * 10.0 - 1.0).round() / 10.0).max(-10.0);
                         } else {
-                            self.config.smtc_apps.push(app.clone());
-                            if !self.config.smtc_known_apps.contains(app) {
-                                self.config.smtc_known_apps.push(app.clone());
-                            }
+                            self.config.lyrics_delay =
+                                ((self.config.lyrics_delay * 10.0 + 1.0).round() / 10.0).min(10.0);
+                        }
+                        changed = true;
+                    } else if label == &tr("lyrics_scroll_max_width")
+                        && self.config.show_lyrics
+                        && self.config.lyrics_scroll
+                    {
+                        if is_dec {
+                            self.config.lyrics_scroll_max_width =
+                                (self.config.lyrics_scroll_max_width - 10.0).max(100.0);
+                        } else {
+                            self.config.lyrics_scroll_max_width =
+                                (self.config.lyrics_scroll_max_width + 10.0).min(500.0);
                         }
                         changed = true;
                     }
+                }
+            }
+            ClickResult::AppItem(idx)
+                if self.config.smtc_enabled && !self.detected_apps.is_empty() =>
+            {
+                let app_start = items
+                    .iter()
+                    .position(|i| matches!(i, SettingsItem::RowAppItem { .. }))
+                    .unwrap_or(items.len());
+                let app_idx = idx - app_start;
+                if app_idx < self.detected_apps.len() {
+                    let app = &self.detected_apps[app_idx];
+                    if self.config.smtc_apps.contains(app) {
+                        self.config.smtc_apps.retain(|a| a != app);
+                    } else {
+                        self.config.smtc_apps.push(app.clone());
+                        if !self.config.smtc_known_apps.contains(app) {
+                            self.config.smtc_known_apps.push(app.clone());
+                        }
+                    }
+                    changed = true;
                 }
             }
             _ => {}
@@ -1334,8 +1327,7 @@ impl SettingsApp {
                 let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
                 if my >= row_y
                     && my <= row_y + SIDEBAR_ROW_H
-                    && mx >= SIDEBAR_PAD
-                    && mx <= SIDEBAR_W - SIDEBAR_PAD
+                    && (SIDEBAR_PAD..=SIDEBAR_W - SIDEBAR_PAD).contains(&mx)
                 {
                     return true;
                 }
@@ -1394,9 +1386,9 @@ impl ApplicationHandler for SettingsApp {
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                if event.state == ElementState::Pressed {
-                    if let Key::Named(NamedKey::F11) = event.logical_key {}
-                }
+                if event.state == ElementState::Pressed
+                    && let Key::Named(NamedKey::F11) = event.logical_key
+                {}
             }
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = self.window.as_ref().unwrap().scale_factor() as f32;
@@ -1421,8 +1413,7 @@ impl ApplicationHandler for SettingsApp {
                         let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
                         if my >= row_y
                             && my <= row_y + SIDEBAR_ROW_H
-                            && mx >= SIDEBAR_PAD
-                            && mx <= SIDEBAR_W - SIDEBAR_PAD
+                            && (SIDEBAR_PAD..=SIDEBAR_W - SIDEBAR_PAD).contains(&mx)
                         {
                             new_hover = i;
                         }
@@ -1457,10 +1448,10 @@ impl ApplicationHandler for SettingsApp {
                             Err(0) => None,
                             Err(i) => Some(i - 1),
                         };
-                        if let Some(i) = idx {
-                            if content_y <= self.cached_row_tops[i] + ROW_HEIGHT {
-                                new_row = Some(i);
-                            }
+                        if let Some(i) = idx
+                            && content_y <= self.cached_row_tops[i] + ROW_HEIGHT
+                        {
+                            new_row = Some(i);
                         }
                     }
                     if new_row != self.hover_row {
@@ -1472,13 +1463,11 @@ impl ApplicationHandler for SettingsApp {
                         }
                         self.hover_row = new_row;
                     }
-                } else {
-                    if self.hover_row.is_some() {
-                        if let Some(old) = self.hover_row {
-                            self.anim.set(HOVER_ROW_KEY_BASE + old as u64, 0.0);
-                        }
-                        self.hover_row = None;
+                } else if self.hover_row.is_some() {
+                    if let Some(old) = self.hover_row {
+                        self.anim.set(HOVER_ROW_KEY_BASE + old as u64, 0.0);
                     }
+                    self.hover_row = None;
                 }
 
                 let cursor = if self.get_hover_state() {
@@ -1530,7 +1519,7 @@ impl ApplicationHandler for SettingsApp {
         }
         let frame_start = Instant::now();
         self.frame_count += 1;
-        if self.frame_count % 60 == 0 {
+        if self.frame_count.is_multiple_of(60) {
             unsafe {
                 let h = OpenMutexW(
                     MUTEX_ALL_ACCESS,
@@ -1552,7 +1541,11 @@ impl ApplicationHandler for SettingsApp {
         self.ensure_items_cache();
         let max_scroll = self.cached_max_scroll;
         self.target_scroll_y = self.target_scroll_y.clamp(0.0, max_scroll);
-        let dt = self.last_frame_time.elapsed().as_secs_f32().clamp(0.001, 0.05);
+        let dt = self
+            .last_frame_time
+            .elapsed()
+            .as_secs_f32()
+            .clamp(0.001, 0.05);
         self.last_frame_time = Instant::now();
 
         let diff = self.target_scroll_y - self.scroll_y;

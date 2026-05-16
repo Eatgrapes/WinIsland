@@ -2,7 +2,7 @@ use crate::core::i18n::tr;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use windows::Win32::UI::WindowsAndMessaging::{
     IDOK, IDYES, MB_ICONINFORMATION, MB_OKCANCEL, MB_SETFOREGROUND, MB_TOPMOST, MessageBoxW,
@@ -61,7 +61,7 @@ pub fn start_update_checker() {
     });
 }
 
-async fn do_check(app_dir: &PathBuf) {
+async fn do_check(app_dir: &Path) {
     let local_json_path = app_dir.join("version_info.json");
 
     let remote_json_str = match HTTP_CLIENT.get(UPDATE_URL_JSON).send().await {
@@ -114,10 +114,10 @@ async fn do_check(app_dir: &PathBuf) {
         })
         .await;
 
-        if let Ok(r) = result {
-            if r == IDOK || r == IDYES {
-                perform_update(remote_json_str, app_dir.clone()).await;
-            }
+        if let Ok(r) = result
+            && (r == IDOK || r == IDYES)
+        {
+            perform_update(remote_json_str, app_dir.to_path_buf()).await;
         }
     }
 }

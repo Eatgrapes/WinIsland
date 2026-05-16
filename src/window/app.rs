@@ -1,7 +1,10 @@
 use crate::core::audio::AudioProcessor;
 use crate::core::config::{AppConfig, PADDING, TOP_OFFSET, WINDOW_TITLE};
 use crate::core::persistence::load_config;
-use crate::core::render::draw_island;
+use crate::core::render::{
+    DrawIslandParams, LayoutParams, LyricsParams, MediaParams, StyleParams, WindowParams,
+    draw_island,
+};
 use crate::core::smtc::SmtcListener;
 use crate::ui::expanded::main_view::{
     get_next_btn_rect, get_pause_btn_rect, get_prev_btn_rect, get_progress_bar_rect,
@@ -168,20 +171,20 @@ impl App {
     }
 
     fn enforce_topmost(window: &Window, win_x: i32, win_y: i32, os_w: u32, os_h: u32) {
-        if let Ok(handle) = window.window_handle() {
-            if let RawWindowHandle::Win32(raw) = handle.as_raw() {
-                let hwnd = HWND(raw.hwnd.get() as *mut core::ffi::c_void);
-                unsafe {
-                    let _ = SetWindowPos(
-                        hwnd,
-                        HWND_TOPMOST,
-                        win_x,
-                        win_y,
-                        os_w as i32,
-                        os_h as i32,
-                        SWP_NOACTIVATE,
-                    );
-                }
+        if let Ok(handle) = window.window_handle()
+            && let RawWindowHandle::Win32(raw) = handle.as_raw()
+        {
+            let hwnd = HWND(raw.hwnd.get() as *mut core::ffi::c_void);
+            unsafe {
+                let _ = SetWindowPos(
+                    hwnd,
+                    HWND_TOPMOST,
+                    win_x,
+                    win_y,
+                    os_w as i32,
+                    os_h as i32,
+                    SWP_NOACTIVATE,
+                );
             }
         }
     }
@@ -248,9 +251,7 @@ impl App {
         let hidden_handle_y = if dock_bottom {
             (self.os_h as f64 - PADDING as f64 / 2.0 - hidden_handle_h).max(0.0)
         } else {
-            (current_island_y + self.spring_h.value as f64
-                - hidden_peek_h
-                - hidden_handle_h * 0.35)
+            (current_island_y + self.spring_h.value as f64 - hidden_peek_h - hidden_handle_h * 0.35)
                 .max(0.0)
         };
 
@@ -285,25 +286,25 @@ impl ApplicationHandler for App {
                 .with_window_icon(get_app_icon());
             let window = Arc::new(event_loop.create_window(attrs).unwrap());
 
-            if let Ok(handle) = window.window_handle() {
-                if let RawWindowHandle::Win32(win32_handle) = handle.as_raw() {
-                    let hwnd = HWND(win32_handle.hwnd.get() as _);
-                    unsafe {
-                        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-                        SetWindowLongPtrW(
-                            hwnd,
-                            GWL_EXSTYLE,
-                            ex_style | WS_EX_TOOLWINDOW.0 as isize | WS_EX_NOACTIVATE.0 as isize,
-                        );
-                        let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
-                        SetWindowLongPtrW(
-                            hwnd,
-                            GWL_STYLE,
-                            style & !(WS_MAXIMIZEBOX.0 as isize | WS_THICKFRAME.0 as isize),
-                        );
-                    }
-                    set_glass_hwnd(win32_handle.hwnd.get());
+            if let Ok(handle) = window.window_handle()
+                && let RawWindowHandle::Win32(win32_handle) = handle.as_raw()
+            {
+                let hwnd = HWND(win32_handle.hwnd.get() as _);
+                unsafe {
+                    let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+                    SetWindowLongPtrW(
+                        hwnd,
+                        GWL_EXSTYLE,
+                        ex_style | WS_EX_TOOLWINDOW.0 as isize | WS_EX_NOACTIVATE.0 as isize,
+                    );
+                    let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+                    SetWindowLongPtrW(
+                        hwnd,
+                        GWL_STYLE,
+                        style & !(WS_MAXIMIZEBOX.0 as isize | WS_THICKFRAME.0 as isize),
+                    );
                 }
+                set_glass_hwnd(win32_handle.hwnd.get());
             }
 
             self.window = Some(window.clone());
@@ -345,310 +346,316 @@ impl ApplicationHandler for App {
         }
     }
     fn window_event(&mut self, _event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
-        if let Some(win) = &self.window {
-            if win.id() == id {
-                match event {
-                    WindowEvent::ThemeChanged(theme) => {
-                        let is_light = theme == winit::window::Theme::Light;
-                        if let Some(tray) = self.tray.as_mut() {
-                            tray.update_theme(is_light);
-                        }
+        if let Some(win) = &self.window
+            && win.id() == id
+        {
+            match event {
+                WindowEvent::ThemeChanged(theme) => {
+                    let is_light = theme == winit::window::Theme::Light;
+                    if let Some(tray) = self.tray.as_mut() {
+                        tray.update_theme(is_light);
                     }
-                    WindowEvent::Resized(_) => {
-                        if win.is_maximized() {
-                            win.set_maximized(false);
-                        }
+                }
+                WindowEvent::Resized(_) if win.is_maximized() => {
+                    win.set_maximized(false);
+                }
+                WindowEvent::CloseRequested => (),
+                WindowEvent::MouseInput {
+                    state,
+                    button: MouseButton::Left,
+                    ..
+                } => {
+                    if self.is_fullscreen_suppressed || self.is_cursor_suppressed {
+                        return;
                     }
-                    WindowEvent::CloseRequested => (),
-                    WindowEvent::MouseInput {
-                        state,
-                        button: MouseButton::Left,
-                        ..
-                    } => {
-                        if self.is_fullscreen_suppressed || self.is_cursor_suppressed {
-                            return;
-                        }
-                        let (px, py) = get_global_cursor_pos();
-                        let rel_x = px - self.win_x;
-                        let rel_y = py - self.win_y;
-                        let layout = self.compute_island_layout();
-                        let island_y = layout.island_y;
-                        let offset_x = layout.offset_x;
-                        let current_island_y = layout.current_island_y;
+                    let (px, py) = get_global_cursor_pos();
+                    let rel_x = px - self.win_x;
+                    let rel_y = py - self.win_y;
+                    let layout = self.compute_island_layout();
+                    let island_y = layout.island_y;
+                    let offset_x = layout.offset_x;
+                    let current_island_y = layout.current_island_y;
 
-                        let is_hovering_visible = is_point_in_rect(
+                    let is_hovering_visible = is_point_in_rect(
+                        rel_x as f64,
+                        rel_y as f64,
+                        offset_x,
+                        current_island_y,
+                        self.spring_w.value as f64,
+                        self.spring_h.value as f64,
+                    );
+
+                    let hidden_handle_h = layout.hidden_handle_h;
+                    let hidden_handle_y = layout.hidden_handle_y;
+                    let is_on_hidden_handle = (self.auto_hidden || self.manually_hidden)
+                        && is_point_in_rect(
                             rel_x as f64,
                             rel_y as f64,
                             offset_x,
-                            current_island_y,
+                            hidden_handle_y,
                             self.spring_w.value as f64,
-                            self.spring_h.value as f64,
+                            hidden_handle_h,
                         );
 
-                        let hidden_handle_h = layout.hidden_handle_h;
-                        let hidden_handle_y = layout.hidden_handle_y;
-                        let is_on_hidden_handle = (self.auto_hidden || self.manually_hidden)
-                            && is_point_in_rect(
-                                rel_x as f64,
-                                rel_y as f64,
-                                offset_x,
-                                hidden_handle_y,
-                                self.spring_w.value as f64,
-                                hidden_handle_h,
-                            );
+                    if state == ElementState::Pressed {
+                        if self.expanded {
+                            let view_val = self.spring_view.value as f64;
+                            let w = self.spring_w.value as f64;
+                            let h = self.spring_h.value as f64;
+                            let page_shift = view_val * w;
+                            let scale = self.config.global_scale as f64;
 
-                        if state == ElementState::Pressed {
-                            if self.expanded {
-                                let view_val = self.spring_view.value as f64;
-                                let w = self.spring_w.value as f64;
-                                let h = self.spring_h.value as f64;
-                                let page_shift = view_val * w;
-                                let scale = self.config.global_scale as f64;
+                            if view_val < 0.5 {
+                                let media = self.smtc.get_info();
+                                let music_on = self.config.smtc_enabled
+                                    && !media.title.is_empty()
+                                    && (media.is_playing
+                                        || self.last_playing_time.elapsed()
+                                            < Duration::from_secs(5));
 
-                                if view_val < 0.5 {
-                                    let media = self.smtc.get_info();
-                                    let music_on = self.config.smtc_enabled
-                                        && !media.title.is_empty()
-                                        && (media.is_playing
-                                            || self.last_playing_time.elapsed()
-                                                < Duration::from_secs(5));
-
-                                    let (bx, by, bw, bh) = get_pause_btn_rect(
-                                        offset_x as f32,
-                                        island_y as f32,
-                                        w as f32,
-                                        h as f32,
-                                        self.config.global_scale,
-                                    );
-                                    let cx = rel_x as f32 - (page_shift as f32);
-                                    let cy = rel_y as f32;
-                                    if music_on
-                                        && cx >= bx
-                                        && cx <= bx + bw
-                                        && cy >= by
-                                        && cy <= by + bh
-                                    {
-                                        trigger_pause_click(media.is_playing);
-                                        self.smtc.request_toggle_play();
-                                        return;
-                                    }
-
-                                    let (px, py, pw, ph) = get_prev_btn_rect(
-                                        offset_x as f32,
-                                        island_y as f32,
-                                        w as f32,
-                                        h as f32,
-                                        self.config.global_scale,
-                                    );
-                                    if music_on
-                                        && cx >= px
-                                        && cx <= px + pw
-                                        && cy >= py
-                                        && cy <= py + ph
-                                    {
-                                        trigger_cover_flip();
-                                        trigger_prev_click();
-                                        self.smtc.request_prev();
-                                        return;
-                                    }
-
-                                    let (nx, ny, nw, nh) = get_next_btn_rect(
-                                        offset_x as f32,
-                                        island_y as f32,
-                                        w as f32,
-                                        h as f32,
-                                        self.config.global_scale,
-                                    );
-                                    if music_on
-                                        && cx >= nx
-                                        && cx <= nx + nw
-                                        && cy >= ny
-                                        && cy <= ny + nh
-                                    {
-                                        trigger_cover_flip();
-                                        trigger_next_click();
-                                        self.smtc.request_next();
-                                        return;
-                                    }
-
-                                    if let Some((bar_left, bar_right, bar_top, bar_hit_h)) =
-                                        get_progress_bar_rect(
-                                            offset_x as f32,
-                                            island_y as f32,
-                                            w as f32,
-                                            &media,
-                                            music_on,
-                                            self.config.global_scale,
-                                        )
-                                    {
-                                        if cx >= bar_left
-                                            && cx <= bar_right
-                                            && cy >= bar_top
-                                            && cy <= bar_top + bar_hit_h
-                                        {
-                                            let ratio = ((cx - bar_left) / (bar_right - bar_left))
-                                                .clamp(0.0, 1.0);
-                                            let duration_ms = media.effective_duration_ms();
-                                            let seek_ms =
-                                                (ratio as f64 * duration_ms as f64) as u64;
-                                            self.seeking_progress = true;
-                                            self.seeking_bar_left = bar_left;
-                                            self.seeking_bar_right = bar_right;
-                                            self.seeking_duration_ms = duration_ms;
-                                            self.seeking_preview_ms = seek_ms;
-                                            return;
-                                        }
-                                    }
-                                }
-
-                                if view_val > 0.5 {
-                                    let gear_x = offset_x + w - 28.0 * scale + w - page_shift;
-                                    let gear_y = island_y + h - 28.0 * scale;
-                                    let dist_sq = (rel_x as f64 - gear_x).powi(2)
-                                        + (rel_y as f64 - gear_y).powi(2);
-                                    if dist_sq <= (20.0 * scale).powi(2) {
-                                        let _ = std::process::Command::new(
-                                            std::env::current_exe().unwrap(),
-                                        )
-                                        .arg("--settings")
-                                        .spawn();
-                                        return;
-                                    }
-
-                                    let arrow_x = offset_x + 12.0 * scale + w - page_shift;
-                                    let arrow_y = island_y + h / 2.0;
-                                    let adx = rel_x as f64 - arrow_x;
-                                    let ady = rel_y as f64 - arrow_y;
-                                    if adx * adx + ady * ady <= (20.0 * scale).powi(2) {
-                                        self.widget_view = false;
-                                        return;
-                                    }
-                                }
-
-                                if view_val < 0.5 {
-                                    let arrow_x = offset_x + w - 12.0 * scale;
-                                    let arrow_y = island_y + h / 2.0;
-                                    let adx = rel_x as f64 - arrow_x;
-                                    let ady = rel_y as f64 - arrow_y;
-                                    if adx * adx + ady * ady <= (20.0 * scale).powi(2) {
-                                        self.widget_view = true;
-                                        return;
-                                    }
-                                }
-
-                                if (rel_y as f64) < island_y + 40.0 * scale {
-                                    self.expanded = false;
-                                    self.widget_view = false;
-                                }
-                            } else {
-                                if is_hovering_visible || is_on_hidden_handle {
-                                    self.is_dragging = true;
-                                    self.drag_start_py = py;
-                                    self.drag_start_hide_val = self.spring_hide.value;
-                                    self.drag_has_moved = false;
-                                }
-                            }
-                        } else if state == ElementState::Released {
-                            if self.seeking_progress {
-                                self.seeking_progress = false;
-                                if self.seeking_duration_ms > 0 {
-                                    self.smtc.request_seek(self.seeking_preview_ms);
-                                }
-                                return;
-                            }
-                            if self.is_dragging {
-                                self.is_dragging = false;
-                                if !self.drag_has_moved {
-                                    if self.auto_hidden || self.manually_hidden {
-                                        self.auto_hidden = false;
-                                        self.manually_hidden = false;
-                                        self.spring_hide.velocity = -0.45;
-                                        self.idle_timer = Instant::now();
-                                    } else {
-                                        self.expanded = true;
-                                    }
-                                } else {
-                                    if self.spring_hide.value > 0.3 {
-                                        self.manually_hidden = true;
-                                        self.auto_hidden = false;
-                                    } else {
-                                        self.manually_hidden = false;
-                                        self.auto_hidden = false;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    WindowEvent::RedrawRequested => {
-                        if let Some(surface) = self.surface.as_mut() {
-                            let sigmas = if self.config.motion_blur {
-                                calculate_blur_sigmas(
-                                    self.spring_w.velocity,
-                                    self.spring_h.velocity,
-                                    self.spring_view.velocity,
-                                    self.spring_w.value,
-                                )
-                            } else {
-                                (0.0, 0.0)
-                            };
-                            let total_h = (self.config.expanded_height - self.config.base_height)
-                                .abs()
-                                .max(1.0)
-                                * self.config.global_scale;
-                            let dist_h = (self.spring_h.value
-                                - self.config.base_height * self.config.global_scale)
-                                .abs();
-                            let progress = (dist_h / total_h).clamp(0.0, 1.0);
-                            let mut media_info = if self.config.smtc_enabled {
-                                self.smtc.get_info()
-                            } else {
-                                crate::core::smtc::MediaInfo::default()
-                            };
-                            if self.seeking_progress && self.seeking_duration_ms > 0 {
-                                media_info.position_ms = self.seeking_preview_ms;
-                                media_info.last_update = Instant::now();
-                            }
-                            media_info.spectrum = self.audio.get_spectrum();
-                            let mut music_active = false;
-                            if self.config.smtc_enabled && !media_info.title.is_empty() {
-                                if media_info.is_playing {
-                                    music_active = true;
-                                } else if self.last_playing_time.elapsed() < Duration::from_secs(5)
+                                let (bx, by, bw, bh) = get_pause_btn_rect(
+                                    offset_x as f32,
+                                    island_y as f32,
+                                    w as f32,
+                                    h as f32,
+                                    self.config.global_scale,
+                                );
+                                let cx = rel_x as f32 - (page_shift as f32);
+                                let cy = rel_y as f32;
+                                if music_on
+                                    && cx >= bx
+                                    && cx <= bx + bw
+                                    && cy >= by
+                                    && cy <= by + bh
                                 {
-                                    music_active = true;
+                                    trigger_pause_click(media.is_playing);
+                                    self.smtc.request_toggle_play();
+                                    return;
+                                }
+
+                                let (px, py, pw, ph) = get_prev_btn_rect(
+                                    offset_x as f32,
+                                    island_y as f32,
+                                    w as f32,
+                                    h as f32,
+                                    self.config.global_scale,
+                                );
+                                if music_on
+                                    && cx >= px
+                                    && cx <= px + pw
+                                    && cy >= py
+                                    && cy <= py + ph
+                                {
+                                    trigger_cover_flip();
+                                    trigger_prev_click();
+                                    self.smtc.request_prev();
+                                    return;
+                                }
+
+                                let (nx, ny, nw, nh) = get_next_btn_rect(
+                                    offset_x as f32,
+                                    island_y as f32,
+                                    w as f32,
+                                    h as f32,
+                                    self.config.global_scale,
+                                );
+                                if music_on
+                                    && cx >= nx
+                                    && cx <= nx + nw
+                                    && cy >= ny
+                                    && cy <= ny + nh
+                                {
+                                    trigger_cover_flip();
+                                    trigger_next_click();
+                                    self.smtc.request_next();
+                                    return;
+                                }
+
+                                if let Some((bar_left, bar_right, bar_top, bar_hit_h)) =
+                                    get_progress_bar_rect(
+                                        offset_x as f32,
+                                        island_y as f32,
+                                        w as f32,
+                                        &media,
+                                        music_on,
+                                        self.config.global_scale,
+                                    )
+                                    && cx >= bar_left
+                                    && cx <= bar_right
+                                    && cy >= bar_top
+                                    && cy <= bar_top + bar_hit_h
+                                {
+                                    let ratio =
+                                        ((cx - bar_left) / (bar_right - bar_left)).clamp(0.0, 1.0);
+                                    let duration_ms = media.effective_duration_ms();
+                                    let seek_ms = (ratio as f64 * duration_ms as f64) as u64;
+                                    self.seeking_progress = true;
+                                    self.seeking_bar_left = bar_left;
+                                    self.seeking_bar_right = bar_right;
+                                    self.seeking_duration_ms = duration_ms;
+                                    self.seeking_preview_ms = seek_ms;
+                                    return;
                                 }
                             }
 
-                            draw_island(
-                                surface,
-                                self.spring_w.value,
-                                self.spring_h.value,
-                                self.spring_r.value,
-                                self.os_w,
-                                self.os_h,
-                                self.border_weights,
-                                sigmas,
-                                progress,
-                                self.spring_view.value,
-                                &media_info,
-                                music_active,
-                                self.config.global_scale,
-                                &self.current_lyric_text,
-                                &self.old_lyric_text,
-                                self.lyric_transition,
-                                self.config.motion_blur,
-                                self.spring_hide.value,
-                                self.lyric_scroll_offset,
-                                &self.config.island_style,
-                                &self.config.dock_position,
-                                self.win_x,
-                                self.win_y,
-                                self.config.font_size,
-                            );
+                            if view_val > 0.5 {
+                                let gear_x = offset_x + w - 28.0 * scale + w - page_shift;
+                                let gear_y = island_y + h - 28.0 * scale;
+                                let dist_sq = (rel_x as f64 - gear_x).powi(2)
+                                    + (rel_y as f64 - gear_y).powi(2);
+                                if dist_sq <= (20.0 * scale).powi(2) {
+                                    let _ = std::process::Command::new(
+                                        std::env::current_exe().unwrap(),
+                                    )
+                                    .arg("--settings")
+                                    .spawn();
+                                    return;
+                                }
+
+                                let arrow_x = offset_x + 12.0 * scale + w - page_shift;
+                                let arrow_y = island_y + h / 2.0;
+                                let adx = rel_x as f64 - arrow_x;
+                                let ady = rel_y as f64 - arrow_y;
+                                if adx * adx + ady * ady <= (20.0 * scale).powi(2) {
+                                    self.widget_view = false;
+                                    return;
+                                }
+                            }
+
+                            if view_val < 0.5 {
+                                let arrow_x = offset_x + w - 12.0 * scale;
+                                let arrow_y = island_y + h / 2.0;
+                                let adx = rel_x as f64 - arrow_x;
+                                let ady = rel_y as f64 - arrow_y;
+                                if adx * adx + ady * ady <= (20.0 * scale).powi(2) {
+                                    self.widget_view = true;
+                                    return;
+                                }
+                            }
+
+                            if (rel_y as f64) < island_y + 40.0 * scale {
+                                self.expanded = false;
+                                self.widget_view = false;
+                            }
+                        } else {
+                            if is_hovering_visible || is_on_hidden_handle {
+                                self.is_dragging = true;
+                                self.drag_start_py = py;
+                                self.drag_start_hide_val = self.spring_hide.value;
+                                self.drag_has_moved = false;
+                            }
+                        }
+                    } else if state == ElementState::Released {
+                        if self.seeking_progress {
+                            self.seeking_progress = false;
+                            if self.seeking_duration_ms > 0 {
+                                self.smtc.request_seek(self.seeking_preview_ms);
+                            }
+                            return;
+                        }
+                        if self.is_dragging {
+                            self.is_dragging = false;
+                            if !self.drag_has_moved {
+                                if self.auto_hidden || self.manually_hidden {
+                                    self.auto_hidden = false;
+                                    self.manually_hidden = false;
+                                    self.spring_hide.velocity = -0.45;
+                                    self.idle_timer = Instant::now();
+                                } else {
+                                    self.expanded = true;
+                                }
+                            } else {
+                                if self.spring_hide.value > 0.3 {
+                                    self.manually_hidden = true;
+                                    self.auto_hidden = false;
+                                } else {
+                                    self.manually_hidden = false;
+                                    self.auto_hidden = false;
+                                }
+                            }
                         }
                     }
-                    _ => (),
                 }
+                WindowEvent::RedrawRequested => {
+                    if let Some(surface) = self.surface.as_mut() {
+                        let sigmas = if self.config.motion_blur {
+                            calculate_blur_sigmas(
+                                self.spring_w.velocity,
+                                self.spring_h.velocity,
+                                self.spring_view.velocity,
+                                self.spring_w.value,
+                            )
+                        } else {
+                            (0.0, 0.0)
+                        };
+                        let total_h = (self.config.expanded_height - self.config.base_height)
+                            .abs()
+                            .max(1.0)
+                            * self.config.global_scale;
+                        let dist_h = (self.spring_h.value
+                            - self.config.base_height * self.config.global_scale)
+                            .abs();
+                        let progress = (dist_h / total_h).clamp(0.0, 1.0);
+                        let mut media_info = if self.config.smtc_enabled {
+                            self.smtc.get_info()
+                        } else {
+                            crate::core::smtc::MediaInfo::default()
+                        };
+                        if self.seeking_progress && self.seeking_duration_ms > 0 {
+                            media_info.position_ms = self.seeking_preview_ms;
+                            media_info.last_update = Instant::now();
+                        }
+                        media_info.spectrum = self.audio.get_spectrum();
+                        let mut music_active = false;
+                        if self.config.smtc_enabled
+                            && !media_info.title.is_empty()
+                            && (media_info.is_playing
+                                || self.last_playing_time.elapsed() < Duration::from_secs(5))
+                        {
+                            music_active = true;
+                        }
+
+                        draw_island(
+                            surface,
+                            DrawIslandParams {
+                                layout: LayoutParams {
+                                    current_w: self.spring_w.value,
+                                    current_h: self.spring_h.value,
+                                    current_r: self.spring_r.value,
+                                    os_w: self.os_w,
+                                    os_h: self.os_h,
+                                    sigmas,
+                                    expansion_progress: progress,
+                                    view_offset: self.spring_view.value,
+                                    global_scale: self.config.global_scale,
+                                    hide_progress: self.spring_hide.value,
+                                    dock_position: self.config.dock_position,
+                                },
+                                media: MediaParams {
+                                    media: &media_info,
+                                    music_active,
+                                },
+                                lyrics: LyricsParams {
+                                    current_lyric: &self.current_lyric_text,
+                                    old_lyric: &self.old_lyric_text,
+                                    lyric_transition: self.lyric_transition,
+                                    lyric_scroll_offset: self.lyric_scroll_offset,
+                                },
+                                window: WindowParams {
+                                    win_x: self.win_x,
+                                    win_y: self.win_y,
+                                },
+                                style: StyleParams {
+                                    island_style: &self.config.island_style,
+                                    use_blur: self.config.motion_blur,
+                                    font_size: self.config.font_size,
+                                    weights: self.border_weights,
+                                },
+                            },
+                        );
+                    }
+                }
+                _ => (),
             }
         }
     }
@@ -656,27 +663,27 @@ impl ApplicationHandler for App {
         if let Some(window) = &self.window {
             Self::enforce_topmost(window, self.win_x, self.win_y, self.os_w, self.os_h);
             let frame_start = Instant::now();
-            if let Some(tray) = &self.tray {
-                if let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
-                    match TrayAction::from_id(event.id, tray) {
-                        Some(TrayAction::ToggleVisibility) => {
-                            self.visible = !self.visible;
-                            window.set_visible(self.visible);
-                            tray.update_item_text(self.visible);
-                        }
-                        Some(TrayAction::OpenSettings) => {
-                            let _ = std::process::Command::new(std::env::current_exe().unwrap())
-                                .arg("--settings")
-                                .spawn();
-                        }
-                        Some(TrayAction::Exit) => {
-                            event_loop.exit();
-                        }
-                        None => (),
+            if let Some(tray) = &self.tray
+                && let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv()
+            {
+                match TrayAction::from_id(event.id, tray) {
+                    Some(TrayAction::ToggleVisibility) => {
+                        self.visible = !self.visible;
+                        window.set_visible(self.visible);
+                        tray.update_item_text(self.visible);
                     }
+                    Some(TrayAction::OpenSettings) => {
+                        let _ = std::process::Command::new(std::env::current_exe().unwrap())
+                            .arg("--settings")
+                            .spawn();
+                    }
+                    Some(TrayAction::Exit) => {
+                        event_loop.exit();
+                    }
+                    None => (),
                 }
             }
-            if self.frame_count % 60 == 0 {
+            if self.frame_count.is_multiple_of(60) {
                 let current_config = load_config();
                 if current_config != self.config {
                     let old_scale = self.config.global_scale;
@@ -733,15 +740,14 @@ impl ApplicationHandler for App {
                     let mon_pos = monitor.position();
                     let cur_mon_size = (mon_size.width, mon_size.height);
                     let cur_mon_pos = (mon_pos.x, mon_pos.y);
-                    if cur_mon_size != self.last_mon_size || cur_mon_pos != self.last_mon_pos {
-                        if cur_mon_size.0 > 0 && cur_mon_size.1 > 0 {
-                            self.last_mon_size = cur_mon_size;
-                            self.last_mon_pos = cur_mon_pos;
-                            (self.win_x, self.win_y) =
-                                self.compute_window_position(mon_pos, mon_size);
-                            window
-                                .set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
-                        }
+                    if (cur_mon_size != self.last_mon_size || cur_mon_pos != self.last_mon_pos)
+                        && cur_mon_size.0 > 0
+                        && cur_mon_size.1 > 0
+                    {
+                        self.last_mon_size = cur_mon_size;
+                        self.last_mon_pos = cur_mon_pos;
+                        (self.win_x, self.win_y) = self.compute_window_position(mon_pos, mon_size);
+                        window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
                     }
                 }
             }
@@ -782,7 +788,7 @@ impl ApplicationHandler for App {
                     hidden_handle_h,
                 );
 
-            if self.frame_count % 10 == 0 {
+            if self.frame_count.is_multiple_of(10) {
                 self.is_fullscreen_suppressed = is_foreground_fullscreen();
                 self.is_cursor_suppressed = is_cursor_hidden();
             }
@@ -932,9 +938,9 @@ impl ApplicationHandler for App {
             }
 
             if self.config.adaptive_border {
-                if self.frame_count % 30 == 0 {
-                    let island_cx = self.win_x
-                        + (offset_x + (self.spring_w.value as f64) / 2.0).round() as i32;
+                if self.frame_count.is_multiple_of(30) {
+                    let island_cx =
+                        self.win_x + (offset_x + (self.spring_w.value as f64) / 2.0).round() as i32;
                     let island_cy = self.win_y
                         + (current_island_y + (self.spring_h.value as f64) / 2.0).round() as i32;
                     let raw_weights = get_island_border_weights(

@@ -1,0 +1,34 @@
+name: PR Check
+
+on:
+  pull_request:
+    branches: [ "master", "main" ]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Install build dependencies (for Clippy)
+        run: choco install ninja
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy (warnings as errors)
+        run: cargo clippy --workspace -- -D warnings

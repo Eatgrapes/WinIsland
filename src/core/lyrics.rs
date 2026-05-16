@@ -79,11 +79,11 @@ async fn fetch_lyrics_163_inner(title: &str, artist: &str) -> Option<Arc<Vec<Lyr
         for s in songs {
             if let Some(artists) = s.get("artists").and_then(|a| a.as_array()) {
                 for a in artists {
-                    if let Some(name) = a.get("name").and_then(|n| n.as_str()) {
-                        if name.to_lowercase() == artist_lower {
-                            song_id = s.get("id").and_then(|id| id.as_i64());
-                            break;
-                        }
+                    if let Some(name) = a.get("name").and_then(|n| n.as_str())
+                        && name.to_lowercase() == artist_lower
+                    {
+                        song_id = s.get("id").and_then(|id| id.as_i64());
+                        break;
                     }
                 }
             }
