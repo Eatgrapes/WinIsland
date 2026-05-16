@@ -1,0 +1,84 @@
+## 提交前检查清单
+
+- [ ] 已阅读 `CONTRIBUTING.md` 并完成要求测试
+- [ ] 本地/CI 测试通过
+- [ ] 代码审查 (Self-review) 完成
+
+## pr方向 (一定要选其中一个)
+
+- [ ] `feat` 新功能
+- [ ] `fix` Bug 修复
+- [ ] `docs` 文档/模板
+- [ ] `style` 代码格式（不影响功能）
+- [ ] `refactor` 重构（既不修复 bug 也不添加功能）
+- [ ] `perf` 性能优化
+- [ ] `test` 测试相关
+- [ ] `chore` 构建/CI/依赖/工具链
+- [ ] `revert` 回滚
+- [ ] `security` 安全修复
+
+## 影响范围（可多选）
+- [ ] 程序核心 Core
+    - [ ] UI 样式/布局
+    - [ ] 功能逻辑 
+    - [ ] 依赖变更 (package.json)
+    - [ ] 其他 (请在PR描述中说明)
+
+- [ ] 后端 Backend (可能以后有插件系统了会需要?🤔)
+    - [ ] 插件 API 接口变更
+
+- [ ] 其他 Action/Docs
+    - [ ] CI/CD 配置
+    - [ ] Docs 文档
+
+## 关联 Issue
+- Closes #`请填写 Issue 编号`
+<details><summary>Example:</summary>
+
+```markdown
+- Close #123
+  关闭 Issue #123
+```
+
+| 常见关键词                          | 示例           |
+| ----------------------------------- | -------------- |
+| `close` / `closes` / `closed`       | `Close #123`   |
+| `fix` / `fixes` / `fixed`           | `Fixes #123`   |
+| `resolve` / `resolves` / `resolved` | `Resolve #123` |
+
+| 其他前缀                      | 用途                | 示例              |
+| ----------------------------- | ------------------- | ----------------- |
+| `ref` / `references` / `refs` | 引用关联，不关闭    | `Ref #123`        |
+| `related` / `relates to`      | 表明相关            | `Related to #123` |
+| `part of`                     | 表明是其中一部分    | `Part of #123`    |
+| `see` / `see also`            | 参考其他 Issue      | `See #123`        |
+| `re`                          | 关于/回复某个 Issue | `Re #123`         |
+| `addresses`                   | 涉及但未完全解决    | `Addresses #123`  |
+| `implements`                  | 实现某个功能请求    | `Implements #123` |
+| `merges`                      | 合并相关            | `Merges #123`     |
+
+</details>
+
+---
+
+## pr内容
+
+### 摘要
+
+<!-- 请使用一句话概括本次pr -->
+
+### 动机/背景
+
+> 提示：可引用 Issue 作为背景说明
+
+<!--为什么WinIsland需要这个变更？此pr解决了什么问题？-->
+
+### 具体改动
+
+<!--技术实现细节，以及关键说明-->
+
+### 界面变动（ui修改方面需要）
+
+<!--截图-->
+
+

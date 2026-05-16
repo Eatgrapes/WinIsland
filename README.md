@@ -31,7 +31,7 @@ We encourage contributions
 
 If you have the energy or interest, PR are welcome
 
-And You should see [Contributing](./Docs/CONTRIBUTING.md)
+And You should see [Contributing](CONTRIBUTING.md)
 
 ## LICENCE
 [MIT](LICENSE)
