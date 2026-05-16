@@ -251,9 +251,7 @@ impl App {
         let hidden_handle_y = if dock_bottom {
             (self.os_h as f64 - PADDING as f64 / 2.0 - hidden_handle_h).max(0.0)
         } else {
-            (current_island_y + self.spring_h.value as f64
-                - hidden_peek_h
-                - hidden_handle_h * 0.35)
+            (current_island_y + self.spring_h.value as f64 - hidden_peek_h - hidden_handle_h * 0.35)
                 .max(0.0)
         };
 
@@ -392,13 +390,13 @@ impl ApplicationHandler for App {
                         let hidden_handle_y = layout.hidden_handle_y;
                         let is_on_hidden_handle = (self.auto_hidden || self.manually_hidden)
                             && is_point_in_rect(
-                            rel_x as f64,
-                            rel_y as f64,
-                            offset_x,
-                            hidden_handle_y,
-                            self.spring_w.value as f64,
-                            hidden_handle_h,
-                        );
+                                rel_x as f64,
+                                rel_y as f64,
+                                offset_x,
+                                hidden_handle_y,
+                                self.spring_w.value as f64,
+                                hidden_handle_h,
+                            );
 
                         if state == ElementState::Pressed {
                             if self.expanded {
@@ -413,8 +411,8 @@ impl ApplicationHandler for App {
                                     let music_on = self.config.smtc_enabled
                                         && !media.title.is_empty()
                                         && (media.is_playing
-                                        || self.last_playing_time.elapsed()
-                                        < Duration::from_secs(5));
+                                            || self.last_playing_time.elapsed()
+                                                < Duration::from_secs(5));
 
                                     let (bx, by, bw, bh) = get_pause_btn_rect(
                                         offset_x as f32,
@@ -513,8 +511,8 @@ impl ApplicationHandler for App {
                                         let _ = std::process::Command::new(
                                             std::env::current_exe().unwrap(),
                                         )
-                                            .arg("--settings")
-                                            .spawn();
+                                        .arg("--settings")
+                                        .spawn();
                                         return;
                                     }
 
@@ -789,13 +787,13 @@ impl ApplicationHandler for App {
             let hidden_handle_y = layout.hidden_handle_y;
             let is_on_hidden_handle = (self.auto_hidden || self.manually_hidden)
                 && is_point_in_rect(
-                rel_x as f64,
-                rel_y as f64,
-                offset_x,
-                hidden_handle_y,
-                self.spring_w.value as f64,
-                hidden_handle_h,
-            );
+                    rel_x as f64,
+                    rel_y as f64,
+                    offset_x,
+                    hidden_handle_y,
+                    self.spring_w.value as f64,
+                    hidden_handle_h,
+                );
 
             if self.frame_count % 10 == 0 {
                 self.is_fullscreen_suppressed = is_foreground_fullscreen();
@@ -948,8 +946,8 @@ impl ApplicationHandler for App {
 
             if self.config.adaptive_border {
                 if self.frame_count % 30 == 0 {
-                    let island_cx = self.win_x
-                        + (offset_x + (self.spring_w.value as f64) / 2.0).round() as i32;
+                    let island_cx =
+                        self.win_x + (offset_x + (self.spring_w.value as f64) / 2.0).round() as i32;
                     let island_cy = self.win_y
                         + (current_island_y + (self.spring_h.value as f64) / 2.0).round() as i32;
                     let raw_weights = get_island_border_weights(
@@ -1008,7 +1006,7 @@ impl ApplicationHandler for App {
             let target_base_w = if music_active && !self.expanded && !is_currently_hidden {
                 let has_visible_lyrics = self.config.show_lyrics
                     && (!self.current_lyric_text.is_empty()
-                    || (!self.old_lyric_text.is_empty() && self.lyric_transition < 1.0));
+                        || (!self.old_lyric_text.is_empty() && self.lyric_transition < 1.0));
 
                 if has_visible_lyrics {
                     if self.config.lyrics_scroll {
