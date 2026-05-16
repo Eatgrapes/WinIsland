@@ -1,9 +1,11 @@
 use crate::core::config::{DockPosition, PADDING, TOP_OFFSET};
 use crate::core::smtc::MediaInfo;
 use crate::ui::expanded::main_view::{
-    draw_main_page, draw_text_cached, draw_visualizer, get_cached_media_image, get_media_palette,
+    DrawMainPageParams, DrawVisualizerParams, draw_main_page, draw_text_cached, draw_visualizer,
+    get_cached_media_image, get_media_palette,
 };
 use crate::ui::expanded::widget_view::draw_widget_page;
+use crate::utils::font::DrawTextCachedParams;
 use crate::utils::glass::get_glass_background;
 use skia_safe::{
     ClipOp, Color, FilterMode, ISize, MipmapMode, Paint, RRect, Rect, SamplingOptions,
@@ -15,42 +17,103 @@ use std::sync::Arc;
 use winit::window::Window;
 
 thread_local! {
-    static SK_SURFACE: RefCell<Option<SkSurface>> = RefCell::new(None);
+    static SK_SURFACE: RefCell<Option<SkSurface>> = const { RefCell::new(None) };
 }
 
-pub fn draw_island(
-    surface: &mut Surface<Arc<Window>, Arc<Window>>,
-    current_w: f32,
-    current_h: f32,
-    current_r: f32,
-    os_w: u32,
-    os_h: u32,
-    _weights: [f32; 4],
-    sigmas: (f32, f32),
-    expansion_progress: f32,
-    view_offset: f32,
-    media: &MediaInfo,
-    music_active: bool,
-    global_scale: f32,
-    current_lyric: &str,
-    old_lyric: &str,
-    lyric_transition: f32,
-    use_blur: bool,
-    hide_progress: f32,
-    lyric_scroll_offset: f32,
-    island_style: &str,
-    dock_position: &DockPosition,
-    win_x: i32,
-    win_y: i32,
-    font_size: f32,
-) {
+pub struct LayoutParams {
+    pub current_w: f32,
+    pub current_h: f32,
+    pub current_r: f32,
+    pub os_w: u32,
+    pub os_h: u32,
+    pub sigmas: (f32, f32),
+    pub expansion_progress: f32,
+    pub view_offset: f32,
+    pub global_scale: f32,
+    pub hide_progress: f32,
+    pub dock_position: DockPosition,
+}
+
+pub struct MediaParams<'a> {
+    pub media: &'a MediaInfo,
+    pub music_active: bool,
+}
+
+pub struct LyricsParams<'a> {
+    pub current_lyric: &'a str,
+    pub old_lyric: &'a str,
+    pub lyric_transition: f32,
+    pub lyric_scroll_offset: f32,
+}
+
+pub struct WindowParams {
+    pub win_x: i32,
+    pub win_y: i32,
+}
+
+pub struct StyleParams<'a> {
+    pub island_style: &'a str,
+    pub use_blur: bool,
+    pub font_size: f32,
+    pub weights: [f32; 4],
+}
+
+pub struct DrawIslandParams<'a> {
+    pub layout: LayoutParams,
+    pub media: MediaParams<'a>,
+    pub lyrics: LyricsParams<'a>,
+    pub window: WindowParams,
+    pub style: StyleParams<'a>,
+}
+
+pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: DrawIslandParams<'_>) {
+    let DrawIslandParams {
+        layout,
+        media,
+        lyrics,
+        window,
+        style,
+    } = params;
+
+    let LayoutParams {
+        current_w,
+        current_h,
+        current_r,
+        os_w,
+        os_h,
+        sigmas,
+        expansion_progress,
+        view_offset,
+        global_scale,
+        hide_progress,
+        dock_position,
+    } = layout;
+    let MediaParams {
+        media,
+        music_active,
+    } = media;
+    let LyricsParams {
+        current_lyric,
+        old_lyric,
+        lyric_transition,
+        lyric_scroll_offset,
+    } = lyrics;
+    let WindowParams { win_x, win_y } = window;
+    let StyleParams {
+        island_style,
+        use_blur,
+        font_size,
+        weights: _weights,
+    } = style;
+
     let mut buffer = surface.buffer_mut().unwrap();
     let mut sk_surface = SK_SURFACE.with(|cell| {
         let mut opt = cell.borrow_mut();
-        if let Some(ref s) = *opt {
-            if s.width() == os_w as i32 && s.height() == os_h as i32 {
-                return s.clone();
-            }
+        if let Some(ref s) = *opt
+            && s.width() == os_w as i32
+            && s.height() == os_h as i32
+        {
+            return s.clone();
         }
         let new_surface =
             surfaces::raster_n32_premul(ISize::new(os_w as i32, os_h as i32)).unwrap();
@@ -141,22 +204,22 @@ pub fn draw_island(
 
         canvas.save();
         canvas.translate((-page_shift, 0.0));
-        draw_main_page(
+        draw_main_page(DrawMainPageParams {
             canvas,
-            offset_x,
-            offset_y,
-            current_w,
-            current_h,
+            ox: offset_x,
+            oy: offset_y,
+            w: current_w,
+            h: current_h,
             alpha,
             media,
             music_active,
             view_offset,
-            global_scale,
+            scale: global_scale,
             expansion_progress,
-            viz_h_scale * global_scale,
+            viz_h_scale: viz_h_scale * global_scale,
             use_blur,
             font_size,
-        );
+        });
         canvas.restore();
 
         canvas.save();
@@ -209,18 +272,18 @@ pub fn draw_island(
         let palette = get_media_palette(media);
         let viz_x = offset_x + current_w - 17.0 * global_scale;
         let viz_y = offset_y + current_h / 2.0;
-        draw_visualizer(
+        draw_visualizer(DrawVisualizerParams {
             canvas,
-            viz_x,
-            viz_y,
+            x: viz_x,
+            y: viz_y,
             alpha,
-            media.is_playing,
-            &palette,
-            &media.spectrum,
-            0.55 * global_scale,
-            viz_h_scale * global_scale,
-            (0.6, 0.08),
-        );
+            is_playing: media.is_playing,
+            palette: &palette,
+            spectrum: &media.spectrum,
+            w_scale: 0.55 * global_scale,
+            h_scale: viz_h_scale * global_scale,
+            smooth_factors: (0.6, 0.08),
+        });
 
         if !current_lyric.is_empty() || !old_lyric.is_empty() {
             let lyric_fade_f = (1.0 - expansion_progress * 2.5).clamp(0.0, 1.0);
@@ -267,16 +330,16 @@ pub fn draw_island(
 
                         let text_y = offset_y + current_h / 2.0 + 4.0 * global_scale
                             - (10.0 * global_scale * lyric_transition);
-                        draw_text_cached(
+                        draw_text_cached(DrawTextCachedParams {
                             canvas,
-                            old_lyric,
-                            (text_x, text_y),
-                            lyric_font_sz,
-                            skia_safe::FontStyle::normal(),
-                            &text_paint,
-                            text_centered,
-                            text_max_w,
-                        );
+                            text: old_lyric,
+                            pos: (text_x, text_y),
+                            size: lyric_font_sz,
+                            style: skia_safe::FontStyle::normal(),
+                            paint: &text_paint,
+                            align_center: text_centered,
+                            max_w: text_max_w,
+                        });
                     }
 
                     if !current_lyric.is_empty() {
@@ -299,16 +362,16 @@ pub fn draw_island(
                             + current_h / 2.0
                             + 4.0 * global_scale
                             + (10.0 * global_scale * (1.0 - lyric_transition));
-                        draw_text_cached(
+                        draw_text_cached(DrawTextCachedParams {
                             canvas,
-                            current_lyric,
-                            (text_x, text_y),
-                            lyric_font_sz,
-                            skia_safe::FontStyle::normal(),
-                            &text_paint,
-                            text_centered,
-                            text_max_w,
-                        );
+                            text: current_lyric,
+                            pos: (text_x, text_y),
+                            size: lyric_font_sz,
+                            style: skia_safe::FontStyle::normal(),
+                            paint: &text_paint,
+                            align_center: text_centered,
+                            max_w: text_max_w,
+                        });
                     }
                 } else {
                     let text_y = offset_y + current_h / 2.0 + 4.0 * global_scale;
@@ -318,32 +381,32 @@ pub fn draw_island(
                         let progress = lyric_transition * 2.0;
                         let fade_alpha = (alpha as f32 * (1.0 - progress)) as u8;
                         text_paint.set_color(Color::from_argb(fade_alpha, 255, 255, 255));
-                        draw_text_cached(
+                        draw_text_cached(DrawTextCachedParams {
                             canvas,
-                            old_lyric,
-                            (text_x, text_y),
-                            lyric_font_sz,
-                            skia_safe::FontStyle::normal(),
-                            &text_paint,
-                            text_centered,
-                            text_max_w,
-                        );
+                            text: old_lyric,
+                            pos: (text_x, text_y),
+                            size: lyric_font_sz,
+                            style: skia_safe::FontStyle::normal(),
+                            paint: &text_paint,
+                            align_center: text_centered,
+                            max_w: text_max_w,
+                        });
                     } else if lyric_transition >= 0.5 && !current_lyric.is_empty() {
                         let mut text_paint = Paint::default();
                         text_paint.set_anti_alias(true);
                         let progress = (lyric_transition - 0.5) * 2.0;
                         let fade_alpha = (alpha as f32 * progress) as u8;
                         text_paint.set_color(Color::from_argb(fade_alpha, 255, 255, 255));
-                        draw_text_cached(
+                        draw_text_cached(DrawTextCachedParams {
                             canvas,
-                            current_lyric,
-                            (text_x, text_y),
-                            lyric_font_sz,
-                            skia_safe::FontStyle::normal(),
-                            &text_paint,
-                            text_centered,
-                            text_max_w,
-                        );
+                            text: current_lyric,
+                            pos: (text_x, text_y),
+                            size: lyric_font_sz,
+                            style: skia_safe::FontStyle::normal(),
+                            paint: &text_paint,
+                            align_center: text_centered,
+                            max_w: text_max_w,
+                        });
                     }
                 }
                 canvas.restore();
@@ -358,7 +421,7 @@ pub fn draw_island(
         None,
     );
     let dst_row_bytes = (os_w * 4) as usize;
-    let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut *buffer);
+    let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut buffer);
     let _ = sk_surface.read_pixels(&info, u8_buffer, dst_row_bytes, (0, 0));
     buffer.present().unwrap();
 }

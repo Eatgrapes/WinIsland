@@ -6,6 +6,33 @@ use std::sync::OnceLock;
 
 static GLOBAL_FONT_MANAGER: OnceLock<FontManager> = OnceLock::new();
 
+type TextGroup = (String, Typeface, bool);
+type TextGroups = Vec<TextGroup>;
+type TextCacheValue = (String, TextGroups);
+type TextCacheMap = HashMap<String, TextCacheValue>;
+
+pub struct DrawTextInRectParams<'a> {
+    pub canvas: &'a Canvas,
+    pub text: &'a str,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub size: f32,
+    pub bold: bool,
+    pub paint: &'a Paint,
+}
+
+pub struct DrawTextCachedParams<'a> {
+    pub canvas: &'a Canvas,
+    pub text: &'a str,
+    pub pos: (f32, f32),
+    pub size: f32,
+    pub style: FontStyle,
+    pub paint: &'a Paint,
+    pub align_center: bool,
+    pub max_w: f32,
+}
+
 pub struct FontManager {
     _marker: (),
 }
@@ -13,8 +40,8 @@ pub struct FontManager {
 thread_local! {
     static FONT_MGR: FontMgr = FontMgr::new();
     static FALLBACK_CACHE: RefCell<HashMap<(char, u32), Typeface>> = RefCell::new(HashMap::new());
-    static TEXT_CACHE: RefCell<HashMap<String, (String, Vec<(String, Typeface, bool)>)>> = RefCell::new(HashMap::new());
-    static CUSTOM_TYPEFACE: RefCell<Option<(String, Typeface)>> = RefCell::new(None);
+    static TEXT_CACHE: RefCell<TextCacheMap> = RefCell::new(HashMap::new());
+    static CUSTOM_TYPEFACE: RefCell<Option<(String, Typeface)>> = const { RefCell::new(None) };
 }
 
 fn style_to_key(style: FontStyle) -> u32 {
@@ -42,16 +69,16 @@ fn get_custom_typeface() -> Option<Typeface> {
     if let Some(path) = config.custom_font_path {
         CUSTOM_TYPEFACE.with(|cache| {
             let mut cache_mut = cache.borrow_mut();
-            if let Some((ref cached_path, ref tf)) = *cache_mut {
-                if cached_path == &path {
-                    return Some(tf.clone());
-                }
+            if let Some((ref cached_path, ref tf)) = *cache_mut
+                && cached_path == &path
+            {
+                return Some(tf.clone());
             }
-            if let Ok(data) = std::fs::read(&path) {
-                if let Some(tf) = FONT_MGR.with(|mgr| mgr.new_from_data(&data, None)) {
-                    *cache_mut = Some((path, tf.clone()));
-                    return Some(tf);
-                }
+            if let Ok(data) = std::fs::read(&path)
+                && let Some(tf) = FONT_MGR.with(|mgr| mgr.new_from_data(&data, None))
+            {
+                *cache_mut = Some((path, tf.clone()));
+                return Some(tf);
             }
             None
         })
@@ -128,28 +155,23 @@ impl FontManager {
         canvas.draw_str(text, pos, &font, paint);
     }
 
-    pub fn draw_text_in_rect(
-        &self,
-        canvas: &Canvas,
-        text: &str,
-        x: f32,
-        y: f32,
-        w: f32,
-        size: f32,
-        bold: bool,
-        paint: &Paint,
-    ) {
-        let font = self.get_font(size, bold);
-        let (_, rect) = font.measure_str(text, None);
-        if rect.width() <= w {
-            canvas.draw_str(text, (x + (w - rect.width()) / 2.0, y), &font, paint);
+    pub fn draw_text_in_rect(&self, params: DrawTextInRectParams<'_>) {
+        let font = self.get_font(params.size, params.bold);
+        let (_, rect) = font.measure_str(params.text, None);
+        if rect.width() <= params.w {
+            params.canvas.draw_str(
+                params.text,
+                (params.x + (params.w - rect.width()) / 2.0, params.y),
+                &font,
+                params.paint,
+            );
         } else {
             let mut truncated = String::new();
             let mut current_w = 0.0;
             let (ellipsis_w, _) = font.measure_str("...", None);
-            let max_w = w - ellipsis_w;
-            for c in text.chars() {
-                let (cw, _) = font.measure_str(&c.to_string(), None);
+            let max_w = params.w - ellipsis_w;
+            for c in params.text.chars() {
+                let (cw, _) = font.measure_str(c.to_string(), None);
                 if current_w + cw > max_w {
                     break;
                 }
@@ -157,7 +179,9 @@ impl FontManager {
                 truncated.push(c);
             }
             truncated.push_str("...");
-            canvas.draw_str(&truncated, (x, y), &font, paint);
+            params
+                .canvas
+                .draw_str(&truncated, (params.x, params.y), &font, params.paint);
         }
     }
 
@@ -176,11 +200,11 @@ impl FontManager {
                 let mut last_embolden = false;
                 for c in text.chars() {
                     let (tf, embolden) = get_typeface_for_char(c, style);
-                    if let Some(ref ltf) = last_tf {
-                        if ltf.unique_id() != tf.unique_id() || last_embolden != embolden {
-                            groups.push((current_group.clone(), ltf.clone(), last_embolden));
-                            current_group.clear();
-                        }
+                    if let Some(ref ltf) = last_tf
+                        && (ltf.unique_id() != tf.unique_id() || last_embolden != embolden)
+                    {
+                        groups.push((current_group.clone(), ltf.clone(), last_embolden));
+                        current_group.clear();
                     }
                     last_tf = Some(tf);
                     last_embolden = embolden;
@@ -207,18 +231,11 @@ impl FontManager {
         })
     }
 
-    pub fn draw_text_cached(
-        &self,
-        canvas: &Canvas,
-        text: &str,
-        pos: (f32, f32),
-        size: f32,
-        style: FontStyle,
-        paint: &Paint,
-        align_center: bool,
-        max_w: f32,
-    ) {
-        let cache_key = format!("{}\0{}\0{:?}\0{}", text, max_w as i32, style, size as i32);
+    pub fn draw_text_cached(&self, params: DrawTextCachedParams<'_>) {
+        let cache_key = format!(
+            "{}\0{}\0{:?}\0{}",
+            params.text, params.max_w as i32, params.style, params.size as i32
+        );
         TEXT_CACHE.with(|cache| {
             let mut cache_mut = cache.borrow_mut();
             if cache_mut.len() > 500 {
@@ -227,31 +244,31 @@ impl FontManager {
             if !cache_mut.contains_key(&cache_key) {
                 let mut current_w = 0.0;
                 let mut truncated = String::new();
-                for c in text.chars() {
-                    let (tf, embolden) = get_typeface_for_char(c, style);
-                    let mut font = Font::from_typeface(tf, size);
+                for c in params.text.chars() {
+                    let (tf, embolden) = get_typeface_for_char(c, params.style);
+                    let mut font = Font::from_typeface(tf, params.size);
                     if embolden {
                         font.set_embolden(true);
                     }
-                    let (w, _) = font.measure_str(&c.to_string(), None);
-                    if current_w + w > max_w {
+                    let (w, _) = font.measure_str(c.to_string(), None);
+                    if current_w + w > params.max_w {
                         truncated.push_str("...");
                         break;
                     }
                     current_w += w;
                     truncated.push(c);
                 }
-                let mut groups: Vec<(String, Typeface, bool)> = Vec::new();
+                let mut groups: TextGroups = Vec::new();
                 let mut current_group = String::new();
                 let mut last_tf: Option<Typeface> = None;
                 let mut last_embolden = false;
                 for c in truncated.chars() {
-                    let (tf, embolden) = get_typeface_for_char(c, style);
-                    if let Some(ref ltf) = last_tf {
-                        if ltf.unique_id() != tf.unique_id() || last_embolden != embolden {
-                            groups.push((current_group.clone(), ltf.clone(), last_embolden));
-                            current_group.clear();
-                        }
+                    let (tf, embolden) = get_typeface_for_char(c, params.style);
+                    if let Some(ref ltf) = last_tf
+                        && (ltf.unique_id() != tf.unique_id() || last_embolden != embolden)
+                    {
+                        groups.push((current_group.clone(), ltf.clone(), last_embolden));
+                        current_group.clear();
                     }
                     last_tf = Some(tf);
                     last_embolden = embolden;
@@ -264,9 +281,9 @@ impl FontManager {
             }
             let (_, groups) = cache_mut.get(&cache_key).unwrap();
             let mut total_width = 0.0;
-            if align_center {
+            if params.align_center {
                 for (s, tf, embolden) in groups {
-                    let mut font = Font::from_typeface(tf.clone(), size);
+                    let mut font = Font::from_typeface(tf.clone(), params.size);
                     if *embolden {
                         font.set_embolden(true);
                     }
@@ -274,18 +291,20 @@ impl FontManager {
                     total_width += w;
                 }
             }
-            let mut x = if align_center {
-                pos.0 - total_width / 2.0
+            let mut x = if params.align_center {
+                params.pos.0 - total_width / 2.0
             } else {
-                pos.0
+                params.pos.0
             };
-            let y = pos.1.round();
+            let y = params.pos.1.round();
             for (s, tf, embolden) in groups {
-                let mut font = Font::from_typeface(tf.clone(), size);
+                let mut font = Font::from_typeface(tf.clone(), params.size);
                 if *embolden {
                     font.set_embolden(true);
                 }
-                canvas.draw_str(s, (x.round(), y), &font, paint);
+                params
+                    .canvas
+                    .draw_str(s, (x.round(), y), &font, params.paint);
                 let (w, _) = font.measure_str(s, None);
                 x += w;
             }

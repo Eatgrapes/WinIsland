@@ -14,9 +14,9 @@ pub struct TrayManager {
 impl TrayManager {
     pub fn new(is_light: bool) -> Self {
         let menu = Menu::new();
-        let toggle_item = MenuItem::new(&tr("tray_hide"), true, None);
-        let settings_item = MenuItem::new(&tr("tray_settings"), true, None);
-        let quit_item = MenuItem::new(&tr("tray_exit"), true, None);
+        let toggle_item = MenuItem::new(tr("tray_hide"), true, None);
+        let settings_item = MenuItem::new(tr("tray_settings"), true, None);
+        let quit_item = MenuItem::new(tr("tray_exit"), true, None);
         let _ = menu.append(&toggle_item);
         let _ = menu.append(&settings_item);
         let _ = menu.append(&quit_item);
@@ -45,9 +45,9 @@ impl TrayManager {
 
     pub fn update_item_text(&self, visible: bool) {
         if visible {
-            self.toggle_item.set_text(&tr("tray_hide"));
+            self.toggle_item.set_text(tr("tray_hide"));
         } else {
-            self.toggle_item.set_text(&tr("tray_show"));
+            self.toggle_item.set_text(tr("tray_show"));
         }
     }
 
