@@ -2,6 +2,12 @@
   <img src="resources/info-en.png" width="350" alt="">
 </p>
 
+<p align="center">
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white" alt="Rust"></a>
+  <a href="https://www.microsoft.com/windows"><img src="https://img.shields.io/badge/Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows"></a>
+  <img src="https://img.shields.io/badge/Code%20Quality-A%2B-brightgreen?style=for-the-badge" alt="Code Quality A+">
+</p>
+
 ## WinIsland
 
 English | [简体中文](./README-zh.md)
