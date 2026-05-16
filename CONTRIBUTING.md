@@ -1,6 +1,6 @@
 # Contribution Guide
 
-English | [简体中文](./CONTRIBUTING-zh.md)
+English | [简体中文](Docs/CONTRIBUTING-zh.md)
 
 Thank you for your interest in the WinIsland project! This document will help you understand how to contribute.
 

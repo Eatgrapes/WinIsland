@@ -1,5 +1,5 @@
 # 贡献指南
-[English](./CONTRIBUTING.md) | 简体中文
+[English](../CONTRIBUTING.md) | 简体中文
 
 感谢你对 WinIsland 项目的关注！这份文档将帮助你了解如何为项目做出贡献。
 
