@@ -31,7 +31,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
-use winit::event::{ElementState, MouseButton, WindowEvent};
+use winit::event::{ElementState, MouseButton, TouchPhase, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::platform::windows::WindowAttributesExtWindows;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -84,6 +84,8 @@ pub struct App {
     seeking_preview_ms: u64,
     is_fullscreen_suppressed: bool,
     is_cursor_suppressed: bool,
+    touch_id: Option<u64>,
+    touch_pos: PhysicalPosition<f64>,
 }
 
 impl Default for App {
@@ -140,6 +142,8 @@ impl Default for App {
             seeking_preview_ms: 0,
             is_fullscreen_suppressed: false,
             is_cursor_suppressed: false,
+            touch_id: None,
+            touch_pos: PhysicalPosition::new(0.0, 0.0),
         }
     }
 }
@@ -265,6 +269,196 @@ impl App {
             hidden_handle_h,
         }
     }
+
+    fn handle_input(&mut self, state: ElementState, px: i32, py: i32) {
+        if self.is_fullscreen_suppressed || self.is_cursor_suppressed {
+            return;
+        }
+        let rel_x = px - self.win_x;
+        let rel_y = py - self.win_y;
+        let layout = self.compute_island_layout();
+        let island_y = layout.island_y;
+        let offset_x = layout.offset_x;
+        let current_island_y = layout.current_island_y;
+
+        let is_hovering_visible = is_point_in_rect(
+            rel_x as f64,
+            rel_y as f64,
+            offset_x,
+            current_island_y,
+            self.spring_w.value as f64,
+            self.spring_h.value as f64,
+        );
+
+        let hidden_handle_h = layout.hidden_handle_h;
+        let hidden_handle_y = layout.hidden_handle_y;
+        let is_on_hidden_handle = (self.auto_hidden || self.manually_hidden)
+            && is_point_in_rect(
+                rel_x as f64,
+                rel_y as f64,
+                offset_x,
+                hidden_handle_y,
+                self.spring_w.value as f64,
+                hidden_handle_h,
+            );
+
+        if state == ElementState::Pressed {
+            if self.expanded {
+                let view_val = self.spring_view.value as f64;
+                let w = self.spring_w.value as f64;
+                let h = self.spring_h.value as f64;
+                let page_shift = view_val * w;
+                let scale = self.config.global_scale as f64;
+
+                if view_val < 0.5 {
+                    let media = self.smtc.get_info();
+                    let music_on = self.config.smtc_enabled
+                        && !media.title.is_empty()
+                        && (media.is_playing
+                            || self.last_playing_time.elapsed() < Duration::from_secs(5));
+
+                    let (bx, by, bw, bh) = get_pause_btn_rect(
+                        offset_x as f32,
+                        island_y as f32,
+                        w as f32,
+                        h as f32,
+                        self.config.global_scale,
+                    );
+                    let cx = rel_x as f32 - (page_shift as f32);
+                    let cy = rel_y as f32;
+                    if music_on && cx >= bx && cx <= bx + bw && cy >= by && cy <= by + bh {
+                        trigger_pause_click(media.is_playing);
+                        self.smtc.request_toggle_play();
+                        return;
+                    }
+
+                    let (px, py, pw, ph) = get_prev_btn_rect(
+                        offset_x as f32,
+                        island_y as f32,
+                        w as f32,
+                        h as f32,
+                        self.config.global_scale,
+                    );
+                    if music_on && cx >= px && cx <= px + pw && cy >= py && cy <= py + ph {
+                        trigger_cover_flip();
+                        trigger_prev_click();
+                        self.smtc.request_prev();
+                        return;
+                    }
+
+                    let (nx, ny, nw, nh) = get_next_btn_rect(
+                        offset_x as f32,
+                        island_y as f32,
+                        w as f32,
+                        h as f32,
+                        self.config.global_scale,
+                    );
+                    if music_on && cx >= nx && cx <= nx + nw && cy >= ny && cy <= ny + nh {
+                        trigger_cover_flip();
+                        trigger_next_click();
+                        self.smtc.request_next();
+                        return;
+                    }
+
+                    if let Some((bar_left, bar_right, bar_top, bar_hit_h)) = get_progress_bar_rect(
+                        offset_x as f32,
+                        island_y as f32,
+                        w as f32,
+                        &media,
+                        music_on,
+                        self.config.global_scale,
+                    ) && cx >= bar_left
+                        && cx <= bar_right
+                        && cy >= bar_top
+                        && cy <= bar_top + bar_hit_h
+                    {
+                        let ratio = ((cx - bar_left) / (bar_right - bar_left)).clamp(0.0, 1.0);
+                        let duration_ms = media.effective_duration_ms();
+                        let seek_ms = (ratio as f64 * duration_ms as f64) as u64;
+                        self.seeking_progress = true;
+                        self.seeking_bar_left = bar_left;
+                        self.seeking_bar_right = bar_right;
+                        self.seeking_duration_ms = duration_ms;
+                        self.seeking_preview_ms = seek_ms;
+                        return;
+                    }
+                }
+
+                if view_val > 0.5 {
+                    let gear_x = offset_x + w - 28.0 * scale + w - page_shift;
+                    let gear_y = island_y + h - 28.0 * scale;
+                    let dist_sq = (rel_x as f64 - gear_x).powi(2) + (rel_y as f64 - gear_y).powi(2);
+                    if dist_sq <= (20.0 * scale).powi(2) {
+                        let _ = std::process::Command::new(std::env::current_exe().unwrap())
+                            .arg("--settings")
+                            .spawn();
+                        return;
+                    }
+
+                    let arrow_x = offset_x + 12.0 * scale + w - page_shift;
+                    let arrow_y = island_y + h / 2.0;
+                    let adx = rel_x as f64 - arrow_x;
+                    let ady = rel_y as f64 - arrow_y;
+                    if adx * adx + ady * ady <= (20.0 * scale).powi(2) {
+                        self.widget_view = false;
+                        return;
+                    }
+                }
+
+                if view_val < 0.5 {
+                    let arrow_x = offset_x + w - 12.0 * scale;
+                    let arrow_y = island_y + h / 2.0;
+                    let adx = rel_x as f64 - arrow_x;
+                    let ady = rel_y as f64 - arrow_y;
+                    if adx * adx + ady * ady <= (20.0 * scale).powi(2) {
+                        self.widget_view = true;
+                        return;
+                    }
+                }
+
+                if (rel_y as f64) < island_y + 40.0 * scale {
+                    self.expanded = false;
+                    self.widget_view = false;
+                }
+            } else {
+                if is_hovering_visible || is_on_hidden_handle {
+                    self.is_dragging = true;
+                    self.drag_start_py = py;
+                    self.drag_start_hide_val = self.spring_hide.value;
+                    self.drag_has_moved = false;
+                }
+            }
+        } else if state == ElementState::Released {
+            if self.seeking_progress {
+                self.seeking_progress = false;
+                if self.seeking_duration_ms > 0 {
+                    self.smtc.request_seek(self.seeking_preview_ms);
+                }
+                return;
+            }
+            if self.is_dragging {
+                self.is_dragging = false;
+                if !self.drag_has_moved {
+                    if self.auto_hidden || self.manually_hidden {
+                        self.auto_hidden = false;
+                        self.manually_hidden = false;
+                        self.spring_hide.velocity = -0.45;
+                        self.idle_timer = Instant::now();
+                    } else {
+                        self.expanded = true;
+                    }
+                } else {
+                    if self.spring_hide.value > 0.3 {
+                        self.manually_hidden = true;
+                        self.auto_hidden = false;
+                    } else {
+                        self.manually_hidden = false;
+                        self.auto_hidden = false;
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl ApplicationHandler for App {
@@ -365,214 +559,26 @@ impl ApplicationHandler for App {
                     button: MouseButton::Left,
                     ..
                 } => {
-                    if self.is_fullscreen_suppressed || self.is_cursor_suppressed {
-                        return;
-                    }
                     let (px, py) = get_global_cursor_pos();
-                    let rel_x = px - self.win_x;
-                    let rel_y = py - self.win_y;
-                    let layout = self.compute_island_layout();
-                    let island_y = layout.island_y;
-                    let offset_x = layout.offset_x;
-                    let current_island_y = layout.current_island_y;
-
-                    let is_hovering_visible = is_point_in_rect(
-                        rel_x as f64,
-                        rel_y as f64,
-                        offset_x,
-                        current_island_y,
-                        self.spring_w.value as f64,
-                        self.spring_h.value as f64,
+                    self.handle_input(state, px, py);
+                }
+                WindowEvent::Touch(touch) => {
+                    let (px, py) = (
+                        (touch.location.x + self.win_x as f64) as i32,
+                        (touch.location.y + self.win_y as f64) as i32,
                     );
-
-                    let hidden_handle_h = layout.hidden_handle_h;
-                    let hidden_handle_y = layout.hidden_handle_y;
-                    let is_on_hidden_handle = (self.auto_hidden || self.manually_hidden)
-                        && is_point_in_rect(
-                            rel_x as f64,
-                            rel_y as f64,
-                            offset_x,
-                            hidden_handle_y,
-                            self.spring_w.value as f64,
-                            hidden_handle_h,
-                        );
-
-                    if state == ElementState::Pressed {
-                        if self.expanded {
-                            let view_val = self.spring_view.value as f64;
-                            let w = self.spring_w.value as f64;
-                            let h = self.spring_h.value as f64;
-                            let page_shift = view_val * w;
-                            let scale = self.config.global_scale as f64;
-
-                            if view_val < 0.5 {
-                                let media = self.smtc.get_info();
-                                let music_on = self.config.smtc_enabled
-                                    && !media.title.is_empty()
-                                    && (media.is_playing
-                                        || self.last_playing_time.elapsed()
-                                            < Duration::from_secs(5));
-
-                                let (bx, by, bw, bh) = get_pause_btn_rect(
-                                    offset_x as f32,
-                                    island_y as f32,
-                                    w as f32,
-                                    h as f32,
-                                    self.config.global_scale,
-                                );
-                                let cx = rel_x as f32 - (page_shift as f32);
-                                let cy = rel_y as f32;
-                                if music_on
-                                    && cx >= bx
-                                    && cx <= bx + bw
-                                    && cy >= by
-                                    && cy <= by + bh
-                                {
-                                    trigger_pause_click(media.is_playing);
-                                    self.smtc.request_toggle_play();
-                                    return;
-                                }
-
-                                let (px, py, pw, ph) = get_prev_btn_rect(
-                                    offset_x as f32,
-                                    island_y as f32,
-                                    w as f32,
-                                    h as f32,
-                                    self.config.global_scale,
-                                );
-                                if music_on
-                                    && cx >= px
-                                    && cx <= px + pw
-                                    && cy >= py
-                                    && cy <= py + ph
-                                {
-                                    trigger_cover_flip();
-                                    trigger_prev_click();
-                                    self.smtc.request_prev();
-                                    return;
-                                }
-
-                                let (nx, ny, nw, nh) = get_next_btn_rect(
-                                    offset_x as f32,
-                                    island_y as f32,
-                                    w as f32,
-                                    h as f32,
-                                    self.config.global_scale,
-                                );
-                                if music_on
-                                    && cx >= nx
-                                    && cx <= nx + nw
-                                    && cy >= ny
-                                    && cy <= ny + nh
-                                {
-                                    trigger_cover_flip();
-                                    trigger_next_click();
-                                    self.smtc.request_next();
-                                    return;
-                                }
-
-                                if let Some((bar_left, bar_right, bar_top, bar_hit_h)) =
-                                    get_progress_bar_rect(
-                                        offset_x as f32,
-                                        island_y as f32,
-                                        w as f32,
-                                        &media,
-                                        music_on,
-                                        self.config.global_scale,
-                                    )
-                                    && cx >= bar_left
-                                    && cx <= bar_right
-                                    && cy >= bar_top
-                                    && cy <= bar_top + bar_hit_h
-                                {
-                                    let ratio =
-                                        ((cx - bar_left) / (bar_right - bar_left)).clamp(0.0, 1.0);
-                                    let duration_ms = media.effective_duration_ms();
-                                    let seek_ms = (ratio as f64 * duration_ms as f64) as u64;
-                                    self.seeking_progress = true;
-                                    self.seeking_bar_left = bar_left;
-                                    self.seeking_bar_right = bar_right;
-                                    self.seeking_duration_ms = duration_ms;
-                                    self.seeking_preview_ms = seek_ms;
-                                    return;
-                                }
-                            }
-
-                            if view_val > 0.5 {
-                                let gear_x = offset_x + w - 28.0 * scale + w - page_shift;
-                                let gear_y = island_y + h - 28.0 * scale;
-                                let dist_sq = (rel_x as f64 - gear_x).powi(2)
-                                    + (rel_y as f64 - gear_y).powi(2);
-                                if dist_sq <= (20.0 * scale).powi(2) {
-                                    let _ = std::process::Command::new(
-                                        std::env::current_exe().unwrap(),
-                                    )
-                                    .arg("--settings")
-                                    .spawn();
-                                    return;
-                                }
-
-                                let arrow_x = offset_x + 12.0 * scale + w - page_shift;
-                                let arrow_y = island_y + h / 2.0;
-                                let adx = rel_x as f64 - arrow_x;
-                                let ady = rel_y as f64 - arrow_y;
-                                if adx * adx + ady * ady <= (20.0 * scale).powi(2) {
-                                    self.widget_view = false;
-                                    return;
-                                }
-                            }
-
-                            if view_val < 0.5 {
-                                let arrow_x = offset_x + w - 12.0 * scale;
-                                let arrow_y = island_y + h / 2.0;
-                                let adx = rel_x as f64 - arrow_x;
-                                let ady = rel_y as f64 - arrow_y;
-                                if adx * adx + ady * ady <= (20.0 * scale).powi(2) {
-                                    self.widget_view = true;
-                                    return;
-                                }
-                            }
-
-                            if (rel_y as f64) < island_y + 40.0 * scale {
-                                self.expanded = false;
-                                self.widget_view = false;
-                            }
-                        } else {
-                            if is_hovering_visible || is_on_hidden_handle {
-                                self.is_dragging = true;
-                                self.drag_start_py = py;
-                                self.drag_start_hide_val = self.spring_hide.value;
-                                self.drag_has_moved = false;
-                            }
+                    self.touch_pos = touch.location;
+                    match touch.phase {
+                        TouchPhase::Started => {
+                            self.touch_id = Some(touch.id);
+                            self.handle_input(ElementState::Pressed, px, py);
                         }
-                    } else if state == ElementState::Released {
-                        if self.seeking_progress {
-                            self.seeking_progress = false;
-                            if self.seeking_duration_ms > 0 {
-                                self.smtc.request_seek(self.seeking_preview_ms);
-                            }
-                            return;
+                        TouchPhase::Moved => {
+                            self.touch_id = Some(touch.id);
                         }
-                        if self.is_dragging {
-                            self.is_dragging = false;
-                            if !self.drag_has_moved {
-                                if self.auto_hidden || self.manually_hidden {
-                                    self.auto_hidden = false;
-                                    self.manually_hidden = false;
-                                    self.spring_hide.velocity = -0.45;
-                                    self.idle_timer = Instant::now();
-                                } else {
-                                    self.expanded = true;
-                                }
-                            } else {
-                                if self.spring_hide.value > 0.3 {
-                                    self.manually_hidden = true;
-                                    self.auto_hidden = false;
-                                } else {
-                                    self.manually_hidden = false;
-                                    self.auto_hidden = false;
-                                }
-                            }
+                        TouchPhase::Ended | TouchPhase::Cancelled => {
+                            self.handle_input(ElementState::Released, px, py);
+                            self.touch_id = None;
                         }
                     }
                 }
@@ -759,7 +765,14 @@ impl ApplicationHandler for App {
                 std::thread::sleep(Duration::from_millis(16));
                 return;
             }
-            let (px, py) = get_global_cursor_pos();
+            let (px, py) = if self.touch_id.is_some() {
+                (
+                    (self.touch_pos.x + self.win_x as f64) as i32,
+                    (self.touch_pos.y + self.win_y as f64) as i32,
+                )
+            } else {
+                get_global_cursor_pos()
+            };
             let rel_x = px - self.win_x;
             let rel_y = py - self.win_y;
             let layout = self.compute_island_layout();
@@ -843,7 +856,7 @@ impl ApplicationHandler for App {
             }
 
             // Handle dragging on the progress bar while mouse is held
-            if self.seeking_progress && is_left_button_pressed() {
+            if self.seeking_progress && (is_left_button_pressed() || self.touch_id.is_some()) {
                 let page_shift = self.spring_view.value * self.spring_w.value;
                 let click_x = rel_x as f32 - page_shift;
                 let ratio = ((click_x - self.seeking_bar_left)
@@ -927,13 +940,13 @@ impl ApplicationHandler for App {
                 window.request_redraw();
             }
 
-            if self.expanded && !is_hovering_visible && is_left_button_pressed() {
+            if self.expanded && !is_hovering_visible && (is_left_button_pressed() || self.touch_id.is_some()) {
                 self.expanded = false;
                 self.widget_view = false;
                 window.request_redraw();
             }
 
-            if !self.expanded && is_hovering_visible && is_left_button_pressed() {
+            if !self.expanded && is_hovering_visible && (is_left_button_pressed() || self.touch_id.is_some()) {
                 self.idle_timer = Instant::now();
             }
 
