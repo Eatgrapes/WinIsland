@@ -249,11 +249,31 @@ pub struct ThemeColorsC {
 impl ThemeColorsC {
     pub fn to_colors(&self) -> ThemeColors {
         ThemeColors {
-            primary: (self.primary[0], self.primary[1], self.primary[2], self.primary[3]),
-            secondary: (self.secondary[0], self.secondary[1], self.secondary[2], self.secondary[3]),
-            background: (self.background[0], self.background[1], self.background[2], self.background[3]),
+            primary: (
+                self.primary[0],
+                self.primary[1],
+                self.primary[2],
+                self.primary[3],
+            ),
+            secondary: (
+                self.secondary[0],
+                self.secondary[1],
+                self.secondary[2],
+                self.secondary[3],
+            ),
+            background: (
+                self.background[0],
+                self.background[1],
+                self.background[2],
+                self.background[3],
+            ),
             text: (self.text[0], self.text[1], self.text[2], self.text[3]),
-            border: (self.border[0], self.border[1], self.border[2], self.border[3]),
+            border: (
+                self.border[0],
+                self.border[1],
+                self.border[2],
+                self.border[3],
+            ),
         }
     }
 }

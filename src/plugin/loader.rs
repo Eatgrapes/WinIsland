@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
 use super::types::{
-    ContentProvider, IslandContent, Plugin, PluginError, PluginGetInstanceFn,
+    AnimationConfig, ContentProvider, IslandContent, Plugin, PluginError, PluginGetInstanceFn,
     PluginHandle, PluginInstanceC, PluginResultC, PluginType, Shortcut, ShortcutProvider,
-    ThemeColors, ThemeProvider, AnimationConfig,
+    ThemeColors, ThemeProvider,
 };
 use libloading::Library;
 use std::path::Path;
@@ -32,7 +32,11 @@ impl NativePlugin {
         // SAFETY: libloading loads a DLL; we assume the provided path is trustworthy.
         let lib = unsafe {
             Library::new(path).map_err(|e| {
-                PluginError::LoadFailed(format!("Failed to load library '{}': {}", path.display(), e))
+                PluginError::LoadFailed(format!(
+                    "Failed to load library '{}': {}",
+                    path.display(),
+                    e
+                ))
             })?
         };
 

@@ -2,8 +2,8 @@ use crate::core::audio::AudioProcessor;
 use crate::core::config::{AppConfig, PADDING, TOP_OFFSET, WINDOW_TITLE};
 use crate::core::persistence::load_config;
 use crate::core::render::{
-    draw_island, DrawIslandParams, LayoutParams, LyricsParams, MediaParams, StyleParams,
-    WindowParams,
+    DrawIslandParams, LayoutParams, LyricsParams, MediaParams, StyleParams, WindowParams,
+    draw_island,
 };
 use crate::core::smtc::SmtcListener;
 use crate::ui::expanded::music_view::{
@@ -26,8 +26,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, GWL_STYLE, HWND_TOPMOST,
-    SWP_NOACTIVATE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
+    GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, SWP_NOACTIVATE, SetWindowLongPtrW,
+    SetWindowPos, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};

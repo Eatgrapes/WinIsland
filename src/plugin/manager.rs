@@ -28,7 +28,11 @@ impl PluginManager {
         for dll_path in dlls {
             match NativePlugin::load(&dll_path) {
                 Ok(native) => {
-                    log::info!("Loaded plugin: {} ({})", native.metadata().name, native.metadata().id);
+                    log::info!(
+                        "Loaded plugin: {} ({})",
+                        native.metadata().name,
+                        native.metadata().id
+                    );
                     if let Ok(mut entries) = self.entries.write() {
                         entries.push(native);
                     }
