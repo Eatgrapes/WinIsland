@@ -59,7 +59,7 @@ impl PluginManager {
             .read()
             .unwrap()
             .iter()
-            .filter(|p| p.plugin_type() == PluginType::ContentProvider)
+            .filter(|p| p.plugin_type() == PluginType::Content)
             .map(|p| p.metadata().id.clone())
             .collect()
     }
@@ -69,7 +69,7 @@ impl PluginManager {
             .read()
             .unwrap()
             .iter()
-            .filter(|p| p.plugin_type() == PluginType::ThemeProvider)
+            .filter(|p| p.plugin_type() == PluginType::Theme)
             .map(|p| p.metadata().id.clone())
             .collect()
     }
@@ -79,7 +79,7 @@ impl PluginManager {
             .read()
             .unwrap()
             .iter()
-            .filter(|p| p.plugin_type() == PluginType::ShortcutProvider)
+            .filter(|p| p.plugin_type() == PluginType::Shortcut)
             .map(|p| p.metadata().id.clone())
             .collect()
     }
@@ -94,7 +94,7 @@ impl PluginManager {
             .find(|p| p.metadata().id == plugin_id)
             .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
 
-        if entry.plugin_type() != PluginType::ContentProvider {
+        if entry.plugin_type() != PluginType::Content {
             return Err(PluginError::InvalidPlugin(format!(
                 "Plugin '{}' is not a ContentProvider",
                 plugin_id
@@ -114,7 +114,7 @@ impl PluginManager {
             .find(|p| p.metadata().id == plugin_id)
             .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
 
-        if entry.plugin_type() != PluginType::ContentProvider {
+        if entry.plugin_type() != PluginType::Content {
             return Err(PluginError::InvalidPlugin(format!(
                 "Plugin '{}' is not a ContentProvider",
                 plugin_id
@@ -134,7 +134,7 @@ impl PluginManager {
             .find(|p| p.metadata().id == plugin_id)
             .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
 
-        if entry.plugin_type() != PluginType::ThemeProvider {
+        if entry.plugin_type() != PluginType::Theme {
             return Err(PluginError::InvalidPlugin(format!(
                 "Plugin '{}' is not a ThemeProvider",
                 plugin_id
@@ -154,7 +154,7 @@ impl PluginManager {
             .find(|p| p.metadata().id == plugin_id)
             .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
 
-        if entry.plugin_type() != PluginType::ShortcutProvider {
+        if entry.plugin_type() != PluginType::Shortcut {
             return Err(PluginError::InvalidPlugin(format!(
                 "Plugin '{}' is not a ShortcutProvider",
                 plugin_id
@@ -188,7 +188,7 @@ fn discover_plugins(plugin_dir: &Path) -> Vec<PathBuf> {
     if let Ok(entries) = std::fs::read_dir(plugin_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "dll") {
+            if path.extension().is_some_and(|ext| ext == "dll") {
                 result.push(path);
             }
         }

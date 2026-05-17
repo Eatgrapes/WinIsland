@@ -2,8 +2,8 @@
 
 use super::types::{
     AnimationConfig, ContentProvider, IslandContent, Plugin, PluginError, PluginGetInstanceFn,
-    PluginHandle, PluginInstanceC, PluginResultC, PluginType, Shortcut, ShortcutProvider,
-    ThemeColors, ThemeProvider,
+    PluginHandle, PluginInstanceC, PluginMetadata, PluginResultC, PluginType, Shortcut,
+    ShortcutProvider, ThemeColors, ThemeProvider,
 };
 use libloading::Library;
 use std::path::Path;
@@ -12,7 +12,7 @@ use std::path::Path;
 /// calling through the C ABI vtable, avoiding any trait-object crossing
 /// the FFI boundary.
 pub struct NativePlugin {
-    metadata: super::types::PluginMetadata,
+    metadata: PluginMetadata,
     plugin_type: PluginType,
     handle: PluginHandle,
     vtable: *const super::types::PluginVTable,
@@ -68,8 +68,8 @@ impl NativePlugin {
             )));
         }
 
-        let metadata = instance.metadata.to_metadata();
-        let plugin_type = instance.plugin_type_enum();
+        let metadata = PluginMetadata::from(&instance.metadata);
+        let plugin_type = PluginType::from_u32(instance.plugin_type);
 
         let plugin = Self {
             metadata,
@@ -81,7 +81,7 @@ impl NativePlugin {
 
         let vtable = unsafe { &*plugin.vtable };
         let result: PluginResultC = unsafe { (vtable.on_load)(plugin.handle) };
-        result.to_result().map_err(|e| {
+        result.into_result().map_err(|e| {
             PluginError::ExecutionError(format!(
                 "Plugin '{}' on_load failed: {}",
                 plugin.metadata.id, e
@@ -98,7 +98,7 @@ impl NativePlugin {
 }
 
 impl Plugin for NativePlugin {
-    fn metadata(&self) -> &super::types::PluginMetadata {
+    fn metadata(&self) -> &PluginMetadata {
         &self.metadata
     }
 
@@ -112,12 +112,8 @@ impl ContentProvider for NativePlugin {
         let vtable = self.vtable();
         vtable.get_content.map(|f| {
             // SAFETY: calling through vtable with the opaque handle from the same DLL.
-            let c: super::types::IslandContentC = unsafe { f(self.handle) };
-            c.to_content().unwrap_or(IslandContent::Status {
-                label: String::new(),
-                value: String::new(),
-                icon: None,
-            })
+            let c = unsafe { f(self.handle) };
+            IslandContent::from(&c)
         })
     }
 
@@ -156,7 +152,7 @@ impl ThemeProvider for NativePlugin {
             .get_colors
             .map(|f| {
                 // SAFETY: calling through vtable with the opaque handle from the same DLL.
-                unsafe { f(self.handle) }.to_colors()
+                ThemeColors::from(&unsafe { f(self.handle) })
             })
             .unwrap_or(ThemeColors {
                 primary: (255, 255, 255, 255),
@@ -173,7 +169,7 @@ impl ThemeProvider for NativePlugin {
             .get_animations
             .map(|f| {
                 // SAFETY: calling through vtable with the opaque handle from the same DLL.
-                unsafe { f(self.handle) }.to_config()
+                AnimationConfig::from(&unsafe { f(self.handle) })
             })
             .unwrap_or(AnimationConfig {
                 expand_duration_ms: 300,
