@@ -184,7 +184,7 @@ fn zero_content() -> IslandContentC {
 
 // ── 入口 ──
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn plugin_get_instance() -> PluginInstanceC {
     let plugin = Box::new(HelloPlugin { clicks: 0 });
     PluginInstanceC {
