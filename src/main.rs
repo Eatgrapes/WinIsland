@@ -1,6 +1,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 mod core;
 mod icons;
+mod plugin;
 mod ui;
 mod utils;
 mod window;
@@ -14,6 +15,8 @@ use windows::Win32::System::Threading::CreateMutexW;
 use winit::event_loop::EventLoop;
 
 fn main() {
+    let _plugin_mgr = plugin::init();
+
     let config = core::persistence::load_config();
     init_i18n(&config.language);
 
