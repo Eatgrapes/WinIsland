@@ -2,7 +2,23 @@
 
 use serde::{Deserialize, Serialize};
 
-/// 插件元信息
+pub use winisland_plugin_api::{
+    AnimationConfigC, IslandContentC, PluginGetInstanceFn, PluginHandle, PluginInstanceC,
+    PluginMetadataC, PluginResultC, PluginVTable, PluginType, ThemeColorsC,
+    ISLAND_CONTENT_TAG_MUSIC, ISLAND_CONTENT_TAG_NOTIFICATION, ISLAND_CONTENT_TAG_STATUS,
+};
+
+fn read_c_str(buf: &[u8]) -> String {
+    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    String::from_utf8_lossy(&buf[..end]).into_owned()
+}
+
+fn read_opt_c_str(buf: &[u8]) -> Option<String> {
+    let s = read_c_str(buf);
+    if s.is_empty() { None } else { Some(s) }
+}
+
+/// 插件元信息（Host 端）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginMetadata {
     pub id: String,
@@ -12,15 +28,19 @@ pub struct PluginMetadata {
     pub description: String,
 }
 
-/// 插件类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PluginType {
-    ContentProvider,
-    ThemeProvider,
-    ShortcutProvider,
+impl From<&PluginMetadataC> for PluginMetadata {
+    fn from(c: &PluginMetadataC) -> Self {
+        Self {
+            id: read_c_str(&c.id),
+            name: read_c_str(&c.name),
+            version: read_c_str(&c.version),
+            author: read_c_str(&c.author),
+            description: read_c_str(&c.description),
+        }
+    }
 }
 
-/// 岛屿内容枚举
+/// 岛屿内容枚举（Host 端）
 #[derive(Debug, Clone)]
 pub enum IslandContent {
     Music {
@@ -47,7 +67,35 @@ pub enum IslandContent {
     Custom(serde_json::Value),
 }
 
-/// 主题颜色
+impl From<&IslandContentC> for IslandContent {
+    fn from(c: &IslandContentC) -> Self {
+        match c.tag {
+            ISLAND_CONTENT_TAG_MUSIC => IslandContent::Music {
+                title: read_c_str(&c.title),
+                artist: read_c_str(&c.artist),
+                cover_url: read_opt_c_str(&c.cover_url),
+                is_playing: c.is_playing,
+            },
+            ISLAND_CONTENT_TAG_NOTIFICATION => IslandContent::Notification {
+                title: read_c_str(&c.title),
+                message: read_c_str(&c.message),
+                icon_url: read_opt_c_str(&c.cover_url),
+            },
+            ISLAND_CONTENT_TAG_STATUS => IslandContent::Status {
+                label: read_c_str(&c.label),
+                value: read_c_str(&c.value),
+                icon: read_opt_c_str(&c.cover_url),
+            },
+            _ => IslandContent::Status {
+                label: String::new(),
+                value: String::new(),
+                icon: None,
+            },
+        }
+    }
+}
+
+/// 主题颜色（Host 端）
 #[derive(Debug, Clone)]
 pub struct ThemeColors {
     pub primary: (u8, u8, u8, u8),
@@ -57,7 +105,19 @@ pub struct ThemeColors {
     pub border: (u8, u8, u8, u8),
 }
 
-/// 动画配置
+impl From<&ThemeColorsC> for ThemeColors {
+    fn from(c: &ThemeColorsC) -> Self {
+        Self {
+            primary: (c.primary[0], c.primary[1], c.primary[2], c.primary[3]),
+            secondary: (c.secondary[0], c.secondary[1], c.secondary[2], c.secondary[3]),
+            background: (c.background[0], c.background[1], c.background[2], c.background[3]),
+            text: (c.text[0], c.text[1], c.text[2], c.text[3]),
+            border: (c.border[0], c.border[1], c.border[2], c.border[3]),
+        }
+    }
+}
+
+/// 动画配置（Host 端）
 #[derive(Debug, Clone)]
 pub struct AnimationConfig {
     pub expand_duration_ms: u32,
@@ -65,7 +125,17 @@ pub struct AnimationConfig {
     pub bounce_intensity: f32,
 }
 
-/// 快捷方式定义
+impl From<&AnimationConfigC> for AnimationConfig {
+    fn from(c: &AnimationConfigC) -> Self {
+        Self {
+            expand_duration_ms: c.expand_duration_ms,
+            collapse_duration_ms: c.collapse_duration_ms,
+            bounce_intensity: c.bounce_intensity,
+        }
+    }
+}
+
+/// 快捷方式定义（Host 端）
 #[derive(Debug, Clone)]
 pub struct Shortcut {
     pub id: String,
@@ -98,7 +168,7 @@ impl std::fmt::Display for PluginError {
 impl std::error::Error for PluginError {}
 
 // ---------------------------------------------------------------------------
-// Host-side Plugin trait — what the application works with
+// Host-side Plugin traits
 // ---------------------------------------------------------------------------
 
 pub trait Plugin: Send + Sync {
@@ -122,214 +192,3 @@ pub trait ShortcutProvider: Plugin {
     fn get_shortcuts(&self) -> Vec<Shortcut>;
     fn execute(&mut self, shortcut_id: &str) -> Result<(), String>;
 }
-
-// ---------------------------------------------------------------------------
-// C ABI types — stable across compiler versions, safe to pass across FFI
-// ---------------------------------------------------------------------------
-
-pub type PluginHandle = *mut std::ffi::c_void;
-
-#[repr(C)]
-pub struct PluginResultC {
-    pub ok: bool,
-    pub error: [u8; 256],
-}
-
-impl PluginResultC {
-    pub fn ok() -> Self {
-        Self {
-            ok: true,
-            error: [0u8; 256],
-        }
-    }
-
-    pub fn err(msg: &str) -> Self {
-        let mut error = [0u8; 256];
-        let bytes = msg.as_bytes();
-        let len = bytes.len().min(255);
-        error[..len].copy_from_slice(&bytes[..len]);
-        Self { ok: false, error }
-    }
-
-    pub fn to_result(self) -> Result<(), String> {
-        if self.ok {
-            Ok(())
-        } else {
-            let end = self.error.iter().position(|&b| b == 0).unwrap_or(256);
-            Err(String::from_utf8_lossy(&self.error[..end]).into_owned())
-        }
-    }
-}
-
-#[repr(C)]
-pub struct PluginMetadataC {
-    pub id: [u8; 64],
-    pub name: [u8; 128],
-    pub version: [u8; 32],
-    pub author: [u8; 128],
-    pub description: [u8; 256],
-}
-
-impl PluginMetadataC {
-    fn read_str(buf: &[u8]) -> String {
-        let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-        String::from_utf8_lossy(&buf[..end]).into_owned()
-    }
-
-    pub fn to_metadata(&self) -> PluginMetadata {
-        PluginMetadata {
-            id: Self::read_str(&self.id),
-            name: Self::read_str(&self.name),
-            version: Self::read_str(&self.version),
-            author: Self::read_str(&self.author),
-            description: Self::read_str(&self.description),
-        }
-    }
-}
-
-#[repr(C)]
-pub struct IslandContentC {
-    pub tag: u32,
-    pub title: [u8; 256],
-    pub artist: [u8; 256],
-    pub cover_url: [u8; 512],
-    pub is_playing: bool,
-    pub message: [u8; 256],
-    pub label: [u8; 128],
-    pub value: [u8; 128],
-}
-
-impl IslandContentC {
-    fn read_str(buf: &[u8]) -> String {
-        let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-        String::from_utf8_lossy(&buf[..end]).into_owned()
-    }
-
-    pub fn to_content(&self) -> Option<IslandContent> {
-        match self.tag {
-            1 => Some(IslandContent::Music {
-                title: Self::read_str(&self.title),
-                artist: Self::read_str(&self.artist),
-                cover_url: {
-                    let s = Self::read_str(&self.cover_url);
-                    if s.is_empty() { None } else { Some(s) }
-                },
-                is_playing: self.is_playing,
-            }),
-            2 => Some(IslandContent::Notification {
-                title: Self::read_str(&self.title),
-                message: Self::read_str(&self.message),
-                icon_url: {
-                    let s = Self::read_str(&self.cover_url);
-                    if s.is_empty() { None } else { Some(s) }
-                },
-            }),
-            3 => Some(IslandContent::Status {
-                label: Self::read_str(&self.label),
-                value: Self::read_str(&self.value),
-                icon: {
-                    let s = Self::read_str(&self.cover_url);
-                    if s.is_empty() { None } else { Some(s) }
-                },
-            }),
-            _ => None,
-        }
-    }
-}
-
-#[repr(C)]
-pub struct ThemeColorsC {
-    pub primary: [u8; 4],
-    pub secondary: [u8; 4],
-    pub background: [u8; 4],
-    pub text: [u8; 4],
-    pub border: [u8; 4],
-}
-
-impl ThemeColorsC {
-    pub fn to_colors(&self) -> ThemeColors {
-        ThemeColors {
-            primary: (
-                self.primary[0],
-                self.primary[1],
-                self.primary[2],
-                self.primary[3],
-            ),
-            secondary: (
-                self.secondary[0],
-                self.secondary[1],
-                self.secondary[2],
-                self.secondary[3],
-            ),
-            background: (
-                self.background[0],
-                self.background[1],
-                self.background[2],
-                self.background[3],
-            ),
-            text: (self.text[0], self.text[1], self.text[2], self.text[3]),
-            border: (
-                self.border[0],
-                self.border[1],
-                self.border[2],
-                self.border[3],
-            ),
-        }
-    }
-}
-
-#[repr(C)]
-pub struct AnimationConfigC {
-    pub expand_duration_ms: u32,
-    pub collapse_duration_ms: u32,
-    pub bounce_intensity: f32,
-}
-
-impl AnimationConfigC {
-    pub fn to_config(&self) -> AnimationConfig {
-        AnimationConfig {
-            expand_duration_ms: self.expand_duration_ms,
-            collapse_duration_ms: self.collapse_duration_ms,
-            bounce_intensity: self.bounce_intensity,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// VTable — C ABI function pointer table
-// ---------------------------------------------------------------------------
-
-#[repr(C)]
-pub struct PluginVTable {
-    pub on_load: unsafe extern "C" fn(PluginHandle) -> PluginResultC,
-    pub on_unload: unsafe extern "C" fn(PluginHandle) -> PluginResultC,
-    pub destroy: unsafe extern "C" fn(PluginHandle),
-    pub get_content: Option<unsafe extern "C" fn(PluginHandle) -> IslandContentC>,
-    pub on_click: Option<unsafe extern "C" fn(PluginHandle)>,
-    pub on_expanded: Option<unsafe extern "C" fn(PluginHandle, bool)>,
-    pub supports_expand: Option<unsafe extern "C" fn(PluginHandle) -> bool>,
-    pub get_colors: Option<unsafe extern "C" fn(PluginHandle) -> ThemeColorsC>,
-    pub get_animations: Option<unsafe extern "C" fn(PluginHandle) -> AnimationConfigC>,
-}
-
-#[repr(C)]
-pub struct PluginInstanceC {
-    pub handle: PluginHandle,
-    pub metadata: PluginMetadataC,
-    pub vtable: *const PluginVTable,
-    pub plugin_type: u32,
-}
-
-impl PluginInstanceC {
-    pub fn plugin_type_enum(&self) -> PluginType {
-        match self.plugin_type {
-            1 => PluginType::ContentProvider,
-            2 => PluginType::ThemeProvider,
-            3 => PluginType::ShortcutProvider,
-            _ => PluginType::ContentProvider,
-        }
-    }
-}
-
-/// Expected DLL export signature
-pub type PluginGetInstanceFn = unsafe extern "C" fn() -> PluginInstanceC;
