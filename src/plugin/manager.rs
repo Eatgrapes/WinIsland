@@ -4,6 +4,7 @@ use super::loader::NativePlugin;
 use super::types::{
     ContentProvider, Plugin, PluginError, PluginType, ShortcutProvider, ThemeProvider,
 };
+use super::zip_loader::{self, PluginManifest};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
@@ -26,21 +27,58 @@ impl PluginManager {
     pub fn load_all(&self) {
         let dlls = discover_plugins(&self.plugin_dir);
         for dll_path in dlls {
-            match NativePlugin::load(&dll_path) {
-                Ok(native) => {
-                    log::info!(
-                        "Loaded plugin: {} ({})",
-                        native.metadata().name,
-                        native.metadata().id
-                    );
-                    if let Ok(mut entries) = self.entries.write() {
-                        entries.push(native);
-                    }
-                }
-                Err(e) => {
-                    log::warn!("Failed to load plugin '{}': {}", dll_path.display(), e);
+            self.load_dll(&dll_path);
+        }
+    }
+
+    fn load_dll(&self, dll_path: &Path) {
+        match NativePlugin::load(dll_path) {
+            Ok(native) => {
+                log::info!(
+                    "Loaded plugin: {} ({})",
+                    native.metadata().name,
+                    native.metadata().id
+                );
+                if let Ok(mut entries) = self.entries.write() {
+                    entries.push(native);
                 }
             }
+            Err(e) => {
+                log::warn!("Failed to load plugin '{}': {}", dll_path.display(), e);
+            }
+        }
+    }
+
+    pub fn install_from_zip(&self, zip_path: &Path) -> Result<PluginManifest, String> {
+        let (manifest, _extracted_dir, dll_paths) =
+            zip_loader::extract_plugin(zip_path, &self.plugin_dir)?;
+
+        for dll_path in &dll_paths {
+            self.load_dll(Path::new(dll_path));
+        }
+
+        log::info!(
+            "Installed plugin '{}' v{} by {}",
+            manifest.name,
+            manifest.version,
+            manifest.author
+        );
+        Ok(manifest)
+    }
+
+    pub fn read_manifest_from_zip(&self, zip_path: &Path) -> Result<PluginManifest, String> {
+        zip_loader::read_manifest_from_zip(zip_path)
+    }
+
+    pub fn validate_zip(&self, zip_path: &Path) -> Result<bool, String> {
+        zip_loader::validate_zip(zip_path)
+    }
+
+    pub fn cancel_pending_install(&self, manifest: &PluginManifest) {
+        let dir_name = manifest.safe_dir_name();
+        let path = self.plugin_dir.join(&dir_name);
+        if path.exists() {
+            let _ = std::fs::remove_dir_all(&path);
         }
     }
 
@@ -188,7 +226,16 @@ fn discover_plugins(plugin_dir: &Path) -> Vec<PathBuf> {
     if let Ok(entries) = std::fs::read_dir(plugin_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "dll") {
+            if path.is_dir() {
+                if let Ok(sub) = std::fs::read_dir(&path) {
+                    for e in sub.flatten() {
+                        let p = e.path();
+                        if p.extension().is_some_and(|ext| ext == "dll") {
+                            result.push(p);
+                        }
+                    }
+                }
+            } else if path.extension().is_some_and(|ext| ext == "dll") {
                 result.push(path);
             }
         }

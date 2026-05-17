@@ -26,9 +26,11 @@ use softbuffer::{Context, Surface};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::Shell::{DragAcceptFiles, DragFinish, DragQueryFileW, HDROP};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, SWP_NOACTIVATE, SetWindowLongPtrW,
-    SetWindowPos, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
+    GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, MSG, PM_REMOVE, SWP_NOACTIVATE,
+    SetWindowLongPtrW, SetWindowPos, WM_DROPFILES, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_MAXIMIZEBOX, WS_THICKFRAME,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -89,6 +91,9 @@ pub struct App {
     touch_pos: PhysicalPosition<f64>,
     plugin_mgr: PluginManager,
     plugin_contents: Vec<(String, IslandContent)>,
+    zip_drop_hint: bool,
+    installed_toast: Option<(String, Instant)>,
+    drop_registered: bool,
 }
 
 impl Default for App {
@@ -149,6 +154,9 @@ impl Default for App {
             touch_pos: PhysicalPosition::new(0.0, 0.0),
             plugin_mgr: PluginManager::default(),
             plugin_contents: Vec::new(),
+            zip_drop_hint: false,
+            installed_toast: None,
+            drop_registered: false,
         }
     }
 }
@@ -425,13 +433,11 @@ impl App {
                     self.expanded = false;
                     self.widget_view = false;
                 }
-            } else {
-                if is_hovering_visible || is_on_hidden_handle {
-                    self.is_dragging = true;
-                    self.drag_start_py = py;
-                    self.drag_start_hide_val = self.spring_hide.value;
-                    self.drag_has_moved = false;
-                }
+            } else if is_hovering_visible || is_on_hidden_handle {
+                self.is_dragging = true;
+                self.drag_start_py = py;
+                self.drag_start_hide_val = self.spring_hide.value;
+                self.drag_has_moved = false;
             }
         } else if state == ElementState::Released {
             if self.seeking_progress {
@@ -452,13 +458,58 @@ impl App {
                     } else {
                         self.expanded = true;
                     }
+                } else if self.spring_hide.value > 0.3 {
+                    self.manually_hidden = true;
+                    self.auto_hidden = false;
                 } else {
-                    if self.spring_hide.value > 0.3 {
-                        self.manually_hidden = true;
-                        self.auto_hidden = false;
-                    } else {
-                        self.manually_hidden = false;
-                        self.auto_hidden = false;
+                    self.manually_hidden = false;
+                    self.auto_hidden = false;
+                }
+            }
+        }
+    }
+}
+
+impl App {
+    fn poll_file_drop(&mut self) {
+        // SAFETY: using win32 API to peek for WM_DROPFILES messages
+        let mut msg = MSG::default();
+        let has_msg = unsafe {
+            use windows::Win32::UI::WindowsAndMessaging::PeekMessageW;
+            PeekMessageW(
+                &mut msg,
+                HWND(std::ptr::null_mut()),
+                WM_DROPFILES,
+                WM_DROPFILES,
+                PM_REMOVE,
+            )
+        };
+        if has_msg.as_bool() {
+            let hdrop = HDROP(msg.lParam.0 as *mut std::ffi::c_void);
+            // SAFETY: hdrop comes from a valid WM_DROPFILES message
+            let count = unsafe { DragQueryFileW(hdrop, 0xFFFFFFFF, None) };
+            if count > 0 {
+                let mut buf = vec![0u16; 512];
+                // SAFETY: index 0 is valid when count > 0, buffer is sized
+                unsafe { DragQueryFileW(hdrop, 0, Some(&mut buf)) };
+                let path = String::from_utf16_lossy(
+                    &buf[..buf.iter().position(|&c| c == 0).unwrap_or(buf.len())],
+                );
+                // SAFETY: hdrop from valid WM_DROPFILES, releasing resources
+                unsafe { DragFinish(hdrop) };
+
+                let path = std::path::PathBuf::from(path.trim_matches('\0'));
+                if path
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+                {
+                    match self.plugin_mgr.install_from_zip(&path) {
+                        Ok(manifest) => {
+                            self.installed_toast = Some((manifest.name.clone(), Instant::now()));
+                        }
+                        Err(e) => {
+                            log::error!("Failed to install plugin from drop: {}", e);
+                        }
                     }
                 }
             }
@@ -505,6 +556,9 @@ impl ApplicationHandler for App {
                     );
                 }
                 set_glass_hwnd(win32_handle.hwnd.get());
+                self.drop_registered = true;
+                // SAFETY: HWND is valid; enables WM_DROPFILES for this window
+                unsafe { DragAcceptFiles(hwnd, true) };
             }
 
             self.window = Some(window.clone());
@@ -664,6 +718,11 @@ impl ApplicationHandler for App {
                                     weights: self.border_weights,
                                 },
                                 plugin_contents: &self.plugin_contents,
+                                drop_hint: self.zip_drop_hint,
+                                installed_toast: self
+                                    .installed_toast
+                                    .as_ref()
+                                    .map(|(s, _)| s.as_str()),
                             },
                         );
                     }
@@ -676,6 +735,7 @@ impl ApplicationHandler for App {
         if let Some(window) = &self.window {
             Self::enforce_topmost(window, self.win_x, self.win_y, self.os_w, self.os_h);
             let frame_start = Instant::now();
+
             if let Some(tray) = &self.tray
                 && let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv()
             {
@@ -829,6 +889,9 @@ impl ApplicationHandler for App {
                 let _ = window.set_cursor_hittest(is_hovering_visible || is_on_hidden_handle);
             }
 
+            self.zip_drop_hint =
+                is_hovering_visible && is_left_button_pressed() && self.installed_toast.is_none();
+
             let mut music_active = false;
             let media = self.smtc.get_info();
             if self.config.smtc_enabled && !media.title.is_empty() {
@@ -850,26 +913,24 @@ impl ApplicationHandler for App {
             if !self.config.auto_hide {
                 self.auto_hidden = false;
                 self.idle_timer = Instant::now();
-            } else {
-                if music_active && self.auto_hidden && !self.manually_hidden {
+            } else if music_active && self.auto_hidden && !self.manually_hidden {
+                self.auto_hidden = false;
+                self.idle_timer = Instant::now();
+                self.spring_hide.velocity = -0.65;
+            } else if self.auto_hidden {
+                if is_on_hidden_handle || is_hovering_visible {
                     self.auto_hidden = false;
                     self.idle_timer = Instant::now();
-                    self.spring_hide.velocity = -0.65;
-                } else if self.auto_hidden {
-                    if is_on_hidden_handle || is_hovering_visible {
-                        self.auto_hidden = false;
-                        self.idle_timer = Instant::now();
-                        self.spring_hide.velocity = -0.45;
-                    } else if !self.expanded && !music_active {
-                        // Let idle_timer expire
-                    }
-                } else if is_idle && !self.manually_hidden {
-                    if self.idle_timer.elapsed().as_secs_f32() > self.config.auto_hide_delay {
-                        self.auto_hidden = true;
-                    }
-                } else if !self.manually_hidden && !is_idle {
-                    self.idle_timer = Instant::now();
+                    self.spring_hide.velocity = -0.45;
+                } else if !self.expanded && !music_active {
+                    // Let idle_timer expire
                 }
+            } else if is_idle && !self.manually_hidden {
+                if self.idle_timer.elapsed().as_secs_f32() > self.config.auto_hide_delay {
+                    self.auto_hidden = true;
+                }
+            } else if !self.manually_hidden && !is_idle {
+                self.idle_timer = Instant::now();
             }
 
             // Handle dragging on the progress bar while mouse is held
@@ -1141,6 +1202,14 @@ impl ApplicationHandler for App {
             if elapsed < target_frame_time {
                 std::thread::sleep(target_frame_time - elapsed);
             }
+        }
+        if self.drop_registered {
+            self.poll_file_drop();
+        }
+        if let Some((_, ts)) = &self.installed_toast
+            && ts.elapsed() > Duration::from_secs(3)
+        {
+            self.installed_toast = None;
         }
     }
 }
