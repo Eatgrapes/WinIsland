@@ -1,32 +1,41 @@
-use crate::core::smtc::MediaInfo;
-use crate::icons::arrows::draw_arrow_right;
-use crate::icons::controls::{draw_control_triangle, draw_pause_button, draw_play_button};
-use crate::utils::font::{DrawTextCachedParams, FontManager};
-use crate::utils::physics::Spring;
-use crate::utils::scroll::{ScrollDrawParams, ScrollText};
 use skia_safe::{
-    Canvas, Color, Data, FilterMode, FontStyle, Image, MipmapMode, Paint, Point, RRect, Rect,
-    SamplingOptions, TileMode, gradient_shader, image_filters,
+    Canvas, Paint, Color, FontStyle, Rect, RRect,
+    Data, Image, SamplingOptions, FilterMode, MipmapMode,
+    gradient_shader, TileMode, Point, image_filters
 };
+use skia_safe::canvas::SrcRectConstraint;
+use crate::icons::arrows::draw_arrow_right;
+use crate::icons::controls::{draw_play_button, draw_pause_button, draw_control_triangle};
+use crate::core::smtc::MediaInfo;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use crate::utils::font::FontManager;
+use crate::utils::physics::Spring;
+use crate::utils::scroll::ScrollText;
 
 thread_local! {
-    static IMG_CACHE: RefCell<Option<(String, Image)>> = const { RefCell::new(None) };
+    static IMG_CACHE: RefCell<Option<(String, Image)>> = RefCell::new(None);
     static COLOR_CACHE: RefCell<HashMap<String, Vec<Color>>> = RefCell::new(HashMap::new());
-    static VIZ_HEIGHTS: RefCell<[f32; 6]> = const { RefCell::new([3.0; 6]) };
-    static PROGRESS_SMOOTH: RefCell<f32> = const { RefCell::new(0.0) };
-    static PAUSE_ANIM: RefCell<f32> = const { RefCell::new(0.0) };
+    static VIZ_HEIGHTS: RefCell<[f32; 6]> = RefCell::new([3.0; 6]);
+    static PROGRESS_SMOOTH: RefCell<f32> = RefCell::new(0.0);
+    static PAUSE_ANIM: RefCell<f32> = RefCell::new(0.0);
     static PAUSE_SPRING: RefCell<Spring> = RefCell::new(Spring::new(1.0));
-    static PREV_SKIP_ANIM: RefCell<Option<std::time::Instant>> = const { RefCell::new(None) };
-    static NEXT_SKIP_ANIM: RefCell<Option<std::time::Instant>> = const { RefCell::new(None) };
-    static LOCAL_PLAY_STATE: RefCell<Option<(bool, std::time::Instant)>> = const { const { RefCell::new(None) } };
+    static PREV_SKIP_ANIM: RefCell<Option<std::time::Instant>> = RefCell::new(None);
+    static NEXT_SKIP_ANIM: RefCell<Option<std::time::Instant>> = RefCell::new(None);
+    static LOCAL_PLAY_STATE: RefCell<Option<(bool, std::time::Instant)>> = RefCell::new(None);
     static TITLE_SCROLL: RefCell<ScrollText> = RefCell::new(ScrollText::new());
     static ARTIST_SCROLL: RefCell<ScrollText> = RefCell::new(ScrollText::new());
-    static COVER_FLIP_ANIM: RefCell<Option<std::time::Instant>> = const { RefCell::new(None) };
-    static COVER_FLIP_OLD_IMG: RefCell<Option<Image>> = const { RefCell::new(None) };
-    static PROGRESS_HOVER: RefCell<(bool, f32)> = const { RefCell::new((false, 0.0)) };
-    static PROGRESS_DRAGGING: RefCell<bool> = const { RefCell::new(false) };
+    static COVER_FLIP_ANIM: RefCell<Option<std::time::Instant>> = RefCell::new(None);
+    static COVER_FLIP_OLD_IMG: RefCell<Option<Image>> = RefCell::new(None);
+    static PROGRESS_HOVER: RefCell<(bool, f32)> = RefCell::new((false, 0.0));
+    static PROGRESS_DRAGGING: RefCell<bool> = RefCell::new(false);
+    static COVER_ROTATION: RefCell<f32> = RefCell::new(0.0);
+}
+
+pub fn set_progress_dragging(active: bool) {
+    PROGRESS_DRAGGING.with(|cell| {
+        *cell.borrow_mut() = active;
+    });
 }
 
 pub fn trigger_pause_click(current_is_playing: bool) {
@@ -58,7 +67,9 @@ fn ease_out_back(t: f32) -> f32 {
 }
 
 pub fn trigger_cover_flip() {
-    let old_img = IMG_CACHE.with(|cache| cache.borrow().as_ref().map(|(_, img)| img.clone()));
+    let old_img = IMG_CACHE.with(|cache| {
+        cache.borrow().as_ref().map(|(_, img)| img.clone())
+    });
     COVER_FLIP_OLD_IMG.with(|cell| {
         *cell.borrow_mut() = old_img;
     });
@@ -70,12 +81,6 @@ pub fn trigger_cover_flip() {
 pub fn set_progress_hover(active: bool) {
     PROGRESS_HOVER.with(|cell| {
         cell.borrow_mut().0 = active;
-    });
-}
-
-pub fn set_progress_dragging(active: bool) {
-    PROGRESS_DRAGGING.with(|cell| {
-        *cell.borrow_mut() = active;
     });
 }
 
@@ -109,19 +114,10 @@ pub fn get_next_btn_rect(ox: f32, oy: f32, w: f32, _h: f32, scale: f32) -> (f32,
     (btn_cx - hit / 2.0, btn_cy - hit / 2.0, hit, hit)
 }
 
-pub fn get_progress_bar_rect(
-    ox: f32,
-    oy: f32,
-    w: f32,
-    _media: &MediaInfo,
-    music_active: bool,
-    scale: f32,
-) -> Option<(f32, f32, f32, f32)> {
-    if !music_active {
-        return None;
-    }
+pub fn get_progress_bar_rect(ox: f32, oy: f32, w: f32, _media: &MediaInfo, music_active: bool, scale: f32) -> Option<(f32, f32, f32, f32)> {
+    if !music_active { return None; }
     let img_size = 72.0 * scale;
-    let img_x = ox + 24.0 * scale;
+    let img_x = ox + 28.0 * scale;
     let img_y = oy + 24.0 * scale;
     let bar_y = img_y + img_size + 18.0 * scale;
     let time_w = 36.0 * scale;
@@ -133,125 +129,87 @@ pub fn get_progress_bar_rect(
     Some((bar_left, bar_right, bar_y - hit_h / 2.0, hit_h))
 }
 
-pub fn draw_text_cached(params: DrawTextCachedParams<'_>) {
-    FontManager::global().draw_text_cached(params);
-}
-
-pub struct DrawMusicPageParams<'a> {
-    pub canvas: &'a Canvas,
-    pub ox: f32,
-    pub oy: f32,
-    pub w: f32,
-    pub h: f32,
-    pub alpha: u8,
-    pub media: &'a MediaInfo,
-    pub music_active: bool,
-    pub view_offset: f32,
-    pub scale: f32,
-    pub expansion_progress: f32,
-    pub viz_h_scale: f32,
-    pub use_blur: bool,
-    pub font_size: f32,
-}
-
-pub struct DrawVisualizerParams<'a> {
-    pub canvas: &'a Canvas,
-    pub x: f32,
-    pub y: f32,
-    pub alpha: u8,
-    pub is_playing: bool,
-    pub palette: &'a [Color],
-    pub spectrum: &'a [f32; 6],
-    pub w_scale: f32,
-    pub h_scale: f32,
-    pub smooth_factors: (f32, f32),
+pub fn draw_text_cached(canvas: &Canvas, text: &str, pos: (f32, f32), size: f32, style: FontStyle, paint: &Paint, align_center: bool, max_w: f32) {
+    FontManager::global().draw_text_cached(crate::utils::font::DrawTextCachedParams {
+        canvas, text, pos, size, style, paint, align_center, max_w,
+    });
 }
 
 pub fn get_cached_media_image(media: &MediaInfo) -> Option<Image> {
-    if media.title.is_empty() {
-        return None;
-    }
+    get_cached_media_image_with_key(media).map(|(img, _)| img)
+}
+
+pub fn get_cached_media_image_with_key(media: &MediaInfo) -> Option<(Image, String)> {
+    if media.title.is_empty() { return None; }
     let cache_key = format!("{}-{}", media.title, media.album);
-    let mut result = None;
+    
+    let mut result: Option<(Image, String)> = None;
     IMG_CACHE.with(|cache| {
         let mut cache_mut = cache.borrow_mut();
-        if let Some((key, img)) = cache_mut.as_ref()
-            && key == &cache_key
-        {
-            result = Some(img.clone());
-            return;
+        if let Some((key, img)) = cache_mut.as_ref() {
+            if key == &cache_key {
+                result = Some((img.clone(), key.clone()));
+                return;
+            }
         }
         if let Some(ref bytes_arc) = media.thumbnail {
-            let data = Data::new_copy(bytes_arc);
+            let data = Data::new_copy(&**bytes_arc);
             if let Some(image) = Image::from_encoded(data) {
                 *cache_mut = Some((cache_key.clone(), image.clone()));
-                result = Some(image);
+                result = Some((image, cache_key));
             }
         }
     });
+    if result.is_none() {
+        COVER_FLIP_OLD_IMG.with(|cell| {
+            if let Some(old_img) = cell.borrow().as_ref() {
+                result = Some((old_img.clone(), "old_cover".to_string()));
+            }
+        });
+    }
     result
 }
 
 pub fn get_media_palette(media: &MediaInfo) -> Vec<Color> {
-    if let Some(img) = get_cached_media_image(media) {
-        let cache_key = format!("{}-{}", media.title, media.album);
+    if let Some((img, cache_key)) = get_cached_media_image_with_key(media) {
         get_palette_from_image(&img, &cache_key)
     } else {
-        vec![
-            Color::from_rgb(180, 180, 180),
-            Color::from_rgb(100, 100, 100),
-        ]
+        vec![Color::from_rgb(180, 180, 180), Color::from_rgb(100, 100, 100)]
     }
 }
 
-pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
-    let DrawMusicPageParams {
-        canvas,
-        ox,
-        oy,
-        w,
-        h,
-        alpha,
-        media,
-        music_active,
-        view_offset,
-        scale,
-        expansion_progress,
-        viz_h_scale,
-        use_blur,
-        font_size,
-    } = params;
+pub fn clear_cover_cache() {
+    IMG_CACHE.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
+    COVER_FLIP_OLD_IMG.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
+}
 
+pub fn draw_music_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: u8, media: &MediaInfo, music_active: bool, view_offset: f32, scale: f32, expansion_progress: f32, viz_h_scale: f32, use_blur: bool, font_size: f32, cover_shape: &str, cover_rotate: bool, dt: f32) -> bool {
     let arrow_alpha = (alpha as f32 * (1.0 - view_offset * 5.0).clamp(0.0, 1.0)) as u8;
     if arrow_alpha > 0 {
-        draw_arrow_right(
-            canvas,
-            ox + w - 12.0 * scale,
-            oy + h / 2.0,
-            arrow_alpha,
-            scale,
-        );
+        draw_arrow_right(canvas, ox + w - 12.0 * scale, oy + h / 2.0, arrow_alpha, scale);
     }
-    let img_size = 72.0 * scale;
-    let img_x = ox + 24.0 * scale;
-    let img_y = oy + 24.0 * scale;
-    let image_to_draw = if music_active {
-        get_cached_media_image(media)
+    let base_img_size = 72.0 * scale;
+    let (img_size, img_x, img_y) = if cover_shape == "circle" {
+        let s = base_img_size * 1.08;
+        let x = ox + 28.0 * scale - (s - base_img_size) / 2.0;
+        let y = oy + 24.0 * scale - (s - base_img_size) / 2.0;
+        (s, x, y)
     } else {
-        None
+        (base_img_size, ox + 28.0 * scale, oy + 24.0 * scale)
     };
-    let cache_key = if music_active {
-        format!("{}-{}", media.title, media.album)
-    } else {
-        "none".to_string()
+    let (image_to_draw, cache_key) = if music_active { 
+        get_cached_media_image_with_key(media).map(|(img, key)| (Some(img), key)).unwrap_or((None, "none".to_string()))
+    } else { 
+        (None, "none".to_string()) 
     };
     let palette = if let Some(ref img) = image_to_draw {
         get_palette_from_image(img, &cache_key)
     } else {
-        vec![
-            Color::from_rgb(180, 180, 180),
-            Color::from_rgb(100, 100, 100),
-        ]
+        vec![Color::from_rgb(180, 180, 180), Color::from_rgb(100, 100, 100)]
     };
 
     let pause_s = PAUSE_SPRING.with(|cell| cell.borrow().value);
@@ -274,9 +232,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
             *v = target;
         } else {
             *v += (target - *v) * 0.12;
-            if (*v - target).abs() < 0.005 {
-                *v = target;
-            }
+            if (*v - target).abs() < 0.005 { *v = target; }
         }
         *v
     });
@@ -299,7 +255,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
                     (sx, blur, cos_val > 0.0)
                 }
             }
-            None => (1.0, 0.0, false),
+            None => (1.0, 0.0, false)
         }
     });
 
@@ -319,118 +275,104 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
     let img_cx = img_x + img_size / 2.0;
     let img_cy = img_y + img_size / 2.0;
     canvas.translate((img_cx, img_cy));
+    
+    let is_rotating = cover_rotate && cover_shape == "circle" && effective_is_playing;
+    let rotation_angle = COVER_ROTATION.with(|cell| {
+        let mut angle = cell.borrow_mut();
+        if is_rotating {
+            *angle += 0.5 * dt;
+            if *angle >= 360.0 {
+                *angle -= 360.0;
+            }
+        }
+        *angle
+    });
+    
+    if cover_rotate && cover_shape == "circle" {
+        canvas.rotate(rotation_angle, None);
+    }
+    
     canvas.scale((cover_scale * flip_scale_x, cover_scale));
     canvas.translate((-img_cx, -img_cy));
 
     if flip_blur_sigma > 0.1 && use_blur {
         let mut blur_paint = Paint::default();
-        blur_paint.set_image_filter(image_filters::blur(
-            (flip_blur_sigma, flip_blur_sigma * 0.3),
-            None,
-            None,
-            None,
-        ));
+        blur_paint.set_image_filter(image_filters::blur((flip_blur_sigma, flip_blur_sigma * 0.3), None, None, None));
         canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&blur_paint));
     }
 
-    canvas.clip_rrect(
-        RRect::new_rect_xy(
-            Rect::from_xywh(img_x, img_y, img_size, img_size),
-            14.0 * scale,
-            14.0 * scale,
-        ),
-        skia_safe::ClipOp::Intersect,
-        true,
-    );
+    if cover_shape == "circle" {
+        canvas.clip_rrect(RRect::new_rect_xy(Rect::from_xywh(img_x, img_y, img_size, img_size), img_size / 2.0, img_size / 2.0), skia_safe::ClipOp::Intersect, true);
+    } else {
+        canvas.clip_rrect(RRect::new_rect_xy(Rect::from_xywh(img_x, img_y, img_size, img_size), 14.0 * scale, 14.0 * scale), skia_safe::ClipOp::Intersect, true);
+    }
     if let Some(img) = cover_img {
         let mut img_paint = Paint::default();
         img_paint.set_anti_alias(true);
         let final_alpha = (alpha as f32 * cover_brightness) / 255.0;
         img_paint.set_alpha_f(final_alpha);
+        let img_w = img.width() as f32;
+        let img_h = img.height() as f32;
+        let src_rect = if img_w > 0.0 && img_h > 0.0 {
+            let aspect = img_w / img_h;
+            let src: Rect = if aspect > 1.0 {
+                let crop_w = img_h;
+                let offset_x = (img_w - crop_w) / 2.0;
+                Rect::from_xywh(offset_x, 0.0, crop_w, img_h)
+            } else {
+                let crop_h = img_w;
+                let offset_y = (img_h - crop_h) / 2.0;
+                Rect::from_xywh(0.0, offset_y, img_w, crop_h)
+            };
+            Some(src)
+        } else {
+            None
+        };
         canvas.draw_image_rect_with_sampling_options(
-            &img,
-            None,
-            Rect::from_xywh(img_x, img_y, img_size, img_size),
-            SamplingOptions::new(FilterMode::Linear, MipmapMode::Linear),
-            &img_paint,
+            &img, src_rect.as_ref().map(|r| (r, SrcRectConstraint::Fast)), Rect::from_xywh(img_x, img_y, img_size, img_size),
+            SamplingOptions::new(FilterMode::Linear, MipmapMode::Linear), &img_paint
         );
     } else {
         draw_placeholder(canvas, img_x, img_y, img_size, alpha, scale);
     }
-    if flip_blur_sigma > 0.1 && use_blur {
-        canvas.restore();
-    }
+    if flip_blur_sigma > 0.1 && use_blur { canvas.restore(); }
     canvas.restore();
     let text_x = img_x + img_size + 16.0 * scale;
     let max_text_w = w - (text_x - ox) - 100.0 * scale;
     let title_y = img_y + 26.0 * scale;
     let mut text_paint = Paint::default();
     text_paint.set_anti_alias(true);
-    let title = if !music_active || media.title.is_empty() {
-        "No Music playing"
-    } else {
-        &media.title
-    };
-    let artist = if !music_active || media.artist.is_empty() {
-        "Unknown Artist"
-    } else {
-        &media.artist
-    };
-
+    let title = if !music_active || media.title.is_empty() { "No Music playing" } else { &media.title };
+    let artist = if !music_active || media.artist.is_empty() { "Unknown Artist" } else { &media.artist };
+    
     text_paint.set_color(Color::from_argb(alpha, 255, 255, 255));
-    let title_font_size = if font_size > 0.0 {
-        font_size * scale
-    } else {
-        15.0 * scale
-    };
+    let title_font_size = if font_size > 0.0 { font_size * scale } else { 15.0 * scale };
     let title_style = FontStyle::bold();
 
     TITLE_SCROLL.with(|cell| {
         let mut scroll = cell.borrow_mut();
-        scroll.draw(ScrollDrawParams {
-            canvas,
-            text: title,
-            x: text_x,
-            y: title_y,
-            max_w: max_text_w,
-            size: title_font_size,
-            style: title_style,
-            paint: &text_paint,
-            scale,
+        scroll.draw(crate::utils::scroll::ScrollDrawParams {
+            canvas, text: title, x: text_x, y: title_y, max_w: max_text_w,
+            size: title_font_size, style: title_style, paint: &text_paint, scale,
         });
     });
 
     text_paint.set_color(Color::from_argb((alpha as f32 * 0.6) as u8, 255, 255, 255));
     let artist_y = title_y + 22.0 * scale;
-    let artist_font_size = if font_size > 0.0 {
-        font_size * scale
-    } else {
-        15.0 * scale
-    };
+    let artist_font_size = if font_size > 0.0 { font_size * scale } else { 15.0 * scale };
     let artist_style = FontStyle::normal();
 
     ARTIST_SCROLL.with(|cell| {
         let mut scroll = cell.borrow_mut();
-        scroll.draw(ScrollDrawParams {
-            canvas,
-            text: artist,
-            x: text_x,
-            y: artist_y,
-            max_w: max_text_w,
-            size: artist_font_size,
-            style: artist_style,
-            paint: &text_paint,
-            scale,
+        scroll.draw(crate::utils::scroll::ScrollDrawParams {
+            canvas, text: artist, x: text_x, y: artist_y, max_w: max_text_w,
+            size: artist_font_size, style: artist_style, paint: &text_paint, scale,
         });
     });
 
     if music_active {
         let bar_y = img_y + img_size + 18.0 * scale;
-        let time_font_size = if font_size > 0.0 {
-            font_size * 0.67 * scale
-        } else {
-            10.0 * scale
-        };
+        let time_font_size = if font_size > 0.0 { font_size * 0.67 * scale } else { 10.0 * scale };
         let time_w = 36.0 * scale;
 
         let current_pos_ms = if media.is_playing {
@@ -438,30 +380,23 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
         } else {
             media.position_ms
         };
-        let duration_ms = media.effective_duration_ms();
-        let current_pos_ms = if duration_ms > 0 {
-            current_pos_ms.min(duration_ms)
+        let duration_ms = if media.duration_ms > 0 {
+            media.duration_ms
+        } else if media.duration_secs > 0 {
+            media.duration_secs * 1000
         } else {
-            current_pos_ms
+            0
         };
-        let raw_progress = if duration_ms > 0 {
-            current_pos_ms as f32 / duration_ms as f32
-        } else {
-            0.0
-        };
+        let current_pos_ms = if duration_ms > 0 { current_pos_ms.min(duration_ms) } else { current_pos_ms };
+        let raw_progress = if duration_ms > 0 { current_pos_ms as f32 / duration_ms as f32 } else { 0.0 };
 
         let progress = PROGRESS_SMOOTH.with(|cell| {
             let mut smooth = cell.borrow_mut();
-            let dragging = PROGRESS_DRAGGING.with(|d| *d.borrow());
-            if dragging {
+            let diff = (raw_progress - *smooth).abs();
+            if diff > 0.3 {
                 *smooth = raw_progress;
             } else {
-                let diff = (raw_progress - *smooth).abs();
-                if diff > 0.3 {
-                    *smooth = raw_progress;
-                } else {
-                    *smooth += (raw_progress - *smooth) * 0.15;
-                }
+                *smooth += (raw_progress - *smooth) * 0.15;
             }
             *smooth
         });
@@ -486,9 +421,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
             let mut state = cell.borrow_mut();
             let target = if state.0 { 1.0_f32 } else { 0.0 };
             state.1 += (target - state.1) * 0.18;
-            if (state.1 - target).abs() < 0.005 {
-                state.1 = target;
-            }
+            if (state.1 - target).abs() < 0.005 { state.1 = target; }
             state.1
         });
 
@@ -501,39 +434,12 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
         let time_alpha_factor = 0.5 + 0.5 * hover_t;
         let mut time_paint = Paint::default();
         time_paint.set_anti_alias(true);
-        time_paint.set_color(Color::from_argb(
-            (alpha as f32 * time_alpha_factor) as u8,
-            255,
-            255,
-            255,
-        ));
+        time_paint.set_color(Color::from_argb((alpha as f32 * time_alpha_factor) as u8, 255, 255, 255));
 
-        let elapsed_w = FontManager::global().measure_text_cached(
-            &elapsed_str,
-            time_font_size,
-            FontStyle::normal(),
-        );
-        draw_text_cached(DrawTextCachedParams {
-            canvas,
-            text: &elapsed_str,
-            pos: (bar_left - elapsed_w - 6.0 * scale, text_baseline_y),
-            size: time_font_size,
-            style: FontStyle::normal(),
-            paint: &time_paint,
-            align_center: false,
-            max_w: f32::MAX,
-        });
+        let elapsed_w = FontManager::global().measure_text_cached(&elapsed_str, time_font_size, FontStyle::normal());
+        draw_text_cached(canvas, &elapsed_str, (bar_left - elapsed_w - 6.0 * scale, text_baseline_y), time_font_size, FontStyle::normal(), &time_paint, false, f32::MAX);
 
-        draw_text_cached(DrawTextCachedParams {
-            canvas,
-            text: &remaining_str,
-            pos: (bar_right + 6.0 * scale, text_baseline_y),
-            size: time_font_size,
-            style: FontStyle::normal(),
-            paint: &time_paint,
-            align_center: false,
-            max_w: f32::MAX,
-        });
+        draw_text_cached(canvas, &remaining_str, (bar_right + 6.0 * scale, text_baseline_y), time_font_size, FontStyle::normal(), &time_paint, false, f32::MAX);
 
         let mut track_paint = Paint::default();
         track_paint.set_anti_alias(true);
@@ -546,15 +452,12 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
         fill_paint.set_anti_alias(true);
         fill_paint.set_color(Color::from_argb(alpha, 255, 255, 255));
         let fill_rect = Rect::from_xywh(bar_left, bar_center_y - bar_h / 2.0, filled_w, bar_h);
-        let fill_rrect = RRect::new_rect_radii(
-            fill_rect,
-            &[
-                Point::new(bar_radius, bar_radius),
-                Point::new(0.0, 0.0),
-                Point::new(0.0, 0.0),
-                Point::new(bar_radius, bar_radius),
-            ],
-        );
+        let fill_rrect = RRect::new_rect_radii(fill_rect, &[
+            Point::new(bar_radius, bar_radius),
+            Point::new(0.0, 0.0),
+            Point::new(0.0, 0.0),
+            Point::new(bar_radius, bar_radius),
+        ]);
         canvas.draw_rrect(fill_rrect, &fill_paint);
 
         let btn_cx = ox + w / 2.0;
@@ -566,13 +469,10 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
             match start {
                 Some(s) => {
                     let t = s.elapsed().as_secs_f32() / 0.5;
-                    if t >= 1.0 {
-                        *cell.borrow_mut() = None;
-                        return None;
-                    }
+                    if t >= 1.0 { *cell.borrow_mut() = None; return None; }
                     Some(t)
                 }
-                None => None,
+                None => None
             }
         });
 
@@ -583,12 +483,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
             let skip_blur = (1.0 - t / 0.3).max(0.0) * 6.0 * scale;
             if skip_blur > 0.1 && use_blur {
                 let mut blur_paint = Paint::default();
-                blur_paint.set_image_filter(image_filters::blur(
-                    (skip_blur, skip_blur * 0.3),
-                    None,
-                    None,
-                    None,
-                ));
+                blur_paint.set_image_filter(image_filters::blur((skip_blur, skip_blur * 0.3), None, None, None));
                 canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&blur_paint));
             }
 
@@ -612,9 +507,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
                 draw_control_triangle(canvas, new_x, 0.0, new_alpha, 0.050, scale);
             }
 
-            if skip_blur > 0.1 && use_blur {
-                canvas.restore();
-            }
+            if skip_blur > 0.1 && use_blur { canvas.restore(); }
         } else {
             draw_control_triangle(canvas, -10.92 * scale, 0.0, alpha, 0.050, scale);
             draw_control_triangle(canvas, 10.92 * scale, 0.0, alpha, 0.055, scale);
@@ -655,9 +548,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
                 *v = target;
             } else {
                 *v += (target - *v) * 0.12;
-                if (*v - target).abs() < 0.005 {
-                    *v = target;
-                }
+                if (*v - target).abs() < 0.005 { *v = target; }
             }
             *v
         });
@@ -665,12 +556,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
         canvas.save();
         if pause_blur > 0.1 && use_blur {
             let mut blur_paint = Paint::default();
-            blur_paint.set_image_filter(image_filters::blur(
-                (pause_blur, pause_blur),
-                None,
-                None,
-                None,
-            ));
+            blur_paint.set_image_filter(image_filters::blur((pause_blur, pause_blur), None, None, None));
             canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&blur_paint));
         }
         canvas.translate((btn_cx, btn_cy));
@@ -691,9 +577,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
                 draw_play_button(canvas, 0.0, 0.0, play_alpha, scale);
             }
         }
-        if pause_blur > 0.1 && use_blur {
-            canvas.restore();
-        }
+        if pause_blur > 0.1 && use_blur { canvas.restore(); }
         canvas.restore();
 
         let next_t = NEXT_SKIP_ANIM.with(|cell| {
@@ -701,13 +585,10 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
             match start {
                 Some(s) => {
                     let t = s.elapsed().as_secs_f32() / 0.5;
-                    if t >= 1.0 {
-                        *cell.borrow_mut() = None;
-                        return None;
-                    }
+                    if t >= 1.0 { *cell.borrow_mut() = None; return None; }
                     Some(t)
                 }
-                None => None,
+                None => None
             }
         });
 
@@ -717,12 +598,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
             let skip_blur = (1.0 - t / 0.3).max(0.0) * 6.0 * scale;
             if skip_blur > 0.1 && use_blur {
                 let mut blur_paint = Paint::default();
-                blur_paint.set_image_filter(image_filters::blur(
-                    (skip_blur, skip_blur * 0.3),
-                    None,
-                    None,
-                    None,
-                ));
+                blur_paint.set_image_filter(image_filters::blur((skip_blur, skip_blur * 0.3), None, None, None));
                 canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&blur_paint));
             }
 
@@ -746,9 +622,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
                 draw_control_triangle(canvas, new_x, 0.0, new_alpha, 0.050, scale);
             }
 
-            if skip_blur > 0.1 && use_blur {
-                canvas.restore();
-            }
+            if skip_blur > 0.1 && use_blur { canvas.restore(); }
         } else {
             draw_control_triangle(canvas, -10.92 * scale, 0.0, alpha, 0.050, scale);
             draw_control_triangle(canvas, 10.92 * scale, 0.0, alpha, 0.055, scale);
@@ -757,34 +631,12 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) {
     }
 
     let viz_x_offset = 17.0 + (45.0 - 17.0) * expansion_progress;
-    draw_visualizer(DrawVisualizerParams {
-        canvas,
-        x: ox + w - viz_x_offset * scale,
-        y: title_y - 4.0 * scale,
-        alpha,
-        is_playing: music_active && media.is_playing,
-        palette: &palette,
-        spectrum: &media.spectrum,
-        w_scale: scale,
-        h_scale: viz_h_scale,
-        smooth_factors: (0.6, 0.08),
-    });
+    draw_visualizer(canvas, ox + w - viz_x_offset * scale, title_y - 4.0 * scale, alpha, music_active && media.is_playing, &palette, &media.spectrum, scale, viz_h_scale, (0.6, 0.08));
+    
+    is_rotating
 }
 
-pub fn draw_visualizer(params: DrawVisualizerParams<'_>) {
-    let DrawVisualizerParams {
-        canvas,
-        x,
-        y,
-        alpha,
-        is_playing,
-        palette,
-        spectrum,
-        w_scale,
-        h_scale,
-        smooth_factors,
-    } = params;
-
+pub fn draw_visualizer(canvas: &Canvas, x: f32, y: f32, alpha: u8, is_playing: bool, palette: &[Color], spectrum: &[f32; 6], w_scale: f32, h_scale: f32, smooth_factors: (f32, f32)) {
     let (rise, fall) = smooth_factors;
     let bar_count = 6;
     let bar_w = 3.0 * w_scale;
@@ -793,11 +645,7 @@ pub fn draw_visualizer(params: DrawVisualizerParams<'_>) {
     VIZ_HEIGHTS.with(|h_cell| {
         let mut heights = h_cell.borrow_mut();
         for i in 0..bar_count {
-            let target = if is_playing {
-                (spectrum[i] * max_h).max(3.0 * h_scale)
-            } else {
-                3.0 * h_scale
-            };
+            let target = if is_playing { (spectrum[i] * max_h).max(3.0 * h_scale) } else { 3.0 * h_scale };
             if target > heights[i] {
                 heights[i] = heights[i] * (1.0 - rise) + target * rise;
             } else {
@@ -808,35 +656,21 @@ pub fn draw_visualizer(params: DrawVisualizerParams<'_>) {
         let start_x = x - (bar_count as f32 * (bar_w + spacing)) / 2.0;
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
-        let colors_with_alpha: Vec<Color> = palette
-            .iter()
+        let colors_with_alpha: Vec<Color> = palette.iter()
             .map(|c| Color::from_argb(alpha, c.r(), c.g(), c.b()))
             .collect();
         if colors_with_alpha.len() >= 2 {
             let shader = gradient_shader::linear(
-                (
-                    Point::new(start_x, y - max_h / 2.0),
-                    Point::new(start_x + (20.0 * w_scale), y + max_h / 2.0),
-                ),
-                colors_with_alpha.as_slice(),
-                None,
-                TileMode::Mirror,
-                None,
-                None,
-            )
-            .unwrap();
+                (Point::new(start_x, y - max_h/2.0), Point::new(start_x + (20.0 * w_scale), y + max_h/2.0)),
+                colors_with_alpha.as_slice(), None, TileMode::Mirror, None, None
+            ).unwrap();
             paint.set_shader(shader);
         } else {
-            paint.set_color(colors_with_alpha.first().cloned().unwrap_or(Color::WHITE));
+            paint.set_color(colors_with_alpha.get(0).cloned().unwrap_or(Color::WHITE));
         }
         for i in 0..bar_count {
             let h = heights[i];
-            let rect = Rect::from_xywh(
-                start_x + i as f32 * (bar_w + spacing),
-                y - h / 2.0,
-                bar_w,
-                h,
-            );
+            let rect = Rect::from_xywh(start_x + i as f32 * (bar_w + spacing), y - h / 2.0, bar_w, h);
             let r = bar_w / 2.0;
             canvas.draw_round_rect(rect, r, r, &paint);
         }
@@ -846,12 +680,8 @@ pub fn draw_visualizer(params: DrawVisualizerParams<'_>) {
 fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color> {
     COLOR_CACHE.with(|cache| {
         let mut cache_mut = cache.borrow_mut();
-        if cache_mut.len() > 50 {
-            cache_mut.clear();
-        }
-        if let Some(palette) = cache_mut.get(cache_key) {
-            return palette.clone();
-        }
+        if cache_mut.len() > 50 { cache_mut.clear(); }
+        if let Some(palette) = cache_mut.get(cache_key) { return palette.clone(); }
         let mut palette = Vec::new();
         let info = skia_safe::ImageInfo::new(
             skia_safe::ISize::new(img.width(), img.height()),
@@ -860,13 +690,7 @@ fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color> {
             None,
         );
         let mut pixels = vec![0u8; (img.width() * img.height() * 4) as usize];
-        if img.read_pixels(
-            &info,
-            &mut pixels,
-            (img.width() * 4) as usize,
-            (0, 0),
-            skia_safe::image::CachingHint::Allow,
-        ) {
+        if img.read_pixels(&info, &mut pixels, (img.width() * 4) as usize, (0, 0), skia_safe::image::CachingHint::Allow) {
             let step_x = img.width() / 4;
             let step_y = img.height() / 4;
             let mut r_total = 0u32;
@@ -878,8 +702,8 @@ fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color> {
                     let idx = ((y * step_y * img.width() + x * step_x) * 4) as usize;
                     if idx + 2 < pixels.len() {
                         r_total += pixels[idx] as u32;
-                        g_total += pixels[idx + 1] as u32;
-                        b_total += pixels[idx + 2] as u32;
+                        g_total += pixels[idx+1] as u32;
+                        b_total += pixels[idx+2] as u32;
                         count += 1;
                     }
                 }
@@ -902,7 +726,11 @@ fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color> {
                         b += boost;
                     }
 
-                    Color::from_rgb(r.min(255.0) as u8, g.min(255.0) as u8, b.min(255.0) as u8)
+                    Color::from_rgb(
+                        r.min(255.0) as u8,
+                        g.min(255.0) as u8,
+                        b.min(255.0) as u8
+                    )
                 };
 
                 let primary = brighten(r_avg, g_avg, b_avg, 1.3);
@@ -913,9 +741,7 @@ fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color> {
                 palette.push(primary);
             }
         }
-        if palette.is_empty() {
-            palette.push(Color::from_rgb(200, 200, 200));
-        }
+        if palette.is_empty() { palette.push(Color::from_rgb(200, 200, 200)); }
         cache_mut.insert(cache_key.to_string(), palette.clone());
         palette
     })
@@ -925,13 +751,8 @@ fn draw_placeholder(canvas: &Canvas, x: f32, y: f32, size: f32, alpha: u8, scale
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
     paint.set_color(Color::from_argb((alpha as f32 * 0.1) as u8, 255, 255, 255));
-    canvas.draw_round_rect(
-        Rect::from_xywh(x, y, size, size),
-        14.0 * scale,
-        14.0 * scale,
-        &paint,
-    );
-
+    canvas.draw_round_rect(Rect::from_xywh(x, y, size, size), 14.0 * scale, 14.0 * scale, &paint);
+    
     let cx = x + size / 2.0;
     let cy = y + size / 2.0;
     crate::icons::music::draw_music_icon(canvas, cx, cy, alpha, scale * 1.8);

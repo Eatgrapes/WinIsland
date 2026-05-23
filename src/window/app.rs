@@ -745,6 +745,10 @@ impl ApplicationHandler for App {
                                     use_blur: self.config.motion_blur,
                                     font_size: self.config.font_size,
                                     weights: self.border_weights,
+                                    mini_cover_shape: &self.config.mini_cover_shape,
+                                    expanded_cover_shape: &self.config.expanded_cover_shape,
+                                    cover_rotate: self.config.cover_rotate,
+                                    dt: 1.0,
                                 },
                             },
                         );
