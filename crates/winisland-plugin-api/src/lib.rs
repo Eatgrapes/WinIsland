@@ -1,3 +1,5 @@
+use std::ffi::c_char;
+
 pub type PluginHandle = *mut std::ffi::c_void;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8,12 +10,12 @@ pub enum PluginType {
 }
 
 impl PluginType {
-    pub fn from_u32(v: u32) -> Self {
+    pub fn from_u32(v: u32) -> Option<Self> {
         match v {
-            1 => Self::Content,
-            2 => Self::Theme,
-            3 => Self::Shortcut,
-            _ => Self::Content,
+            1 => Some(Self::Content),
+            2 => Some(Self::Theme),
+            3 => Some(Self::Shortcut),
+            _ => None,
         }
     }
 }
@@ -92,6 +94,15 @@ pub struct AnimationConfigC {
 }
 
 #[repr(C)]
+pub struct ShortcutC {
+    pub id: [u8; 64],
+    pub name: [u8; 128],
+    pub description: [u8; 256],
+    pub icon: [u8; 256],
+    pub hotkey: [u8; 32],
+}
+
+#[repr(C)]
 pub struct PluginVTable {
     pub on_load: unsafe extern "C" fn(PluginHandle) -> PluginResultC,
     pub on_unload: unsafe extern "C" fn(PluginHandle) -> PluginResultC,
@@ -102,6 +113,10 @@ pub struct PluginVTable {
     pub supports_expand: Option<unsafe extern "C" fn(PluginHandle) -> bool>,
     pub get_colors: Option<unsafe extern "C" fn(PluginHandle) -> ThemeColorsC>,
     pub get_animations: Option<unsafe extern "C" fn(PluginHandle) -> AnimationConfigC>,
+    pub get_shortcuts_count: Option<unsafe extern "C" fn(PluginHandle) -> u32>,
+    pub get_shortcut_at: Option<unsafe extern "C" fn(PluginHandle, i: u32, out: *mut ShortcutC)>,
+    pub execute_shortcut:
+        Option<unsafe extern "C" fn(PluginHandle, id: *const c_char) -> PluginResultC>,
 }
 
 #[repr(C)]
