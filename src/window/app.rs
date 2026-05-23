@@ -29,8 +29,8 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Shell::{DragAcceptFiles, DragFinish, DragQueryFileW, HDROP};
 use windows::Win32::UI::WindowsAndMessaging::{
     GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, MB_ICONINFORMATION, MB_OK, MSG,
-    PM_REMOVE, SWP_NOACTIVATE, SetWindowLongPtrW, SetWindowPos, WM_DROPFILES,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME, MessageBoxW,
+    MessageBoxW, PM_REMOVE, SWP_NOACTIVATE, SetWindowLongPtrW, SetWindowPos, WM_DROPFILES,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
 };
 use windows::core::PCWSTR;
 use winit::application::ApplicationHandler;
@@ -501,8 +501,12 @@ impl App {
                     match self.plugin_mgr.install_from_zip(&path) {
                         Ok(manifest) => {
                             let msg = format!("Plugin '{}' installed successfully!", manifest.name);
-                            let msg_wide: Vec<u16> = msg.encode_utf16().chain(std::iter::once(0)).collect();
-                            let title_wide: Vec<u16> = "WinIsland Plugin".encode_utf16().chain(std::iter::once(0)).collect();
+                            let msg_wide: Vec<u16> =
+                                msg.encode_utf16().chain(std::iter::once(0)).collect();
+                            let title_wide: Vec<u16> = "WinIsland Plugin"
+                                .encode_utf16()
+                                .chain(std::iter::once(0))
+                                .collect();
                             // SAFETY: wide strings are null-terminated, MessageBoxW is a documented Win32 API
                             unsafe {
                                 MessageBoxW(
@@ -515,8 +519,12 @@ impl App {
                             log::info!("Plugin '{}' installed via drop", manifest.name);
                         }
                         Err(e) => {
-                            let err_wide: Vec<u16> = e.encode_utf16().chain(std::iter::once(0)).collect();
-                            let title_wide: Vec<u16> = "Plugin Error".encode_utf16().chain(std::iter::once(0)).collect();
+                            let err_wide: Vec<u16> =
+                                e.encode_utf16().chain(std::iter::once(0)).collect();
+                            let title_wide: Vec<u16> = "Plugin Error"
+                                .encode_utf16()
+                                .chain(std::iter::once(0))
+                                .collect();
                             unsafe {
                                 MessageBoxW(
                                     None,
