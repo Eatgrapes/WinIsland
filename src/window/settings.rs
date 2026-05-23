@@ -1,4 +1,4 @@
-use crate::core::config::{AppConfig, APP_AUTHOR, APP_HOMEPAGE, APP_VERSION};
+use crate::core::config::{AppConfig, DockPosition, APP_AUTHOR, APP_HOMEPAGE, APP_VERSION};
 use crate::core::persistence::save_config;
 use crate::core::i18n::{tr, set_lang, current_lang};
 use crate::utils::anim::AnimPool;
@@ -36,6 +36,7 @@ enum PopupKind {
     Language,
     Monitor,
     IslandStyle,
+    DockPositionPopup,
     SettingsTheme,
     MiniCoverShape,
     ExpandedCoverShape,
@@ -200,6 +201,21 @@ impl SettingsApp {
                     items.push(SettingsItem::RowSourceSelect {
                         label: tr("monitor"),
                         options,
+                        enabled: true,
+                    });
+                }
+                {
+                    let dp = self.config.dock_position;
+                    items.push(SettingsItem::RowSourceSelect {
+                        label: tr("dock_position"),
+                        options: vec![
+                            (tr("dock_position_top_center"), dp == DockPosition::TopCenter),
+                            (tr("dock_position_top_left"), dp == DockPosition::TopLeft),
+                            (tr("dock_position_top_right"), dp == DockPosition::TopRight),
+                            (tr("dock_position_bottom_center"), dp == DockPosition::BottomCenter),
+                            (tr("dock_position_bottom_left"), dp == DockPosition::BottomLeft),
+                            (tr("dock_position_bottom_right"), dp == DockPosition::BottomRight),
+                        ],
                         enabled: true,
                     });
                 }
@@ -740,6 +756,9 @@ impl SettingsApp {
                             PopupKind::IslandStyle => {
                                 self.config.island_style = value;
                             }
+                            PopupKind::DockPositionPopup => {
+                                self.config.dock_position = value.parse::<DockPosition>().unwrap_or(DockPosition::TopCenter);
+                            }
                             PopupKind::SettingsTheme => {
                                 self.config.settings_theme = value.clone();
                                 self.update_theme();
@@ -935,6 +954,38 @@ impl SettingsApp {
                             button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
                             options: vec![tr("style_default"), tr("style_glass"), tr("style_mica"), tr("style_dynamic")],
                             values: vec!["default".to_string(), "glass".to_string(), "mica".to_string(), "dynamic".to_string()],
+                            selected_idx,
+                            hover_idx: None,
+                        });
+                    } else if label == &tr("dock_position") {
+                        let dp = self.config.dock_position;
+                        let selected_idx = match dp {
+                            DockPosition::TopCenter => 0,
+                            DockPosition::TopLeft => 1,
+                            DockPosition::TopRight => 2,
+                            DockPosition::BottomCenter => 3,
+                            DockPosition::BottomLeft => 4,
+                            DockPosition::BottomRight => 5,
+                        };
+                        self.popup = Some(PopupState {
+                            kind: PopupKind::DockPositionPopup,
+                            button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+                            options: vec![
+                                tr("dock_position_top_center"),
+                                tr("dock_position_top_left"),
+                                tr("dock_position_top_right"),
+                                tr("dock_position_bottom_center"),
+                                tr("dock_position_bottom_left"),
+                                tr("dock_position_bottom_right"),
+                            ],
+                            values: vec![
+                                "top_center".to_string(),
+                                "top_left".to_string(),
+                                "top_right".to_string(),
+                                "bottom_center".to_string(),
+                                "bottom_left".to_string(),
+                                "bottom_right".to_string(),
+                            ],
                             selected_idx,
                             hover_idx: None,
                         });
