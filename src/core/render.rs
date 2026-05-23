@@ -225,8 +225,10 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
 
         canvas.save();
         canvas.translate((current_w - page_shift, 0.0));
-        draw_widget_page(canvas, offset_x, offset_y, current_w, current_h, alpha, global_scale);
+        let widget_anim = draw_widget_page(canvas, offset_x, offset_y, current_w, current_h, alpha, global_scale, media, font_size, dt);
         canvas.restore();
+
+        widget_animating = widget_anim;
 
         if blur_filter.is_some() { canvas.restore(); }
         canvas.restore();
