@@ -67,6 +67,9 @@ cargo clippy --workspace -- -D warnings
 - 所有异步任务使用 `tokio::spawn` 启动，例如更新器、音频捕获
 - 与 winit 事件循环交互时，使用 `tokio` 通道或 `winit::event_loop::EventLoopProxy` 进行线程间通信
 
+### ui规范
+- 所有新添加/修改的ui都要按照Apple Design设计，保持和原有ui风格一致
+
 ## Git 工作流
 
 ### 分支命名

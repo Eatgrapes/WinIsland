@@ -1,9 +1,9 @@
 use std::env;
-use windows::core::w;
 use windows::Win32::System::Registry::{
-    RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegSetValueExW, HKEY, HKEY_CURRENT_USER,
-    KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ,
+    HKEY, HKEY_CURRENT_USER, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey,
+    RegCreateKeyExW, RegDeleteValueW, RegSetValueExW,
 };
+use windows::core::w;
 
 pub fn set_autostart(enabled: bool) -> Result<(), Box<dyn std::error::Error>> {
     let app_name = w!("WinIsland");

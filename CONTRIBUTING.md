@@ -68,6 +68,9 @@ cargo clippy --workspace -- -D warnings
 - All async tasks should be started with `tokio::spawn`, for example updaters and audio capture.
 - When interacting with the winit event loop, use `tokio` channels or `winit::event_loop::EventLoopProxy` for cross-thread communication.
 
+### ui Guidelines
+- All new/modified UI should follow Apple Design guidelines and maintain consistency with existing UI styles.
+
 ## Git Workflow
 
 ### Branch Naming

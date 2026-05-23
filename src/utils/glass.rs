@@ -1,5 +1,5 @@
 use skia_safe::{
-    image_filters, images, surfaces, AlphaType, ColorType, Data, ISize, Image, ImageInfo, Paint,
+    AlphaType, ColorType, Data, ISize, Image, ImageInfo, Paint, image_filters, images, surfaces,
 };
 use std::cell::RefCell;
 use std::time::Instant;

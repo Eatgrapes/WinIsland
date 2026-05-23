@@ -2,10 +2,11 @@ use crate::core::audio::AudioProcessor;
 use crate::core::config::{AppConfig, PADDING, TOP_OFFSET, WINDOW_TITLE};
 use crate::core::persistence::load_config;
 use crate::core::render::{
-    draw_island, DrawIslandParams, LayoutParams, LyricsParams, MediaParams, StyleParams,
-    WindowParams,
+    DrawIslandParams, LayoutParams, LyricsParams, MediaParams, StyleParams, WindowParams,
+    draw_island,
 };
 use crate::core::smtc::SmtcListener;
+use crate::plugin::PluginManager;
 use crate::ui::expanded::music_view::{
     get_next_btn_rect, get_pause_btn_rect, get_prev_btn_rect, get_progress_bar_rect,
     set_progress_dragging, set_progress_hover, trigger_cover_flip, trigger_next_click,
@@ -22,13 +23,16 @@ use crate::utils::mouse::{
 use crate::utils::physics::Spring;
 use crate::window::tray::{TrayAction, TrayManager};
 use softbuffer::{Context, Surface};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, GWL_STYLE, HWND_TOPMOST,
-    SWP_NOACTIVATE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
+    GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, SWP_NOACTIVATE, SetWindowLongPtrW,
+    SetWindowPos, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
 };
+use windows::core::PCWSTR;
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton, TouchPhase, WindowEvent};
@@ -86,6 +90,7 @@ pub struct App {
     is_cursor_suppressed: bool,
     touch_id: Option<u64>,
     touch_pos: PhysicalPosition<f64>,
+    plugin_mgr: PluginManager,
 }
 
 impl Default for App {
@@ -144,6 +149,7 @@ impl Default for App {
             is_cursor_suppressed: false,
             touch_id: None,
             touch_pos: PhysicalPosition::new(0.0, 0.0),
+            plugin_mgr: PluginManager::default(),
         }
     }
 }
@@ -420,13 +426,11 @@ impl App {
                     self.expanded = false;
                     self.widget_view = false;
                 }
-            } else {
-                if is_hovering_visible || is_on_hidden_handle {
-                    self.is_dragging = true;
-                    self.drag_start_py = py;
-                    self.drag_start_hide_val = self.spring_hide.value;
-                    self.drag_has_moved = false;
-                }
+            } else if is_hovering_visible || is_on_hidden_handle {
+                self.is_dragging = true;
+                self.drag_start_py = py;
+                self.drag_start_hide_val = self.spring_hide.value;
+                self.drag_has_moved = false;
             }
         } else if state == ElementState::Released {
             if self.seeking_progress {
@@ -447,15 +451,89 @@ impl App {
                     } else {
                         self.expanded = true;
                     }
+                } else if self.spring_hide.value > 0.3 {
+                    self.manually_hidden = true;
+                    self.auto_hidden = false;
                 } else {
-                    if self.spring_hide.value > 0.3 {
-                        self.manually_hidden = true;
-                        self.auto_hidden = false;
-                    } else {
-                        self.manually_hidden = false;
-                        self.auto_hidden = false;
-                    }
+                    self.manually_hidden = false;
+                    self.auto_hidden = false;
                 }
+            }
+        }
+    }
+}
+
+impl App {
+    fn set_aumid() {
+        let aumid = "WinIsland.PluginManager";
+        let wide: Vec<u16> = aumid.encode_utf16().chain(std::iter::once(0)).collect();
+        // SAFETY: wide string is null-terminated, PCWSTR is valid, Win32 API
+        unsafe {
+            let _ = SetCurrentProcessExplicitAppUserModelID(PCWSTR::from_raw(wide.as_ptr()));
+        }
+    }
+
+    fn show_toast(title: &str, message: &str) {
+        use windows::UI::Notifications::{
+            ToastNotification, ToastNotificationManager, ToastTemplateType,
+        };
+        use windows::core::HSTRING;
+
+        Self::set_aumid();
+
+        let tmpl =
+            match ToastNotificationManager::GetTemplateContent(ToastTemplateType::ToastText02) {
+                Ok(t) => t,
+                Err(e) => {
+                    log::error!("Toast template failed: {:?}", e);
+                    return;
+                }
+            };
+
+        if let Ok(nodes) = tmpl.SelectNodes(&HSTRING::from("//text")) {
+            if let Ok(node) = nodes.Item(0) {
+                let _ = node.SetInnerText(&HSTRING::from(title));
+            }
+            if let Ok(node) = nodes.Item(1) {
+                let _ = node.SetInnerText(&HSTRING::from(message));
+            }
+        }
+
+        let toast = match ToastNotification::CreateToastNotification(&tmpl) {
+            Ok(t) => t,
+            Err(e) => {
+                log::error!("CreateToastNotification failed: {:?}", e);
+                return;
+            }
+        };
+
+        let notifier = match ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(
+            "WinIsland.PluginManager",
+        )) {
+            Ok(n) => n,
+            Err(e) => {
+                log::error!("CreateToastNotifier failed: {:?}", e);
+                return;
+            }
+        };
+
+        if let Err(e) = notifier.Show(&toast) {
+            log::error!("Toast Show failed: {:?}", e);
+        }
+    }
+
+    fn install_zip_drop(&mut self, path: &Path) {
+        match self.plugin_mgr.install_from_zip(path) {
+            Ok(manifest) => {
+                Self::show_toast(
+                    "Plugin Installed",
+                    &format!("{} loaded successfully!", manifest.name),
+                );
+                log::info!("Plugin '{}' installed via drop", manifest.name);
+            }
+            Err(e) => {
+                Self::show_toast("Plugin Error", &e);
+                log::error!("Failed to install plugin from drop: {}", e);
             }
         }
     }
@@ -465,6 +543,8 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         event_loop.set_control_flow(ControlFlow::Poll);
         if self.window.is_none() {
+            Self::set_aumid();
+            self.plugin_mgr.load_all();
             let max_w = self.config.expanded_width.max(450.0);
             self.os_w = (max_w * self.config.global_scale + PADDING) as u32;
             self.os_h = (self.config.expanded_height * self.config.global_scale + PADDING) as u32;
@@ -554,6 +634,15 @@ impl ApplicationHandler for App {
                     win.set_maximized(false);
                 }
                 WindowEvent::CloseRequested => (),
+                WindowEvent::DroppedFile(path)
+                    if path
+                        .extension()
+                        .is_some_and(|e| e.eq_ignore_ascii_case("zip")) =>
+                {
+                    self.install_zip_drop(&path);
+                }
+                WindowEvent::HoveredFile(_) => (),
+                WindowEvent::HoveredFileCancelled => (),
                 WindowEvent::MouseInput {
                     state,
                     button: MouseButton::Left,
@@ -669,6 +758,7 @@ impl ApplicationHandler for App {
         if let Some(window) = &self.window {
             Self::enforce_topmost(window, self.win_x, self.win_y, self.os_w, self.os_h);
             let frame_start = Instant::now();
+
             if let Some(tray) = &self.tray
                 && let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv()
             {
@@ -833,26 +923,24 @@ impl ApplicationHandler for App {
             if !self.config.auto_hide {
                 self.auto_hidden = false;
                 self.idle_timer = Instant::now();
-            } else {
-                if music_active && self.auto_hidden && !self.manually_hidden {
+            } else if music_active && self.auto_hidden && !self.manually_hidden {
+                self.auto_hidden = false;
+                self.idle_timer = Instant::now();
+                self.spring_hide.velocity = -0.65;
+            } else if self.auto_hidden {
+                if is_on_hidden_handle || is_hovering_visible {
                     self.auto_hidden = false;
                     self.idle_timer = Instant::now();
-                    self.spring_hide.velocity = -0.65;
-                } else if self.auto_hidden {
-                    if is_on_hidden_handle || is_hovering_visible {
-                        self.auto_hidden = false;
-                        self.idle_timer = Instant::now();
-                        self.spring_hide.velocity = -0.45;
-                    } else if !self.expanded && !music_active {
-                        // Let idle_timer expire
-                    }
-                } else if is_idle && !self.manually_hidden {
-                    if self.idle_timer.elapsed().as_secs_f32() > self.config.auto_hide_delay {
-                        self.auto_hidden = true;
-                    }
-                } else if !self.manually_hidden && !is_idle {
-                    self.idle_timer = Instant::now();
+                    self.spring_hide.velocity = -0.45;
+                } else if !self.expanded && !music_active {
+                    // Let idle_timer expire
                 }
+            } else if is_idle && !self.manually_hidden {
+                if self.idle_timer.elapsed().as_secs_f32() > self.config.auto_hide_delay {
+                    self.auto_hidden = true;
+                }
+            } else if !self.manually_hidden && !is_idle {
+                self.idle_timer = Instant::now();
             }
 
             // Handle dragging on the progress bar while mouse is held

@@ -30,6 +30,12 @@ export default defineConfig({
             items: [
               { text: 'Latest Nightly', link: '/download' }
             ]
+          },
+          {
+            text: 'Developer',
+            items: [
+              { text: 'Plugin Development', link: '/plugin-dev' }
+            ]
           }
         ],
         footer: {
@@ -60,6 +66,12 @@ export default defineConfig({
             text: '下载',
             items: [
               { text: '最新预览版', link: '/zh/download' }
+            ]
+          },
+          {
+            text: '开发者',
+            items: [
+              { text: '插件开发', link: '/zh/plugin-dev' }
             ]
           }
         ],
