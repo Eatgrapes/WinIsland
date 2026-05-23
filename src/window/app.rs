@@ -634,13 +634,12 @@ impl ApplicationHandler for App {
                     win.set_maximized(false);
                 }
                 WindowEvent::CloseRequested => (),
-                WindowEvent::DroppedFile(path) => {
+                WindowEvent::DroppedFile(path)
                     if path
                         .extension()
-                        .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
-                    {
-                        self.install_zip_drop(&path);
-                    }
+                        .is_some_and(|e| e.eq_ignore_ascii_case("zip")) =>
+                {
+                    self.install_zip_drop(&path);
                 }
                 WindowEvent::HoveredFile(_) => (),
                 WindowEvent::HoveredFileCancelled => (),
