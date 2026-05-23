@@ -2,7 +2,7 @@
 
 use super::types::{
     AnimationConfig, ContentProvider, IslandContent, Plugin, PluginError, PluginGetInstanceFn,
-    PluginHandle, PluginInstanceC, PluginMetadata, PluginResultC, PluginType, Shortcut,
+    PluginHandle, PluginInstanceC, PluginMetadata, PluginResultC, PluginType, Shortcut, ShortcutC,
     ShortcutProvider, ThemeColors, ThemeProvider,
 };
 use libloading::Library;
@@ -69,7 +69,13 @@ impl NativePlugin {
         }
 
         let metadata = PluginMetadata::from(&instance.metadata);
-        let plugin_type = PluginType::from_u32(instance.plugin_type);
+        let plugin_type = PluginType::from_u32(instance.plugin_type).ok_or_else(|| {
+            PluginError::InvalidPlugin(format!(
+                "Plugin '{}' has unknown plugin_type: {}",
+                path.display(),
+                instance.plugin_type
+            ))
+        })?;
 
         let plugin = Self {
             metadata,
@@ -181,19 +187,62 @@ impl ThemeProvider for NativePlugin {
 
 impl ShortcutProvider for NativePlugin {
     fn get_shortcuts(&self) -> Vec<Shortcut> {
-        Vec::new()
+        let vtable = self.vtable();
+        let count = match vtable.get_shortcuts_count {
+            Some(f) => unsafe { f(self.handle) },
+            None => return Vec::new(),
+        };
+        let get_at = match vtable.get_shortcut_at {
+            Some(f) => f,
+            None => return Vec::new(),
+        };
+        let mut shortcuts = Vec::with_capacity(count as usize);
+        for i in 0..count {
+            let mut c = ShortcutC {
+                id: [0u8; 64],
+                name: [0u8; 128],
+                description: [0u8; 256],
+                icon: [0u8; 256],
+                hotkey: [0u8; 32],
+            };
+            unsafe { get_at(self.handle, i, &mut c) };
+            shortcuts.push(Shortcut {
+                id: super::types::read_c_str(&c.id),
+                name: super::types::read_c_str(&c.name),
+                description: super::types::read_c_str(&c.description),
+                icon: super::types::read_opt_c_str(&c.icon),
+                hotkey: super::types::read_opt_c_str(&c.hotkey),
+            });
+        }
+        shortcuts
     }
 
-    fn execute(&mut self, _shortcut_id: &str) -> Result<(), String> {
-        Ok(())
+    fn execute(&mut self, shortcut_id: &str) -> Result<(), String> {
+        let vtable = self.vtable();
+        match vtable.execute_shortcut {
+            Some(f) => {
+                let mut id_bytes = [0i8; 128];
+                let bytes = shortcut_id.as_bytes();
+                let len = bytes.len().min(127);
+                if bytes.len() > 127 {
+                    log::warn!("shortcut_id '{}' truncated to 127 bytes", shortcut_id);
+                }
+                for (i, &b) in bytes[..len].iter().enumerate() {
+                    id_bytes[i] = b as i8;
+                }
+                unsafe { f(self.handle, id_bytes.as_ptr()).into_result() }
+            }
+            None => Err("Plugin does not support execute_shortcut".into()),
+        }
     }
 }
 
 impl Drop for NativePlugin {
     fn drop(&mut self) {
         let vtable = self.vtable();
-        // SAFETY: destroy frees the plugin state. Called exactly once in Drop.
-        // Failure to invoke this is a plugin bug.
-        unsafe { (vtable.destroy)(self.handle) };
+        unsafe {
+            let _ = (vtable.on_unload)(self.handle);
+            (vtable.destroy)(self.handle);
+        }
     }
 }

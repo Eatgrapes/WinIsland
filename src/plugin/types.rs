@@ -5,15 +5,15 @@ use serde::{Deserialize, Serialize};
 pub use winisland_plugin_api::{
     AnimationConfigC, ISLAND_CONTENT_TAG_MUSIC, ISLAND_CONTENT_TAG_NOTIFICATION,
     ISLAND_CONTENT_TAG_STATUS, IslandContentC, PluginGetInstanceFn, PluginHandle, PluginInstanceC,
-    PluginMetadataC, PluginResultC, PluginType, PluginVTable, ThemeColorsC,
+    PluginMetadataC, PluginResultC, PluginType, PluginVTable, ShortcutC, ThemeColorsC,
 };
 
-fn read_c_str(buf: &[u8]) -> String {
+pub fn read_c_str(buf: &[u8]) -> String {
     let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
     String::from_utf8_lossy(&buf[..end]).into_owned()
 }
 
-fn read_opt_c_str(buf: &[u8]) -> Option<String> {
+pub fn read_opt_c_str(buf: &[u8]) -> Option<String> {
     let s = read_c_str(buf);
     if s.is_empty() { None } else { Some(s) }
 }
@@ -86,11 +86,14 @@ impl From<&IslandContentC> for IslandContent {
                 value: read_c_str(&c.value),
                 icon: read_opt_c_str(&c.cover_url),
             },
-            _ => IslandContent::Status {
-                label: String::new(),
-                value: String::new(),
-                icon: None,
-            },
+            _ => {
+                log::warn!("Unknown IslandContent tag: {}", c.tag);
+                IslandContent::Status {
+                    label: String::new(),
+                    value: String::new(),
+                    icon: None,
+                }
+            }
         }
     }
 }

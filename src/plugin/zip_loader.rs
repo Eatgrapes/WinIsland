@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use serde::Deserialize;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -54,7 +56,7 @@ fn read_zip_entry(zip: &mut zip::ZipArchive<std::fs::File>, name: &str) -> Optio
     Some(buf)
 }
 
-pub fn validate_zip(zip_path: &Path) -> Result<bool, String> {
+pub fn validate_zip(zip_path: &Path) -> Result<(), String> {
     let file = std::fs::File::open(zip_path).map_err(|e| format!("Cannot open zip: {}", e))?;
     let zip = zip::ZipArchive::new(file).map_err(|e| format!("Invalid zip: {}", e))?;
 
@@ -67,7 +69,7 @@ pub fn validate_zip(zip_path: &Path) -> Result<bool, String> {
     if !has_dll {
         return Err("Missing .dll in zip".into());
     }
-    Ok(true)
+    Ok(())
 }
 
 pub fn read_manifest_from_zip(zip_path: &Path) -> Result<PluginManifest, String> {
@@ -106,6 +108,13 @@ pub fn extract_plugin(
             .by_index(i)
             .map_err(|e| format!("Zip read error: {}", e))?;
         let name = entry.name().to_string();
+        if name.split(['/', '\\']).any(|c| c == "..")
+            || name.starts_with('/')
+            || name.starts_with('\\')
+            || name.contains(':')
+        {
+            return Err(format!("Zip entry '{}' has unsafe path", name));
+        }
         let out_path = dest.join(&name);
         if let Some(parent) = out_path.parent() {
             std::fs::create_dir_all(parent).ok();

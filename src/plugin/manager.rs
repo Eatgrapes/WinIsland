@@ -6,10 +6,10 @@ use super::types::{
 };
 use super::zip_loader::{self, PluginManifest};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
 pub struct PluginManager {
-    entries: Arc<RwLock<Vec<NativePlugin>>>,
+    entries: RwLock<Vec<NativePlugin>>,
     plugin_dir: PathBuf,
 }
 
@@ -19,7 +19,7 @@ impl PluginManager {
         let _ = std::fs::create_dir_all(&plugin_dir);
 
         Self {
-            entries: Arc::new(RwLock::new(Vec::new())),
+            entries: RwLock::new(Vec::new()),
             plugin_dir,
         }
     }
@@ -41,6 +41,11 @@ impl PluginManager {
                 );
                 if let Ok(mut entries) = self.entries.write() {
                     entries.push(native);
+                } else {
+                    log::error!(
+                        "Lock poisoned while adding plugin '{}'",
+                        native.metadata().id
+                    );
                 }
             }
             Err(e) => {
@@ -70,7 +75,7 @@ impl PluginManager {
         zip_loader::read_manifest_from_zip(zip_path)
     }
 
-    pub fn validate_zip(&self, zip_path: &Path) -> Result<bool, String> {
+    pub fn validate_zip(&self, zip_path: &Path) -> Result<(), String> {
         zip_loader::validate_zip(zip_path)
     }
 
@@ -223,21 +228,30 @@ fn discover_plugins(plugin_dir: &Path) -> Vec<PathBuf> {
     }
 
     let mut result = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(plugin_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                if let Ok(sub) = std::fs::read_dir(&path) {
-                    for e in sub.flatten() {
-                        let p = e.path();
-                        if p.extension().is_some_and(|ext| ext == "dll") {
-                            result.push(p);
+    match std::fs::read_dir(plugin_dir) {
+        Ok(entries) => {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Ok(sub) = std::fs::read_dir(&path) {
+                        for e in sub.flatten() {
+                            let p = e.path();
+                            if p.extension().is_some_and(|ext| ext == "dll") {
+                                result.push(p);
+                            }
                         }
                     }
+                } else if path.extension().is_some_and(|ext| ext == "dll") {
+                    result.push(path);
                 }
-            } else if path.extension().is_some_and(|ext| ext == "dll") {
-                result.push(path);
             }
+        }
+        Err(e) => {
+            log::warn!(
+                "Failed to read plugin directory '{}': {}",
+                plugin_dir.display(),
+                e
+            );
         }
     }
     result
