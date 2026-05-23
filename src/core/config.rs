@@ -5,6 +5,81 @@ pub const APP_HOMEPAGE: &str = "https://github.com/Eatgrapes/WinIsland";
 pub const WINDOW_TITLE: &str = "WinIsland";
 pub const TOP_OFFSET: i32 = 10;
 pub const PADDING: f32 = 80.0;
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(from = "String", into = "String")]
+#[derive(Default)]
+pub enum DockPosition {
+    #[default]
+    TopCenter,
+    TopLeft,
+    TopRight,
+    BottomCenter,
+    BottomLeft,
+    BottomRight,
+}
+
+impl DockPosition {
+    pub fn is_bottom(&self) -> bool {
+        matches!(
+            self,
+            Self::BottomCenter | Self::BottomLeft | Self::BottomRight
+        )
+    }
+
+    pub fn is_left(&self) -> bool {
+        matches!(self, Self::TopLeft | Self::BottomLeft)
+    }
+
+    pub fn is_right(&self) -> bool {
+        matches!(self, Self::TopRight | Self::BottomRight)
+    }
+
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::TopCenter => "top_center",
+            Self::TopLeft => "top_left",
+            Self::TopRight => "top_right",
+            Self::BottomCenter => "bottom_center",
+            Self::BottomLeft => "bottom_left",
+            Self::BottomRight => "bottom_right",
+        }
+    }
+}
+
+impl std::fmt::Display for DockPosition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for DockPosition {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "top_center" => Ok(Self::TopCenter),
+            "top_left" => Ok(Self::TopLeft),
+            "top_right" => Ok(Self::TopRight),
+            "bottom_center" => Ok(Self::BottomCenter),
+            "bottom_left" => Ok(Self::BottomLeft),
+            "bottom_right" => Ok(Self::BottomRight),
+            _ => Err(()),
+        }
+    }
+}
+
+impl From<String> for DockPosition {
+    fn from(value: String) -> Self {
+        value.parse().unwrap_or_default()
+    }
+}
+
+impl From<DockPosition> for String {
+    fn from(value: DockPosition) -> Self {
+        value.as_str().to_string()
+    }
+}
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct AppConfig {
     pub global_scale: f32,
@@ -50,10 +125,22 @@ pub struct AppConfig {
     pub position_x_offset: i32,
     #[serde(default = "default_position_y_offset")]
     pub position_y_offset: i32,
+    #[serde(default = "default_dock_position")]
+    pub dock_position: DockPosition,
     #[serde(default = "default_monitor_index")]
     pub monitor_index: i32,
     #[serde(default = "default_font_size")]
     pub font_size: f32,
+    #[serde(default = "default_settings_theme")]
+    pub settings_theme: String,
+    #[serde(default = "default_mini_cover_shape")]
+    pub mini_cover_shape: String,
+    #[serde(default = "default_expanded_cover_shape")]
+    pub expanded_cover_shape: String,
+    #[serde(default = "default_cover_rotate")]
+    pub cover_rotate: bool,
+    #[serde(default = "default_audio_gate")]
+    pub audio_gate: bool,
 }
 
 fn default_island_style() -> String {
@@ -124,12 +211,36 @@ fn default_position_y_offset() -> i32 {
     0
 }
 
+fn default_dock_position() -> DockPosition {
+    DockPosition::TopCenter
+}
+
 fn default_monitor_index() -> i32 {
     0
 }
 
 fn default_font_size() -> f32 {
     0.0
+}
+
+fn default_settings_theme() -> String {
+    "system".to_string()
+}
+
+fn default_mini_cover_shape() -> String {
+    "square".to_string()
+}
+
+fn default_expanded_cover_shape() -> String {
+    "square".to_string()
+}
+
+fn default_cover_rotate() -> bool {
+    false
+}
+
+fn default_audio_gate() -> bool {
+    true
 }
 
 impl Default for AppConfig {
@@ -161,8 +272,14 @@ impl Default for AppConfig {
             lyrics_scroll_max_width: 300.0,
             position_x_offset: 0,
             position_y_offset: 0,
+            dock_position: DockPosition::TopCenter,
             monitor_index: 0,
             font_size: 0.0,
+            settings_theme: "system".to_string(),
+            mini_cover_shape: "square".to_string(),
+            expanded_cover_shape: "square".to_string(),
+            cover_rotate: false,
+            audio_gate: true,
         }
     }
 }

@@ -1,0 +1,77 @@
+name: 改进请求 | Improvement Request
+description: 请求对现有功能|实现进行改进（重构、性能、可维护性等）| Request improvements to existing behavior|code
+title: "[Improve] "
+labels: ["improvement", "pending"]
+assignees: []
+body:
+  - type: input
+    id: area
+    attributes:
+      label: 改进领域 | Area
+      description: 指定要改进的模块或功能（例如 `src|core|render.rs`、`src|utils|physics.rs`）| Affected module or feature
+      placeholder: 例如：src|core|render.rs
+    validations:
+      required: true
+
+  - type: textarea
+    id: current_behavior
+    attributes:
+      label: 当前行为 | Current behavior
+      description: 目前的实现如何工作，存在的问题或痛点是什么| Describe current behavior and pain points
+      placeholder: 描述现状 | Describe current behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_change
+    attributes:
+      label: 建议的改动 | Proposed change
+      description: 具体要修改的内容，是否会改变外部接口或配置（尽量给示例）| What to change, include examples if possible
+      placeholder: 建议的代码|配置修改示例 | Proposed code|config changes
+    validations:
+      required: true
+
+  - type: textarea
+    id: benefit
+    attributes:
+      label: 改进的收益 | Benefit
+      description: 性能、可维护性、用户体验等方面的预期提升| Expected benefits (perf, maintainability, UX)
+      placeholder: 改进带来的具体好处 | Expected benefits
+    validations:
+      required: true
+
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: 向后兼容性 | Backward compatibility
+      description: 是否会破坏现有配置或 API，是否需要迁移步骤 | Will it be breaking? Migration steps?
+      placeholder: 如需迁移请说明步骤 | Migration steps if any
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: 目标版本 | Target version
+      description: 填写目标版本或 nightly| nightly if unknown
+      placeholder: nightly
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: 参考 & 相关 issue | References
+      description: 相关 PR、issue 或代码片段链接（例如与 `src|ui|expanded` 相关）| Related PRs, issues or code links
+      placeholder: 相关链接 | related links
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: 备注 | Additional notes
+      description: 其他补充信息| any other notes
+      placeholder: 其他信息 | additional notes
+    validations:
+      required: false

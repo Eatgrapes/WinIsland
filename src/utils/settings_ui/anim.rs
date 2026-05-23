@@ -14,7 +14,10 @@ impl SwitchAnimator {
 
     pub fn new_with_anims(source: &SwitchAnimator, indices: &[usize]) -> Self {
         let positions: Vec<f32> = indices.iter().map(|&i| source.get(i)).collect();
-        let targets: Vec<f32> = indices.iter().map(|&i| source.targets.get(i).copied().unwrap_or(0.0)).collect();
+        let targets: Vec<f32> = indices
+            .iter()
+            .map(|&i| source.targets.get(i).copied().unwrap_or(0.0))
+            .collect();
         Self { positions, targets }
     }
 
@@ -38,5 +41,14 @@ impl SwitchAnimator {
             }
         }
         changed
+    }
+
+    pub fn is_animating(&self) -> bool {
+        for i in 0..self.positions.len() {
+            if (self.targets[i] - self.positions[i]).abs() > 0.01 {
+                return true;
+            }
+        }
+        false
     }
 }

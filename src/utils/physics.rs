@@ -15,4 +15,3 @@ impl Spring {
         self.value += self.velocity * dt;
     }
 }
-

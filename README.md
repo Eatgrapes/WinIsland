@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="resources/info-en.png" width="350">
+  <img src="resources/info-en.png" width="350" alt="">
 </p>
 
 ## WinIsland
@@ -28,8 +28,10 @@ cargo build --release
 
 ## Contributes 
 We encourage contributions
-If you have the energy or interest,PR are welcome
+
+If you have the energy or interest, PR are welcome
+
+And You should see [Contributing](CONTRIBUTING.md)
 
 ## LICENCE
 [MIT](LICENSE)
-

@@ -1,5 +1,5 @@
-use skia_safe::{Canvas, Color, Paint};
 use crate::icons::arrows::draw_arrow_left;
+use skia_safe::{Canvas, Color, Paint};
 
 pub fn draw_widget_page(canvas: &Canvas, ox: f32, oy: f32, w: f32, h: f32, alpha: u8, scale: f32) {
     let arrow_alpha = alpha;

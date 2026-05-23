@@ -1,14 +1,13 @@
+use crate::core::lyrics::{LyricLine, fetch_lyrics};
+use crate::core::persistence::{load_config, save_config};
 use std::sync::Arc;
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
-use windows::Media::Control::{
-    GlobalSystemMediaTransportControlsSessionManager,
-    GlobalSystemMediaTransportControlsSession,
-};
 use windows::Foundation::TypedEventHandler;
-use crate::core::persistence::{load_config, save_config};
-use crate::core::lyrics::{LyricLine, fetch_lyrics};
+use windows::Media::Control::{
+    GlobalSystemMediaTransportControlsSession, GlobalSystemMediaTransportControlsSessionManager,
+};
 
 #[derive(Clone, Debug)]
 pub struct MediaInfo {
@@ -50,9 +49,21 @@ impl Default for MediaInfo {
 }
 
 impl MediaInfo {
+    pub fn effective_duration_ms(&self) -> u64 {
+        if self.duration_ms > 0 {
+            self.duration_ms
+        } else if self.duration_secs > 0 {
+            self.duration_secs * 1000
+        } else {
+            0
+        }
+    }
+
     pub fn current_lyric(&self, delay_ms: i64) -> Option<String> {
         let lyrics = self.lyrics.as_ref()?;
-        if lyrics.is_empty() { return None; }
+        if lyrics.is_empty() {
+            return None;
+        }
 
         let raw_pos = if self.is_playing {
             self.position_ms + self.last_update.elapsed().as_millis() as u64
@@ -108,15 +119,23 @@ impl SmtcListener {
         let cancel = cancel_token.clone();
         tokio::task::spawn_blocking(move || {
             smtc_poll_loop(
-                info_tx, seek_rx, playback_rx,
-                lyrics_source_rx, lyrics_fallback_rx, allowed_apps_rx,
+                info_tx,
+                seek_rx,
+                playback_rx,
+                lyrics_source_rx,
+                lyrics_fallback_rx,
+                allowed_apps_rx,
                 cancel,
             );
         });
 
         Self {
-            info_rx, seek_tx, playback_tx,
-            lyrics_source_tx, lyrics_fallback_tx, allowed_apps_tx,
+            info_rx,
+            seek_tx,
+            playback_tx,
+            lyrics_source_tx,
+            lyrics_fallback_tx,
+            allowed_apps_tx,
             cancel_token,
         }
     }
@@ -179,10 +198,12 @@ fn smtc_poll_loop(
 
     // COM event bridge: COM callback -> std::sync::mpsc -> polling loop
     let (event_tx, event_rx) = std::sync::mpsc::channel::<()>();
-    let handler = TypedEventHandler::new(move |_m: &Option<GlobalSystemMediaTransportControlsSessionManager>, _| {
-        let _ = event_tx.send(());
-        Ok(())
-    });
+    let handler = TypedEventHandler::new(
+        move |_m: &Option<GlobalSystemMediaTransportControlsSessionManager>, _| {
+            let _ = event_tx.send(());
+            Ok(())
+        },
+    );
     let _ = manager.SessionsChanged(&handler);
 
     // Local state mirrored from channels
@@ -191,15 +212,23 @@ fn smtc_poll_loop(
     let mut current_allowed_apps: Vec<String> = Vec::new();
 
     // Drain initial config values from channels
-    while let Ok(src) = lyrics_source_rx.try_recv() { current_lyrics_source = src; }
-    while let Ok(fb) = lyrics_fallback_rx.try_recv() { current_lyrics_fallback = fb; }
-    while let Ok(apps) = allowed_apps_rx.try_recv() { current_allowed_apps = apps; }
+    while let Ok(src) = lyrics_source_rx.try_recv() {
+        current_lyrics_source = src;
+    }
+    while let Ok(fb) = lyrics_fallback_rx.try_recv() {
+        current_lyrics_fallback = fb;
+    }
+    while let Ok(apps) = allowed_apps_rx.try_recv() {
+        current_allowed_apps = apps;
+    }
 
     // Initial update
     update_media_info(
-        &manager, &info_tx,
-        &current_lyrics_source, current_lyrics_fallback,
-        &current_allowed_apps,
+        &manager,
+        &info_tx,
+        &current_lyrics_source,
+        current_lyrics_fallback,
+        &mut current_allowed_apps,
     );
 
     let mut last_manager_refresh = Instant::now();
@@ -208,11 +237,11 @@ fn smtc_poll_loop(
     while !cancel.is_cancelled() {
         // Refresh manager every 30 seconds
         if last_manager_refresh.elapsed() > Duration::from_secs(30) {
-            if let Ok(new_mgr_op) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
-                if let Ok(new_mgr) = new_mgr_op.get() {
-                    current_manager = new_mgr;
-                    let _ = current_manager.SessionsChanged(&handler);
-                }
+            if let Ok(new_mgr_op) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
+                && let Ok(new_mgr) = new_mgr_op.get()
+            {
+                current_manager = new_mgr;
+                let _ = current_manager.SessionsChanged(&handler);
             }
             last_manager_refresh = Instant::now();
         }
@@ -232,7 +261,9 @@ fn smtc_poll_loop(
                     let info_tx_clone = info_tx.clone();
                     drop(info);
                     tokio::spawn(async move {
-                        if let Some(lyrics) = fetch_lyrics(&title, &artist, duration, &src, fb).await {
+                        if let Some(lyrics) =
+                            fetch_lyrics(&title, &artist, duration, &src, fb).await
+                        {
                             let current = info_tx_clone.borrow();
                             if current.title == title && current.artist == artist {
                                 drop(current);
@@ -245,20 +276,29 @@ fn smtc_poll_loop(
                 }
             }
         }
-        while let Ok(fb) = lyrics_fallback_rx.try_recv() { current_lyrics_fallback = fb; }
-        while let Ok(apps) = allowed_apps_rx.try_recv() { current_allowed_apps = apps; }
+        while let Ok(fb) = lyrics_fallback_rx.try_recv() {
+            current_lyrics_fallback = fb;
+        }
+        while let Ok(apps) = allowed_apps_rx.try_recv() {
+            current_allowed_apps = apps;
+        }
 
-        // Handle seek request
-        if let Ok(Some(seek_pos)) = seek_rx.try_recv().map(|v| Some(v)) {
-            if let Some(session) = get_target_session(&current_manager, &current_allowed_apps) {
-                let ticks = seek_pos as i64 * 10_000;
-                let _ = session.TryChangePlaybackPositionAsync(ticks);
-                let mut info = info_tx.borrow().clone();
-                info.position_ms = seek_pos;
-                info.last_update = Instant::now();
-                info.last_smtc_pos = seek_pos;
-                let _ = info_tx.send(info);
-            }
+        // Handle seek request (keep only the latest)
+        let mut seek_pos = None;
+        while let Ok(v) = seek_rx.try_recv() {
+            seek_pos = Some(v);
+        }
+        if let Some(seek_pos) = seek_pos
+            && let Some(session) = get_target_session(&current_manager, &current_allowed_apps)
+        {
+            let ticks = seek_pos as i64 * 10_000;
+            let _ = session.TryChangePlaybackPositionAsync(ticks);
+            let mut info = info_tx.borrow().clone();
+            info.position_ms = seek_pos;
+            info.last_update = Instant::now();
+            // Do not update last_smtc_pos here: SMTC timeline can lag after seek, and treating
+            // seek_pos as authoritative would make the next poll think SMTC changed and sync back.
+            let _ = info_tx.send(info);
         }
 
         // Handle playback commands
@@ -266,18 +306,22 @@ fn smtc_poll_loop(
             if let Some(session) = get_target_session(&current_manager, &current_allowed_apps) {
                 match cmd {
                     PlaybackCommand::Toggle => {
-                        if let Ok(pb_info) = session.GetPlaybackInfo() {
-                            if let Ok(status) = pb_info.PlaybackStatus() {
-                                if status == windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
+                        if let Ok(pb_info) = session.GetPlaybackInfo()
+                            && let Ok(status) = pb_info.PlaybackStatus()
+                        {
+                            if status == windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
                                     let _ = session.TryPauseAsync();
                                 } else {
                                     let _ = session.TryPlayAsync();
                                 }
-                            }
                         }
                     }
-                    PlaybackCommand::Next => { let _ = session.TrySkipNextAsync(); }
-                    PlaybackCommand::Prev => { let _ = session.TrySkipPreviousAsync(); }
+                    PlaybackCommand::Next => {
+                        let _ = session.TrySkipNextAsync();
+                    }
+                    PlaybackCommand::Prev => {
+                        let _ = session.TrySkipPreviousAsync();
+                    }
                 }
             }
         }
@@ -285,17 +329,21 @@ fn smtc_poll_loop(
         // Check COM events
         if event_rx.try_recv().is_ok() {
             update_media_info(
-                &current_manager, &info_tx,
-                &current_lyrics_source, current_lyrics_fallback,
-                &current_allowed_apps,
+                &current_manager,
+                &info_tx,
+                &current_lyrics_source,
+                current_lyrics_fallback,
+                &mut current_allowed_apps,
             );
         }
 
         // Regular update
         update_media_info(
-            &current_manager, &info_tx,
-            &current_lyrics_source, current_lyrics_fallback,
-            &current_allowed_apps,
+            &current_manager,
+            &info_tx,
+            &current_lyrics_source,
+            current_lyrics_fallback,
+            &mut current_allowed_apps,
         );
 
         std::thread::sleep(Duration::from_millis(300));
@@ -307,9 +355,9 @@ fn update_media_info(
     info_tx: &watch::Sender<MediaInfo>,
     lyrics_source: &str,
     lyrics_fallback: bool,
-    allowed_apps: &[String],
+    allowed_apps: &mut Vec<String>,
 ) {
-    auto_allow_new_apps(manager, allowed_apps);
+    *allowed_apps = auto_allow_new_apps(manager, allowed_apps);
 
     if let Some(session) = get_target_session(manager, allowed_apps) {
         let _ = fetch_properties(&session, info_tx, lyrics_source, lyrics_fallback);
@@ -322,42 +370,41 @@ fn update_media_info(
     }
 }
 
-fn auto_allow_new_apps(mgr: &GlobalSystemMediaTransportControlsSessionManager, allowed: &[String]) -> Vec<String> {
+fn auto_allow_new_apps(
+    mgr: &GlobalSystemMediaTransportControlsSessionManager,
+    allowed: &[String],
+) -> Vec<String> {
     let mut new_allowed = allowed.to_vec();
-    if let Ok(sessions) = mgr.GetSessions() {
-        if let Ok(count) = sessions.Size() {
-            for i in 0..count {
-                if let Ok(session) = sessions.GetAt(i) {
-                    if let Ok(pb_info) = session.GetPlaybackInfo() {
-                        if let Ok(playback_type) = pb_info.PlaybackType() {
-                            if let Ok(value) = playback_type.Value() {
-                                if value == windows::Media::MediaPlaybackType::Music {
-                                    if let Ok(id) = session.SourceAppUserModelId() {
-                                        let app_id = id.to_string();
-                                        let mut config = load_config();
-                                        let mut changed = false;
+    if let Ok(sessions) = mgr.GetSessions()
+        && let Ok(count) = sessions.Size()
+    {
+        for i in 0..count {
+            if let Ok(session) = sessions.GetAt(i)
+                && let Ok(pb_info) = session.GetPlaybackInfo()
+                && let Ok(playback_type) = pb_info.PlaybackType()
+                && let Ok(value) = playback_type.Value()
+                && value == windows::Media::MediaPlaybackType::Music
+                && let Ok(id) = session.SourceAppUserModelId()
+            {
+                let app_id = id.to_string();
+                let mut config = load_config();
+                let mut changed = false;
 
-                                        if !config.smtc_known_apps.contains(&app_id) {
-                                            let is_first_run = config.smtc_known_apps.is_empty();
-                                            config.smtc_known_apps.push(app_id.clone());
+                if !config.smtc_known_apps.contains(&app_id) {
+                    let is_first_run = config.smtc_known_apps.is_empty();
+                    config.smtc_known_apps.push(app_id.clone());
 
-                                            if is_first_run && !config.smtc_apps.contains(&app_id) {
-                                                config.smtc_apps.push(app_id.clone());
-                                                if !new_allowed.contains(&app_id) {
-                                                    new_allowed.push(app_id);
-                                                }
-                                            }
-                                            changed = true;
-                                        }
-
-                                        if changed {
-                                            save_config(&config);
-                                        }
-                                    }
-                                }
-                            }
+                    if is_first_run && !config.smtc_apps.contains(&app_id) {
+                        config.smtc_apps.push(app_id.clone());
+                        if !new_allowed.contains(&app_id) {
+                            new_allowed.push(app_id);
                         }
                     }
+                    changed = true;
+                }
+
+                if changed {
+                    save_config(&config);
                 }
             }
         }
@@ -365,36 +412,37 @@ fn auto_allow_new_apps(mgr: &GlobalSystemMediaTransportControlsSessionManager, a
     new_allowed
 }
 
-fn get_target_session(mgr: &GlobalSystemMediaTransportControlsSessionManager, allowed: &[String]) -> Option<GlobalSystemMediaTransportControlsSession> {
+fn get_target_session(
+    mgr: &GlobalSystemMediaTransportControlsSessionManager,
+    allowed: &[String],
+) -> Option<GlobalSystemMediaTransportControlsSession> {
     if allowed.is_empty() {
         return None;
     }
     let mut audio_session = None;
-    if let Ok(sessions) = mgr.GetSessions() {
-        if let Ok(count) = sessions.Size() {
-            for i in 0..count {
-                if let Ok(session) = sessions.GetAt(i) {
-                    if let Ok(id) = session.SourceAppUserModelId() {
-                        let app_id = id.to_string();
-                        if !allowed.iter().any(|a| a == &app_id) {
-                            continue;
-                        }
-                    } else {
+    if let Ok(sessions) = mgr.GetSessions()
+        && let Ok(count) = sessions.Size()
+    {
+        for i in 0..count {
+            if let Ok(session) = sessions.GetAt(i) {
+                if let Ok(id) = session.SourceAppUserModelId() {
+                    let app_id = id.to_string();
+                    if !allowed.iter().any(|a| a == &app_id) {
                         continue;
                     }
-                    if !is_music_session(&session) {
-                        continue;
-                    }
-                    if let Ok(pb_info) = session.GetPlaybackInfo() {
-                        if let Ok(status) = pb_info.PlaybackStatus() {
-                            if status == windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
+                } else {
+                    continue;
+                }
+                if !is_music_session(&session) {
+                    continue;
+                }
+                if let Ok(pb_info) = session.GetPlaybackInfo()
+                        && let Ok(status) = pb_info.PlaybackStatus()
+                            && status == windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
                                 return Some(session);
                             }
-                        }
-                    }
-                    if audio_session.is_none() {
-                        audio_session = Some(session);
-                    }
+                if audio_session.is_none() {
+                    audio_session = Some(session);
                 }
             }
         }
@@ -419,14 +467,12 @@ fn get_target_session(mgr: &GlobalSystemMediaTransportControlsSessionManager, al
 }
 
 fn is_music_session(session: &GlobalSystemMediaTransportControlsSession) -> bool {
-    if let Ok(pb_info) = session.GetPlaybackInfo() {
-        if let Ok(playback_type) = pb_info.PlaybackType() {
-            if let Ok(value) = playback_type.Value() {
-                if value == windows::Media::MediaPlaybackType::Video {
-                    return false;
-                }
-            }
-        }
+    if let Ok(pb_info) = session.GetPlaybackInfo()
+        && let Ok(playback_type) = pb_info.PlaybackType()
+        && let Ok(value) = playback_type.Value()
+        && value == windows::Media::MediaPlaybackType::Video
+    {
+        return false;
     }
     true
 }
@@ -454,22 +500,38 @@ fn fetch_properties(
         if let Ok(pos) = tl.Position() {
             let raw = pos.Duration;
             if raw > 0 { (raw / 10_000) as u64 } else { 0 }
-        } else { 0 }
-    } else { 0 };
+        } else {
+            0
+        }
+    } else {
+        0
+    };
 
     let duration_secs = if let Ok(tl) = session.GetTimelineProperties() {
         if let Ok(end) = tl.EndTime() {
             let raw = end.Duration;
-            if raw > 0 { (raw / 10_000_000) as u64 } else { 0 }
-        } else { 0 }
-    } else { 0 };
+            if raw > 0 {
+                (raw / 10_000_000) as u64
+            } else {
+                0
+            }
+        } else {
+            0
+        }
+    } else {
+        0
+    };
 
     let duration_ms_from_tl = if let Ok(tl) = session.GetTimelineProperties() {
         if let Ok(end) = tl.EndTime() {
             let raw = end.Duration;
             if raw > 0 { (raw / 10_000) as u64 } else { 0 }
-        } else { 0 }
-    } else { 0 };
+        } else {
+            0
+        }
+    } else {
+        0
+    };
 
     let new_title = props.Title()?.to_string();
     let new_artist = props.Artist()?.to_string();
@@ -479,7 +541,8 @@ fn fetch_properties(
 
     {
         let mut info = info_tx.borrow().clone();
-        let song_changed = info.title != new_title || info.artist != new_artist || info.album != new_album;
+        let song_changed =
+            info.title != new_title || info.artist != new_artist || info.album != new_album;
         if song_changed {
             info.title = new_title.clone();
             info.artist = new_artist.clone();
@@ -495,14 +558,15 @@ fn fetch_properties(
             info.last_thumbnail_fetch = Instant::now();
             should_fetch_lyrics = true;
             should_fetch_thumbnail = true;
-        } else if info.is_playing != is_playing && info.thumbnail.is_none() && !new_title.is_empty() {
-            info.last_thumbnail_fetch = Instant::now();
-            should_fetch_thumbnail = true;
-        } else if !new_title.is_empty() && info.last_thumbnail_fetch.elapsed() >= Duration::from_secs(5) {
+        } else if (info.is_playing != is_playing
+            && info.thumbnail.is_none()
+            && !new_title.is_empty())
+            || (!new_title.is_empty()
+                && info.last_thumbnail_fetch.elapsed() >= Duration::from_secs(5))
+        {
             info.last_thumbnail_fetch = Instant::now();
             should_fetch_thumbnail = true;
         }
-
         let current_extrapolated = if info.is_playing {
             info.position_ms + info.last_update.elapsed().as_millis() as u64
         } else {
@@ -511,20 +575,12 @@ fn fetch_properties(
 
         let smtc_changed = smtc_pos != info.last_smtc_pos;
         let diff_with_extrapolated = (smtc_pos as i64 - current_extrapolated as i64).abs();
+        let diff_from_last = (smtc_pos as i64 - info.position_ms as i64).abs();
 
-        let should_sync = if song_changed {
-            true
-        } else if info.is_playing != is_playing {
-            true
-        } else if smtc_changed && diff_with_extrapolated > 2000 {
-            true
-        } else if smtc_pos > 0 && info.position_ms == 0 {
-            true
-        } else if smtc_changed && !is_playing {
-            true
-        } else {
-            false
-        };
+        let should_sync = song_changed
+            || (info.is_playing != is_playing)
+            || (smtc_pos > 0 && info.position_ms == 0)
+            || (smtc_changed && (diff_with_extrapolated > 2000 || (!is_playing && diff_from_last > 500)));
 
         if should_sync {
             info.position_ms = smtc_pos;
@@ -543,25 +599,43 @@ fn fetch_properties(
         let session_clone = session.clone();
         let title_clone = new_title.clone();
         let artist_clone = new_artist.clone();
+        let is_song_change = should_fetch_lyrics;
         tokio::task::spawn_blocking(move || {
-            for _ in 0..10 {
-                let res = (|| -> windows::core::Result<Vec<u8>> {
+            if is_song_change {
+                std::thread::sleep(Duration::from_millis(800));
+            }
+            for attempt in 0..10 {
+                let res = (|| -> windows::core::Result<(String, String, Vec<u8>)> {
                     let props = session_clone.TryGetMediaPropertiesAsync()?.get()?;
+                    let fetched_title = props.Title()?.to_string();
+                    let fetched_artist = props.Artist()?.to_string();
+                    if fetched_title != title_clone || fetched_artist != artist_clone {
+                        return Err(windows::core::Error::new(windows::core::HRESULT(-2), "Stale properties"));
+                    }
                     let thumb_ref = props.Thumbnail()?;
                     let stream = thumb_ref.OpenReadAsync()?.get()?;
                     let size = stream.Size()?;
                     if size == 0 {
-                        return Err(windows::core::Error::new(windows::core::HRESULT(-1), "Empty thumbnail"));
+                        return Err(windows::core::Error::new(
+                            windows::core::HRESULT(-1),
+                            "Empty thumbnail",
+                        ));
                     }
                     let buffer = windows::Storage::Streams::Buffer::Create(size as u32)?;
-                    let res_buffer = stream.ReadAsync(&buffer, size as u32, windows::Storage::Streams::InputStreamOptions::None)?.get()?;
+                    let res_buffer = stream
+                        .ReadAsync(
+                            &buffer,
+                            size as u32,
+                            windows::Storage::Streams::InputStreamOptions::None,
+                        )?
+                        .get()?;
                     let reader = windows::Storage::Streams::DataReader::FromBuffer(&res_buffer)?;
                     let mut bytes = vec![0u8; size as usize];
                     reader.ReadBytes(&mut bytes)?;
-                    Ok(bytes)
+                    Ok((fetched_title, fetched_artist, bytes))
                 })();
 
-                if let Ok(bytes) = res {
+                if let Ok((_t, _a, bytes)) = res {
                     use std::collections::hash_map::DefaultHasher;
                     use std::hash::{Hash, Hasher};
                     let mut hasher = DefaultHasher::new();
@@ -569,18 +643,20 @@ fn fetch_properties(
                     let hash = hasher.finish();
 
                     let current = info_tx_clone.borrow();
-                    if current.title == title_clone && current.artist == artist_clone {
-                        if current.thumbnail_hash != hash {
-                            drop(current);
-                            let mut new_info = info_tx_clone.borrow().clone();
-                            new_info.thumbnail = Some(Arc::new(bytes));
-                            new_info.thumbnail_hash = hash;
-                            let _ = info_tx_clone.send(new_info);
-                        }
+                    if current.title == title_clone
+                        && current.artist == artist_clone
+                        && current.thumbnail_hash != hash
+                    {
+                        drop(current);
+                        let mut new_info = info_tx_clone.borrow().clone();
+                        new_info.thumbnail = Some(Arc::new(bytes));
+                        new_info.thumbnail_hash = hash;
+                        let _ = info_tx_clone.send(new_info);
                     }
                     return;
                 }
-                std::thread::sleep(Duration::from_millis(500));
+                let delay = if attempt < 3 { 300 } else { 500 };
+                std::thread::sleep(Duration::from_millis(delay));
             }
         });
     }

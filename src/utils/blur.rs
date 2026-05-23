@@ -4,4 +4,3 @@ pub fn calculate_blur_sigmas(vel_w: f32, vel_h: f32, vel_view: f32, current_w: f
     let sy = (vel_h.abs() * 0.3).min(10.0);
     (sx, sy)
 }
-

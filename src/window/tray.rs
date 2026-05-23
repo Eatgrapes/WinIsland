@@ -14,9 +14,9 @@ pub struct TrayManager {
 impl TrayManager {
     pub fn new(is_light: bool) -> Self {
         let menu = Menu::new();
-        let toggle_item = MenuItem::new(&tr("tray_hide"), true, None);
-        let settings_item = MenuItem::new(&tr("tray_settings"), true, None);
-        let quit_item = MenuItem::new(&tr("tray_exit"), true, None);
+        let toggle_item = MenuItem::new(tr("tray_hide"), true, None);
+        let settings_item = MenuItem::new(tr("tray_settings"), true, None);
+        let quit_item = MenuItem::new(tr("tray_exit"), true, None);
         let _ = menu.append(&toggle_item);
         let _ = menu.append(&settings_item);
         let _ = menu.append(&quit_item);
@@ -45,9 +45,9 @@ impl TrayManager {
 
     pub fn update_item_text(&self, visible: bool) {
         if visible {
-            self.toggle_item.set_text(&tr("tray_hide"));
+            self.toggle_item.set_text(tr("tray_hide"));
         } else {
-            self.toggle_item.set_text(&tr("tray_show"));
+            self.toggle_item.set_text(tr("tray_show"));
         }
     }
 
@@ -57,7 +57,8 @@ impl TrayManager {
         } else {
             include_bytes!("../../resources/icon.png")
         };
-        let image = image::load_from_memory(icon_bytes).expect("Failed to load icon from resources");
+        let image =
+            image::load_from_memory(icon_bytes).expect("Failed to load icon from resources");
         let rgba = image.to_rgba8();
         let (width, height) = rgba.dimensions();
         let rgba_vec = rgba.into_raw();
@@ -82,4 +83,3 @@ pub enum TrayAction {
     OpenSettings,
     Exit,
 }
-

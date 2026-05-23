@@ -1,0 +1,86 @@
+name: 新功能 请求 | Feature Request
+description: 请求添加新功能或重要新特性 | Request a new feature or major enhancement
+title: "[Feature] "
+labels: ["enhancement", "pending"]
+assignees: []
+body:
+  - type: input
+    id: summary
+    attributes:
+      label: 功能简介 | Summary
+      description: 用一句话概括要请求的功能 |One-line summary of the requested feature
+      placeholder: 简要说明你想要的功能 | One-line summary
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: 需求动机 | Motivation
+      description: 为什么需要这个功能？解决了什么问题？|Why is this needed and what problem does it solve?
+      placeholder: 说明该功能的必要性 | Explain why this feature is needed
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议的实现方案 | Proposed design or implementation
+      description: 可选 - 给出你对实现方式的建议（接口、配置、UI、数据流等）|Optional - propose design (API, config, UI, data flow)
+      placeholder: 详细描述你的方案或示例代码 | Describe proposal or example
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 替代方案 | Alternatives considered
+      description: 如果有其他可行方案请列出，或者说明为何这些方案不可接受|Other possible approaches and why they are less suitable
+      placeholder: 替代方案或权衡 | Alternatives or trade-offs
+    validations:
+      required: false
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: 影响范围 | Impact
+      description: 该功能将影响哪些模块（如 `src|core`, `src|ui`, `window` 等）|Which modules will be affected (e.g., `src|core`, `src|ui`)
+      placeholder: 列出受影响的文件或模块 | Affected files or modules
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 目标版本 (请填写 nightly 或预期版本) | Target version
+      description: 软件版本或 milestone（当前版本系统不完善请填写 nightly）| nightly if unknown
+      placeholder: nightly
+    validations:
+      required: true
+
+  - type: textarea
+    id: mockups
+    attributes:
+      label: UI 草图 | Mockups
+      description: 可选 - 上传或粘贴 UI 草图、链接或截图|Optional - attach mockups or links
+      placeholder: 粘贴图片链接或说明 | paste image link or description
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准 | Acceptance criteria
+      description: 列出完成后如何验证功能已实现（可被自动化或手动验证）|How to verify the feature is complete
+      placeholder: 列出验收步骤 | Acceptance steps
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: 备注 | Additional notes
+      description: 其他补充信息|any additional information
+      placeholder: 其他信息 | additional notes
+    validations:
+      required: false

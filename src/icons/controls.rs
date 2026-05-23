@@ -38,7 +38,14 @@ pub fn draw_pause_button(canvas: &Canvas, cx: f32, cy: f32, alpha: u8, scale: f3
     }
 }
 
-pub fn draw_control_triangle(canvas: &Canvas, cx: f32, cy: f32, alpha: u8, path_scale: f32, global_scale: f32) {
+pub fn draw_control_triangle(
+    canvas: &Canvas,
+    cx: f32,
+    cy: f32,
+    alpha: u8,
+    path_scale: f32,
+    global_scale: f32,
+) {
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
     paint.set_color(Color::from_argb(alpha, 255, 255, 255));

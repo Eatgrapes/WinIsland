@@ -29,7 +29,10 @@ cargo build --release
 
 ## 贡献
 我们欢迎任何形式的贡献！
+
 如果你有精力或兴趣，欢迎提交 PR。
+
+在提PR前，请先看[Contributing](./Docs/CONTRIBUTING-zh.md)
 
 ## 许可证
 [MIT](LICENSE)

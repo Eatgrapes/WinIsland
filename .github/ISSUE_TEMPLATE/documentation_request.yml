@@ -1,0 +1,23 @@
+name: 文档更新请求 | Documentation Update Request
+description: 请求更新文档内容 | Request updates to documentation
+title: "[Docs] "
+labels: ["documentation", "pending"]
+assignees: []
+body:
+  - type: textarea
+    id: content
+    attributes:
+      label: 文档更新内容描述 | description of the documentation update
+      description: 哪个Docs？更新什么？ | Which Docs? What to update?
+      placeholder: Which Docs? What to update?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: 理由 | reason
+      description: 说明你为什么想要更新这个内容 | explain why you want to update this content
+      placeholder: explain why you want to update this content
+    validations:
+      required: true

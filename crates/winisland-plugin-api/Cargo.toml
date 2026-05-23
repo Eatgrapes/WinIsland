@@ -1,0 +1,5 @@
+[package]
+name = "winisland-plugin-api"
+version = "0.1.0"
+edition = "2024"
+description = "C ABI types for WinIsland plugin development"
