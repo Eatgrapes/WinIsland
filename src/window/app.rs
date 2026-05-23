@@ -23,15 +23,14 @@ use crate::utils::mouse::{
 use crate::utils::physics::Spring;
 use crate::window::tray::{TrayAction, TrayManager};
 use softbuffer::{Context, Surface};
-use std::sync::Arc;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST,
-    SWP_NOACTIVATE, SetWindowLongPtrW, SetWindowPos,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
+    GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, SWP_NOACTIVATE, SetWindowLongPtrW,
+    SetWindowPos, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
 };
 use windows::core::PCWSTR;
 use winit::application::ApplicationHandler;
@@ -475,19 +474,21 @@ impl App {
     }
 
     fn show_toast(title: &str, message: &str) {
+        use windows::UI::Notifications::{
+            ToastNotification, ToastNotificationManager, ToastTemplateType,
+        };
         use windows::core::HSTRING;
-        use windows::UI::Notifications::{ToastNotification, ToastNotificationManager, ToastTemplateType};
 
         Self::set_aumid();
 
-        let tmpl = match ToastNotificationManager::GetTemplateContent(ToastTemplateType::ToastText02)
-        {
-            Ok(t) => t,
-            Err(e) => {
-                log::error!("Toast template failed: {:?}", e);
-                return;
-            }
-        };
+        let tmpl =
+            match ToastNotificationManager::GetTemplateContent(ToastTemplateType::ToastText02) {
+                Ok(t) => t,
+                Err(e) => {
+                    log::error!("Toast template failed: {:?}", e);
+                    return;
+                }
+            };
 
         if let Ok(nodes) = tmpl.SelectNodes(&HSTRING::from("//text")) {
             if let Ok(node) = nodes.Item(0) {
@@ -506,9 +507,9 @@ impl App {
             }
         };
 
-        let notifier = match ToastNotificationManager::CreateToastNotifierWithId(
-            &HSTRING::from("WinIsland.PluginManager"),
-        ) {
+        let notifier = match ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(
+            "WinIsland.PluginManager",
+        )) {
             Ok(n) => n,
             Err(e) => {
                 log::error!("CreateToastNotifier failed: {:?}", e);
@@ -634,7 +635,10 @@ impl ApplicationHandler for App {
                 }
                 WindowEvent::CloseRequested => (),
                 WindowEvent::DroppedFile(path) => {
-                    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip")) {
+                    if path
+                        .extension()
+                        .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+                    {
                         self.install_zip_drop(&path);
                     }
                 }
