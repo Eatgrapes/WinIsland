@@ -194,7 +194,7 @@ impl FontManager {
         let font = self.get_font(size, bold);
         let (_, rect) = font.measure_str(text, None);
         if rect.width() <= w {
-            canvas.draw_str(text, ((x + w - rect.width()) / 2.0 + x, y), &font, paint);
+            canvas.draw_str(text, (x + (w - rect.width()) / 2.0, y), &font, paint);
         } else {
             let mut truncated = String::new();
             let mut current_w = 0.0;
