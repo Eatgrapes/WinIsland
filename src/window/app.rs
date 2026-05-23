@@ -24,12 +24,13 @@ use crate::utils::physics::Spring;
 use crate::window::tray::{TrayAction, TrayManager};
 use softbuffer::{Context, Surface};
 use std::sync::Arc;
+use std::path::Path;
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::Shell::{DragAcceptFiles, DragFinish, DragQueryFileW, HDROP};
+use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, MB_ICONINFORMATION, MB_OK, MSG,
-    MessageBoxW, PM_REMOVE, SWP_NOACTIVATE, SetWindowLongPtrW, SetWindowPos, WM_DROPFILES,
+    GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST,
+    SWP_NOACTIVATE, SetWindowLongPtrW, SetWindowPos,
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
 };
 use windows::core::PCWSTR;
@@ -91,7 +92,6 @@ pub struct App {
     touch_id: Option<u64>,
     touch_pos: PhysicalPosition<f64>,
     plugin_mgr: PluginManager,
-    drop_registered: bool,
 }
 
 impl Default for App {
@@ -151,7 +151,6 @@ impl Default for App {
             touch_id: None,
             touch_pos: PhysicalPosition::new(0.0, 0.0),
             plugin_mgr: PluginManager::default(),
-            drop_registered: false,
         }
     }
 }
@@ -466,77 +465,74 @@ impl App {
 }
 
 impl App {
-    fn poll_file_drop(&mut self) {
-        // SAFETY: using win32 API to peek for WM_DROPFILES messages
-        let mut msg = MSG::default();
-        let has_msg = unsafe {
-            use windows::Win32::UI::WindowsAndMessaging::PeekMessageW;
-            PeekMessageW(
-                &mut msg,
-                HWND(std::ptr::null_mut()),
-                WM_DROPFILES,
-                WM_DROPFILES,
-                PM_REMOVE,
-            )
-        };
-        if has_msg.as_bool() {
-            let hdrop = HDROP(msg.lParam.0 as *mut std::ffi::c_void);
-            // SAFETY: hdrop comes from a valid WM_DROPFILES message
-            let count = unsafe { DragQueryFileW(hdrop, 0xFFFFFFFF, None) };
-            if count > 0 {
-                let mut buf = vec![0u16; 512];
-                // SAFETY: index 0 is valid when count > 0, buffer is sized
-                unsafe { DragQueryFileW(hdrop, 0, Some(&mut buf)) };
-                let path = String::from_utf16_lossy(
-                    &buf[..buf.iter().position(|&c| c == 0).unwrap_or(buf.len())],
-                );
-                // SAFETY: hdrop from valid WM_DROPFILES, releasing resources
-                unsafe { DragFinish(hdrop) };
+    fn set_aumid() {
+        let aumid = "WinIsland.PluginManager";
+        let wide: Vec<u16> = aumid.encode_utf16().chain(std::iter::once(0)).collect();
+        // SAFETY: wide string is null-terminated, PCWSTR is valid, Win32 API
+        unsafe {
+            let _ = SetCurrentProcessExplicitAppUserModelID(PCWSTR::from_raw(wide.as_ptr()));
+        }
+    }
 
-                let path = std::path::PathBuf::from(path.trim_matches('\0'));
-                if path
-                    .extension()
-                    .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
-                {
-                    match self.plugin_mgr.install_from_zip(&path) {
-                        Ok(manifest) => {
-                            let msg = format!("Plugin '{}' installed successfully!", manifest.name);
-                            let msg_wide: Vec<u16> =
-                                msg.encode_utf16().chain(std::iter::once(0)).collect();
-                            let title_wide: Vec<u16> = "WinIsland Plugin"
-                                .encode_utf16()
-                                .chain(std::iter::once(0))
-                                .collect();
-                            // SAFETY: wide strings are null-terminated, MessageBoxW is a documented Win32 API
-                            unsafe {
-                                MessageBoxW(
-                                    None,
-                                    PCWSTR::from_raw(msg_wide.as_ptr()),
-                                    PCWSTR::from_raw(title_wide.as_ptr()),
-                                    MB_OK | MB_ICONINFORMATION,
-                                );
-                            }
-                            log::info!("Plugin '{}' installed via drop", manifest.name);
-                        }
-                        Err(e) => {
-                            let err_wide: Vec<u16> =
-                                e.encode_utf16().chain(std::iter::once(0)).collect();
-                            let title_wide: Vec<u16> = "Plugin Error"
-                                .encode_utf16()
-                                .chain(std::iter::once(0))
-                                .collect();
-                            unsafe {
-                                MessageBoxW(
-                                    None,
-                                    PCWSTR::from_raw(err_wide.as_ptr()),
-                                    PCWSTR::from_raw(title_wide.as_ptr()),
-                                    MB_OK | MB_ICONINFORMATION,
-                                );
-                            }
-                            log::error!("Failed to install plugin from drop: {}", e);
-                        }
-                    }
-                }
+    fn show_toast(title: &str, message: &str) {
+        use windows::core::HSTRING;
+        use windows::UI::Notifications::{ToastNotification, ToastNotificationManager, ToastTemplateType};
+
+        Self::set_aumid();
+
+        let tmpl = match ToastNotificationManager::GetTemplateContent(ToastTemplateType::ToastText02)
+        {
+            Ok(t) => t,
+            Err(e) => {
+                log::error!("Toast template failed: {:?}", e);
+                return;
+            }
+        };
+
+        if let Ok(nodes) = tmpl.SelectNodes(&HSTRING::from("//text")) {
+            if let Ok(node) = nodes.Item(0) {
+                let _ = node.SetInnerText(&HSTRING::from(title));
+            }
+            if let Ok(node) = nodes.Item(1) {
+                let _ = node.SetInnerText(&HSTRING::from(message));
+            }
+        }
+
+        let toast = match ToastNotification::CreateToastNotification(&tmpl) {
+            Ok(t) => t,
+            Err(e) => {
+                log::error!("CreateToastNotification failed: {:?}", e);
+                return;
+            }
+        };
+
+        let notifier = match ToastNotificationManager::CreateToastNotifierWithId(
+            &HSTRING::from("WinIsland.PluginManager"),
+        ) {
+            Ok(n) => n,
+            Err(e) => {
+                log::error!("CreateToastNotifier failed: {:?}", e);
+                return;
+            }
+        };
+
+        if let Err(e) = notifier.Show(&toast) {
+            log::error!("Toast Show failed: {:?}", e);
+        }
+    }
+
+    fn install_zip_drop(&mut self, path: &Path) {
+        match self.plugin_mgr.install_from_zip(path) {
+            Ok(manifest) => {
+                Self::show_toast(
+                    "Plugin Installed",
+                    &format!("{} loaded successfully!", manifest.name),
+                );
+                log::info!("Plugin '{}' installed via drop", manifest.name);
+            }
+            Err(e) => {
+                Self::show_toast("Plugin Error", &e);
+                log::error!("Failed to install plugin from drop: {}", e);
             }
         }
     }
@@ -546,6 +542,7 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         event_loop.set_control_flow(ControlFlow::Poll);
         if self.window.is_none() {
+            Self::set_aumid();
             self.plugin_mgr.load_all();
             let max_w = self.config.expanded_width.max(450.0);
             self.os_w = (max_w * self.config.global_scale + PADDING) as u32;
@@ -581,9 +578,6 @@ impl ApplicationHandler for App {
                     );
                 }
                 set_glass_hwnd(win32_handle.hwnd.get());
-                self.drop_registered = true;
-                // SAFETY: HWND is valid; enables WM_DROPFILES for this window
-                unsafe { DragAcceptFiles(hwnd, true) };
             }
 
             self.window = Some(window.clone());
@@ -639,6 +633,13 @@ impl ApplicationHandler for App {
                     win.set_maximized(false);
                 }
                 WindowEvent::CloseRequested => (),
+                WindowEvent::DroppedFile(path) => {
+                    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip")) {
+                        self.install_zip_drop(&path);
+                    }
+                }
+                WindowEvent::HoveredFile(_) => (),
+                WindowEvent::HoveredFileCancelled => (),
                 WindowEvent::MouseInput {
                     state,
                     button: MouseButton::Left,
@@ -1208,9 +1209,6 @@ impl ApplicationHandler for App {
             if elapsed < target_frame_time {
                 std::thread::sleep(target_frame_time - elapsed);
             }
-        }
-        if self.drop_registered {
-            self.poll_file_drop();
         }
     }
 }
