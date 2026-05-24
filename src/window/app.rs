@@ -771,6 +771,7 @@ impl ApplicationHandler for App {
                     let old_style = self.config.island_style.clone();
                     let old_mini_shape = self.config.mini_cover_shape.clone();
                     let old_expanded_shape = self.config.expanded_cover_shape.clone();
+                    let old_font = self.config.custom_font_path.clone();
 
                     self.config = current_config;
                     self.smtc.set_lyrics_source(self.config.lyrics_source.clone());
@@ -783,6 +784,10 @@ impl ApplicationHandler for App {
 
                     if old_mini_shape != self.config.mini_cover_shape || old_expanded_shape != self.config.expanded_cover_shape {
                         crate::ui::expanded::music_view::clear_cover_cache();
+                    }
+
+                    if old_font != self.config.custom_font_path {
+                        crate::utils::font::FontManager::global().refresh_custom_font();
                     }
 
                     let max_w = self.config.expanded_width.max(450.0);
