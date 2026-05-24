@@ -437,7 +437,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             let dragging = PROGRESS_DRAGGING.with(|d| *d.borrow());
             if dragging {
                 *smooth = raw_progress;
-            } else if *smooth < 0.0 {
+            } else if *smooth < 0.0 || (*smooth < 0.02 && raw_progress > 0.02) {
                 *smooth = raw_progress;
             } else {
                 let diff = (raw_progress - *smooth).abs();
