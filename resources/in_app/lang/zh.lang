@@ -35,6 +35,7 @@ adaptive_border=自适应边框
 motion_blur=动态模糊
 cover_rotate=封面旋转
 audio_gate=音频门控
+auto_gate=自动门控
 section_experimental=实验性功能
 mini_controls=迷你控制按钮
 font_preview_sample=你好世界

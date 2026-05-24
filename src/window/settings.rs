@@ -193,6 +193,7 @@ impl SettingsApp {
             config.motion_blur,
             config.cover_rotate,
             config.audio_gate,
+            config.auto_gate,
             config.mini_controls,
             config.auto_start,
             config.auto_hide,
@@ -408,6 +409,11 @@ impl SettingsApp {
                     label: tr("audio_gate"),
                     on: self.config.audio_gate,
                     enabled: true,
+                });
+                items.push(SettingsItem::RowSwitch {
+                    label: tr("auto_gate"),
+                    on: self.config.auto_gate,
+                    enabled: self.config.audio_gate,
                 });
                 items.push(SettingsItem::GroupEnd);
                 items.push(SettingsItem::SectionHeader {
@@ -727,25 +733,26 @@ impl SettingsApp {
         self.switch_anim.set_target(1, self.config.motion_blur);
         self.switch_anim.set_target(2, self.config.cover_rotate);
         self.switch_anim.set_target(3, self.config.audio_gate);
-        self.switch_anim.set_target(4, self.config.mini_controls);
-        self.switch_anim.set_target(5, self.config.auto_start);
-        self.switch_anim.set_target(6, self.config.auto_hide);
+        self.switch_anim.set_target(4, self.config.auto_gate);
+        self.switch_anim.set_target(5, self.config.mini_controls);
+        self.switch_anim.set_target(6, self.config.auto_start);
+        self.switch_anim.set_target(7, self.config.auto_hide);
         self.switch_anim
-            .set_target(7, self.config.check_for_updates);
-        self.switch_anim.set_target(8, self.config.smtc_enabled);
-        self.switch_anim.set_target(9, self.config.show_lyrics);
+            .set_target(8, self.config.check_for_updates);
+        self.switch_anim.set_target(9, self.config.smtc_enabled);
+        self.switch_anim.set_target(10, self.config.show_lyrics);
         let fb_on = if self.config.show_lyrics {
             self.config.lyrics_fallback
         } else {
             false
         };
-        self.switch_anim.set_target(10, fb_on);
+        self.switch_anim.set_target(11, fb_on);
         let fw_on = if self.config.show_lyrics {
             self.config.lyrics_scroll
         } else {
             false
         };
-        self.switch_anim.set_target(11, fw_on);
+        self.switch_anim.set_target(12, fw_on);
     }
 
     fn update_detected_apps(&mut self) {
@@ -1171,11 +1178,11 @@ impl SettingsApp {
         match self.active_page {
             0 => match self.active_sub_page {
                 0 => SwitchAnimator::new(&[]),
-                1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[0, 1, 2, 3, 4]),
-                2 => SwitchAnimator::new_with_anims(&self.switch_anim, &[5, 6, 7]),
+                1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[0, 1, 2, 3, 4, 5]),
+                2 => SwitchAnimator::new_with_anims(&self.switch_anim, &[6, 7, 8]),
                 _ => SwitchAnimator::new(&[]),
             },
-            1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[8, 9, 10, 11]),
+            1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[9, 10, 11, 12]),
             _ => SwitchAnimator::new(&[]),
         }
     }
@@ -1415,7 +1422,10 @@ impl SettingsApp {
                             self.config.cover_rotate = !self.config.cover_rotate
                         }
                         l if l == tr("audio_gate") => {
-                            self.config.audio_gate = !self.config.audio_gate
+                            self.config.audio_gate = !self.config.audio_gate;
+                        }
+                        l if l == tr("auto_gate") => {
+                            self.config.auto_gate = !self.config.auto_gate
                         }
                         l if l == tr("mini_controls") => {
                             self.config.mini_controls = !self.config.mini_controls
@@ -1630,6 +1640,7 @@ impl SettingsApp {
                     self.config.motion_blur,
                     self.config.cover_rotate,
                     self.config.audio_gate,
+                    self.config.auto_gate,
                     self.config.auto_start,
                     self.config.auto_hide,
                     self.config.check_for_updates,

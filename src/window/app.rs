@@ -781,8 +781,10 @@ impl ApplicationHandler for App {
                             media_info.last_update = Instant::now();
                         }
                         media_info.spectrum = self.audio.get_spectrum();
-                        let is_hidden = self.auto_hidden || self.manually_hidden;
-                        if self.config.audio_gate {
+                        if !self.config.audio_gate {
+                            media_info.spectrum = [0.0; 6];
+                        } else if self.config.auto_gate {
+                            let is_hidden = self.auto_hidden || self.manually_hidden;
                             self.audio.set_gate_override(!is_hidden);
                         } else {
                             self.audio.set_gate_override(true);
