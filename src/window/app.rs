@@ -167,6 +167,8 @@ impl App {
     fn set_aumid() {
         let aumid = "WinIsland.PluginManager";
         let wide: Vec<u16> = aumid.encode_utf16().chain(std::iter::once(0)).collect();
+        // SAFETY: SetCurrentProcessExplicitAppUserModelID sets a process-wide string identifier.
+        // The wide string is valid and null-terminated. Called once during init before any windows.
         unsafe {
             let _ = SetCurrentProcessExplicitAppUserModelID(PCWSTR::from_raw(wide.as_ptr()));
         }
@@ -242,6 +244,8 @@ impl App {
         }
         use windows::Win32::Graphics::Gdi::*;
         let mut win32_names: Vec<String> = Vec::new();
+        // SAFETY: EnumDisplayDevicesW reads display device info. We provide a zeroed
+        // DISPLAY_DEVICEW with correct cb size. idx increments safely. No mutable global state.
         unsafe {
             let mut idx = 0u32;
             loop {
@@ -288,6 +292,8 @@ impl App {
             && let RawWindowHandle::Win32(raw) = handle.as_raw()
         {
             let hwnd = HWND(raw.hwnd.get() as *mut core::ffi::c_void);
+            // SAFETY: SetWindowPos repositions the window. hwnd is valid from window_handle().
+            // SWP_NOACTIVATE prevents focus steal. Coordinates and sizes are within bounds.
             unsafe {
                 let _ = SetWindowPos(
                     hwnd,
@@ -495,9 +501,11 @@ impl App {
                     let gear_y = island_y + h - 28.0 * scale;
                     let dist_sq = (rel_x as f64 - gear_x).powi(2) + (rel_y as f64 - gear_y).powi(2);
                     if dist_sq <= (20.0 * scale).powi(2) {
-                        let _ = std::process::Command::new(std::env::current_exe().unwrap())
-                            .arg("--settings")
-                            .spawn();
+                        if let Ok(exe) = std::env::current_exe() {
+                            let _ = std::process::Command::new(exe)
+                                .arg("--settings")
+                                .spawn();
+                        }
                         return;
                     }
 
@@ -631,6 +639,9 @@ impl ApplicationHandler for App {
                 && let RawWindowHandle::Win32(win32_handle) = handle.as_raw()
             {
                 let hwnd = HWND(win32_handle.hwnd.get() as _);
+                // SAFETY: GetWindowLongPtrW/SetWindowLongPtrW modify window style bits.
+                // hwnd is valid from window_handle(). We only add WS_EX_TOOLWINDOW and
+                // WS_EX_NOACTIVATE to hide from taskbar, and remove maximize/thickframe.
                 unsafe {
                     let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
                     SetWindowLongPtrW(
@@ -678,8 +689,8 @@ impl ApplicationHandler for App {
             let mut surface = Surface::new(&context, window.clone()).unwrap();
             surface
                 .resize(
-                    std::num::NonZeroU32::new(self.os_w).unwrap(),
-                    std::num::NonZeroU32::new(self.os_h).unwrap(),
+                    std::num::NonZeroU32::new(self.os_w.max(1)).unwrap(),
+                    std::num::NonZeroU32::new(self.os_h.max(1)).unwrap(),
                 )
                 .unwrap();
             // Paint an initial transparent frame to prevent white flash
@@ -862,11 +873,16 @@ impl ApplicationHandler for App {
                         tray.update_item_text(self.visible);
                     }
                     Some(TrayAction::OpenSettings) => {
-                        let _ = std::process::Command::new(std::env::current_exe().unwrap())
-                            .arg("--settings")
-                            .spawn();
+                        if let Ok(exe) = std::env::current_exe() {
+                            let _ = std::process::Command::new(exe)
+                                .arg("--settings")
+                                .spawn();
+                        }
                     }
                     Some(TrayAction::Restart) => {
+                        // SAFETY: FindWindowW searches for a top-level window by class/name.
+                        // PostMessageW posts WM_CLOSE to gracefully close the settings window.
+                        // Both use valid string literals and standard message parameters.
                         unsafe {
                             let hwnd = FindWindowW(None, w!("Settings"));
                             if let Ok(hwnd) = hwnd {
@@ -875,9 +891,11 @@ impl ApplicationHandler for App {
                                 }
                             }
                         }
-                        let _ = std::process::Command::new(std::env::current_exe().unwrap())
-                            .arg("--restart")
-                            .spawn();
+                        if let Ok(exe) = std::env::current_exe() {
+                            let _ = std::process::Command::new(exe)
+                                .arg("--restart")
+                                .spawn();
+                        }
                         event_loop.exit();
                     }
                     Some(TrayAction::Exit) => {
@@ -934,8 +952,8 @@ impl ApplicationHandler for App {
                         let _ = window.request_inner_size(PhysicalSize::new(self.os_w, self.os_h));
                         if let Some(surface) = self.surface.as_mut() {
                             let _ = surface.resize(
-                                std::num::NonZeroU32::new(self.os_w).unwrap(),
-                                std::num::NonZeroU32::new(self.os_h).unwrap(),
+                                std::num::NonZeroU32::new(self.os_w.max(1)).unwrap(),
+                                std::num::NonZeroU32::new(self.os_h.max(1)).unwrap(),
                             );
                         }
                     }

@@ -66,7 +66,7 @@ impl MediaInfo {
         }
 
         let raw_pos = if self.is_playing {
-            self.position_ms + self.last_update.elapsed().as_millis() as u64
+            self.position_ms.saturating_add(self.last_update.elapsed().as_millis() as u64)
         } else {
             self.position_ms
         };
@@ -232,7 +232,8 @@ fn smtc_poll_loop(
             &mut current_allowed_apps,
         );
         let info = info_tx.borrow();
-        if info.position_ms > 0 || !info.is_playing {
+        let timeline_ready = info.duration_ms > 0 || info.position_ms > 0 || !info.is_playing;
+        if timeline_ready || info.title.is_empty() {
             drop(info);
             break;
         }
@@ -386,6 +387,7 @@ fn auto_allow_new_apps(
     allowed: &[String],
 ) -> Vec<String> {
     let mut new_allowed = allowed.to_vec();
+    let mut new_app_ids: Vec<String> = Vec::new();
     if let Ok(sessions) = mgr.GetSessions()
         && let Ok(count) = sessions.Size()
     {
@@ -398,28 +400,39 @@ fn auto_allow_new_apps(
                 && let Ok(id) = session.SourceAppUserModelId()
             {
                 let app_id = id.to_string();
-                let mut config = load_config();
-                let mut changed = false;
-
-                if !config.smtc_known_apps.contains(&app_id) {
-                    let is_first_run = config.smtc_known_apps.is_empty();
-                    config.smtc_known_apps.push(app_id.clone());
-
-                    if is_first_run && !config.smtc_apps.contains(&app_id) {
-                        config.smtc_apps.push(app_id.clone());
-                        if !new_allowed.contains(&app_id) {
-                            new_allowed.push(app_id);
-                        }
-                    }
-                    changed = true;
-                }
-
-                if changed {
-                    save_config(&config);
+                if !new_app_ids.contains(&app_id) {
+                    new_app_ids.push(app_id);
                 }
             }
         }
     }
+
+    if new_app_ids.is_empty() {
+        return new_allowed;
+    }
+
+    let mut config = load_config();
+    let mut changed = false;
+
+    for app_id in &new_app_ids {
+        if !config.smtc_known_apps.contains(app_id) {
+            let is_first_run = config.smtc_known_apps.is_empty();
+            config.smtc_known_apps.push(app_id.clone());
+
+            if is_first_run && !config.smtc_apps.contains(app_id) {
+                config.smtc_apps.push(app_id.clone());
+                if !new_allowed.contains(app_id) {
+                    new_allowed.push(app_id.clone());
+                }
+            }
+            changed = true;
+        }
+    }
+
+    if changed {
+        save_config(&config);
+    }
+
     new_allowed
 }
 

@@ -25,6 +25,8 @@ impl AudioProcessor {
     pub fn new() -> Self {
         let spectrum = Arc::new(Mutex::new([0.0f32; 6]));
         let gate = Arc::new(AtomicU32::new(0f32.to_bits()));
+        // AtomicU32 stores f32 bit patterns since std::sync::atomic doesn't provide AtomicF32.
+        // Relaxed ordering is sufficient: we only need eventual consistency for the gate value.
         let gate_override = Arc::new(AtomicU32::new(1.0f32.to_bits()));
         let cancel_token = CancellationToken::new();
         let processor = Self {
@@ -39,7 +41,7 @@ impl AudioProcessor {
     }
 
     pub fn get_spectrum(&self) -> [f32; 6] {
-        *self.spectrum.lock().unwrap()
+        *self.spectrum.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn set_gate_override(&self, value: bool) {
@@ -51,7 +53,12 @@ impl AudioProcessor {
         let cancel = self.cancel_token.clone();
         let gate_clone = self.gate.clone();
         tokio::task::spawn_blocking(move || {
+            // SAFETY: CoInitializeEx initializes COM for this thread. COINIT_MULTITHREADED
+            // is safe as we don't use single-threaded COM apartments. Return value ignored
+            // as S_FALSE (already initialized) is acceptable.
             let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+            // SAFETY: CoCreateInstance creates COM objects for audio enumeration.
+            // All COM calls operate on locally created objects with no shared mutable state.
             let session_manager: Option<IAudioSessionManager2> = unsafe {
                 (|| -> Option<IAudioSessionManager2> {
                     let enumerator: IMMDeviceEnumerator =
@@ -63,6 +70,9 @@ impl AudioProcessor {
             while !cancel.is_cancelled() {
                 let mut max_peak = 0.0f32;
                 if let Some(ref mgr) = session_manager {
+                    // SAFETY: GetSessionEnumerator and subsequent COM calls enumerate audio
+                    // sessions for peak meter reading. All objects are obtained from the
+                    // session_manager which is valid for the lifetime of this thread.
                     unsafe {
                         if let Ok(enumerator) = mgr.GetSessionEnumerator() {
                             let count = enumerator.GetCount().unwrap_or(0);
@@ -131,7 +141,11 @@ impl AudioProcessor {
                 _ => return,
             };
             if let Ok(s) = stream {
+                // SAFETY: CoInitializeEx initializes COM for this thread. COINIT_MULTITHREADED
+                // is safe as we don't use single-threaded COM apartments. Return value ignored.
                 let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+                // SAFETY: CoCreateInstance and subsequent COM calls create audio session objects.
+                // All objects are locally scoped and valid for the lifetime of this thread.
                 let _session = unsafe {
                     let enumerator: IMMDeviceEnumerator =
                         match CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok() {
@@ -208,7 +222,7 @@ where
                 }
             }
         },
-        |err| eprintln!("Audio error: {}", err),
+        |err| log::error!("Audio error: {}", err),
         None,
     )
 }
@@ -223,7 +237,11 @@ fn update_spectrum(
     gate_override_clone: &Arc<AtomicU32>,
 ) {
     let mut indata = pcm_buffer[..1024].to_vec();
-    let _ = fft.process(&mut indata, output);
+    if let Err(e) = fft.process(&mut indata, output) {
+        log::warn!("FFT processing failed: {:?}", e);
+        pcm_buffer.clear();
+        return;
+    }
     let gate = f32::from_bits(gate_clone.load(Ordering::Relaxed));
     let gate_override = f32::from_bits(gate_override_clone.load(Ordering::Relaxed));
     let effective_gate = gate * gate_override;

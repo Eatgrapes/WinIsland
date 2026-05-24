@@ -680,6 +680,8 @@ impl SettingsApp {
     fn get_monitor_list(&self) -> Vec<String> {
         use windows::Win32::Graphics::Gdi::*;
         let mut monitors: Vec<String> = Vec::new();
+        // SAFETY: EnumDisplayDevicesW reads display device info. We provide a zeroed
+        // DISPLAY_DEVICEW with correct cb size. idx increments safely. No mutable global state.
         unsafe {
             let mut idx = 0u32;
             let mut active_count = 0;
@@ -790,8 +792,8 @@ impl SettingsApp {
     }
 
     fn draw(&mut self) {
+        let Some(win) = self.window.as_ref() else { return };
         let (p_w, p_h, scale) = {
-            let win = self.window.as_ref().unwrap();
             let size = win.inner_size();
             (
                 size.width as i32,
@@ -1260,7 +1262,7 @@ impl SettingsApp {
             return;
         }
 
-        let scale = self.window.as_ref().unwrap().scale_factor() as f32;
+        let scale = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);
         let content_w = self.win_w / scale - SIDEBAR_W;
 
         if self.active_page == 0 && my >= SUB_TAB_START_Y && my <= SUB_TAB_START_Y + SUB_TAB_H {
@@ -1310,7 +1312,7 @@ impl SettingsApp {
         width: f32,
         start_y: f32,
     ) {
-        let scale = self.window.as_ref().unwrap().scale_factor() as f32;
+        let scale = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);
         let result = hit_test(items, mx, my, start_y, width);
         let mut changed = false;
 
@@ -1457,7 +1459,7 @@ impl SettingsApp {
                             }
                         }
                         _ => {
-                            eprintln!("WinIsland: unhandled switch label: {}", label);
+                            log::warn!("WinIsland: unhandled switch label: {}", label);
                         }
                     }
                 }
@@ -1671,7 +1673,7 @@ impl SettingsApp {
         width: f32,
         start_y: f32,
     ) {
-        let scale = self.window.as_ref().unwrap().scale_factor() as f32;
+        let scale = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);
         let result = hit_test(items, mx, my, start_y, width);
         let mut changed = false;
 
@@ -1703,7 +1705,7 @@ impl SettingsApp {
                             }
                         }
                         _ => {
-                            eprintln!("WinIsland: unhandled switch label: {}", label);
+                            log::warn!("WinIsland: unhandled switch label: {}", label);
                         }
                     }
                 }
@@ -1836,7 +1838,7 @@ impl SettingsApp {
             return false;
         }
 
-        let scale = self.window.as_ref().unwrap().scale_factor() as f32;
+        let scale = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);
         let content_w = self.win_w / scale - SIDEBAR_W;
 
         if self.active_page == 0 && my >= SUB_TAB_START_Y && my <= SUB_TAB_START_Y + SUB_TAB_H {
@@ -1982,7 +1984,7 @@ impl ApplicationHandler for SettingsApp {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let scale = self.window.as_ref().unwrap().scale_factor() as f32;
+                let scale = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);
                 let new_pos = (position.x as f32 / scale, position.y as f32 / scale);
                 let mouse_moved = (new_pos.0 - self.last_hover_mouse_pos.0).abs() > 0.5
                     || (new_pos.1 - self.last_hover_mouse_pos.1).abs() > 0.5;
@@ -2030,7 +2032,7 @@ impl ApplicationHandler for SettingsApp {
                         }
                     }
 
-                    let scale = self.window.as_ref().unwrap().scale_factor() as f32;
+                    let scale = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);
                     let content_w = self.win_w / scale - SIDEBAR_W;
 
                     if self.active_page == 0
@@ -2069,7 +2071,7 @@ impl ApplicationHandler for SettingsApp {
                         {
                             let idx = match self
                                 .cached_row_tops
-                                .binary_search_by(|y| y.partial_cmp(&content_y).unwrap())
+                                .binary_search_by(|y| y.total_cmp(&content_y))
                             {
                                 Ok(i) => Some(i),
                                 Err(0) => None,
@@ -2154,17 +2156,20 @@ impl ApplicationHandler for SettingsApp {
         let frame_start = Instant::now();
         self.frame_count += 1;
         if self.frame_count.is_multiple_of(30) {
+            // SAFETY: OpenMutexW opens an existing named mutex. The mutex name is a static
+            // string literal. CloseHandle is called on the valid handle returned by OpenMutexW.
             unsafe {
                 let h = OpenMutexW(
                     MUTEX_ALL_ACCESS,
                     false,
                     w!("Local\\WinIsland_SingleInstance_Mutex"),
                 );
-                if h.is_err() {
+                if let Ok(handle) = h {
+                    let _ = windows::Win32::Foundation::CloseHandle(handle);
+                } else {
                     _el.exit();
                     return;
                 }
-                let _ = windows::Win32::Foundation::CloseHandle(h.unwrap());
             }
         }
         if self.frame_count.is_multiple_of(120) {
@@ -2235,6 +2240,8 @@ pub fn run_settings(config: AppConfig) {
 }
 
 pub fn bring_settings_to_front() {
+    // SAFETY: FindWindowW searches for a top-level window by name. ShowWindow and
+    // SetForegroundWindow operate on the found valid hwnd with standard parameters.
     unsafe {
         let hwnd = FindWindowW(None, w!("Settings"));
         if let Ok(hwnd) = hwnd {
