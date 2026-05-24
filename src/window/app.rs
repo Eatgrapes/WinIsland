@@ -784,7 +784,7 @@ impl ApplicationHandler for App {
                         if self.config.audio_gate {
                             self.audio.set_gate_override(!is_hidden);
                         } else {
-                            self.audio.set_gate_override(false);
+                            self.audio.set_gate_override(true);
                         }
                         let mut music_active = false;
                         if self.config.smtc_enabled && !media_info.title.is_empty() {
