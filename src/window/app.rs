@@ -529,7 +529,7 @@ impl App {
                 let media = self.smtc.get_info();
                 let music_on = self.config.smtc_enabled && !media.title.is_empty();
 
-                if music_on {
+                if music_on && !media.is_playing {
                     let w = self.spring_w.value;
                     let h = self.spring_h.value;
                     let (prev_rect, play_rect, next_rect) =
