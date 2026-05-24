@@ -1,6 +1,6 @@
 use crate::core::config::{AppConfig, DockPosition, APP_AUTHOR, APP_HOMEPAGE, APP_VERSION};
 use crate::core::persistence::save_config;
-use crate::core::i18n::{tr, set_lang, current_lang};
+use crate::core::i18n::{tr, init_i18n, current_lang};
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
 use crate::utils::font::FontManager;
@@ -9,7 +9,7 @@ use crate::utils::settings_ui::items::*;
 use skia_safe::{surfaces, Color, Paint, Rect};
 use softbuffer::{Context, Surface};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use windows::core::w;
 use windows::Win32::System::Threading::{OpenMutexW, MUTEX_ALL_ACCESS};
 use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow, ShowWindow, SW_RESTORE};
@@ -30,6 +30,11 @@ const CONTENT_START_Y: f32 = 10.0;
 const SUB_TAB_H: f32 = 40.0;
 const SUB_TAB_START_Y: f32 = 50.0;
 
+const POPUP_OPACITY_KEY: u64 = 1;
+const SIDEBAR_KEY_BASE: u64 = 1_000;
+const SCROLL_STIFFNESS: f32 = 55.0;
+const SCROLL_DAMPING: f32 = 16.0;
+
 #[derive(Clone, PartialEq)]
 enum PopupKind {
     LyricsSource,
@@ -44,7 +49,9 @@ enum PopupKind {
 
 struct PopupState {
     kind: PopupKind,
+    #[allow(dead_code)]
     button_rect: Rect,
+    menu_rect: Rect,
     options: Vec<String>,
     values: Vec<String>,
     selected_idx: usize,
@@ -52,29 +59,48 @@ struct PopupState {
 }
 
 impl PopupState {
-    fn menu_rect(&self) -> Rect {
-        let item_count = self.options.len() as f32;
+    fn new(
+        kind: PopupKind,
+        button_rect: Rect,
+        options: Vec<String>,
+        values: Vec<String>,
+        selected_idx: usize,
+    ) -> Self {
+        let item_count = options.len() as f32;
         let menu_h = POPUP_MENU_PAD * 2.0 + item_count * POPUP_ITEM_H;
+
         let fm = FontManager::global();
-        let mut max_text_w: f32 = self.button_rect.width();
-        for opt in &self.options {
-            let (w, _) = fm.measure(opt, 12.0, false);
+        let mut max_text_w: f32 = button_rect.width();
+        for opt in &options {
+            let w = fm.measure_text_cached(opt, 12.0, skia_safe::FontStyle::normal());
             let needed = w + 36.0;
-            if needed > max_text_w { max_text_w = needed; }
+            if needed > max_text_w {
+                max_text_w = needed;
+            }
         }
+
         let menu_w = max_text_w;
-        let right_edge = self.button_rect.right;
+        let right_edge = button_rect.right;
         let menu_x = right_edge - menu_w;
-        Rect::from_xywh(
-            menu_x,
-            self.button_rect.bottom + 2.0,
-            menu_w,
-            menu_h,
-        )
+        let menu_rect = Rect::from_xywh(menu_x, button_rect.bottom + 2.0, menu_w, menu_h);
+
+        Self {
+            kind,
+            button_rect,
+            menu_rect,
+            options,
+            values,
+            selected_idx,
+            hover_idx: None,
+        }
+    }
+
+    fn menu_rect(&self) -> Rect {
+        self.menu_rect
     }
 
     fn item_rect(&self, idx: usize) -> Rect {
-        let menu = self.menu_rect();
+        let menu = self.menu_rect;
         Rect::from_xywh(
             menu.left + POPUP_MENU_PAD,
             menu.top + POPUP_MENU_PAD + idx as f32 * POPUP_ITEM_H,
@@ -82,12 +108,33 @@ impl PopupState {
             POPUP_ITEM_H,
         )
     }
+
+    fn hit_test_item(&self, mx: f32, my: f32) -> Option<usize> {
+        let menu = self.menu_rect;
+        if mx < menu.left || mx > menu.right || my < menu.top || my > menu.bottom {
+            return None;
+        }
+        let inner_top = menu.top + POPUP_MENU_PAD;
+        let inner_bottom = menu.bottom - POPUP_MENU_PAD;
+        if my < inner_top || my > inner_bottom {
+            return None;
+        }
+        let rel_y = my - inner_top;
+        let idx = (rel_y / POPUP_ITEM_H).floor() as i32;
+        if idx < 0 {
+            return None;
+        }
+        let idx = idx as usize;
+        if idx >= self.options.len() {
+            return None;
+        }
+        Some(idx)
+    }
 }
 
 pub struct SettingsApp {
     window: Option<Arc<Window>>,
     surface: Option<Surface<Arc<Window>, Arc<Window>>>,
-    sk_surface: Option<skia_safe::Surface>,
     config: AppConfig,
     active_page: usize,
     active_sub_page: usize,
@@ -99,14 +146,19 @@ pub struct SettingsApp {
     frame_count: u64,
     scroll_y: f32,
     target_scroll_y: f32,
+    scroll_vel_y: f32,
+    last_frame_time: Instant,
     detected_apps: Vec<String>,
     sidebar_hover: i32,
     popup: Option<PopupState>,
     hover_row: Option<usize>,
     total_rows: usize,
     is_light: bool,
-    cached_items: Option<Vec<SettingsItem>>,
+    cached_items: Vec<SettingsItem>,
     items_dirty: bool,
+    cached_content_height: f32,
+    cached_max_scroll: f32,
+    cached_row_tops: Vec<f32>,
     win_w: f32,
     win_h: f32,
     max_scroll: f32,
@@ -130,7 +182,6 @@ impl SettingsApp {
         Self {
             window: None,
             surface: None,
-            sk_surface: None,
             config,
             active_page: 0,
             active_sub_page: 0,
@@ -142,14 +193,19 @@ impl SettingsApp {
             frame_count: 0,
             scroll_y: 0.0,
             target_scroll_y: 0.0,
+            scroll_vel_y: 0.0,
+            last_frame_time: Instant::now(),
             detected_apps: Vec::new(),
             sidebar_hover: -1,
             popup: None,
             hover_row: None,
             total_rows: 0,
             is_light: false,
-            cached_items: None,
+            cached_items: Vec::new(),
             items_dirty: true,
+            cached_content_height: 0.0,
+            cached_max_scroll: 0.0,
+            cached_row_tops: Vec::new(),
             win_w: WIN_W,
             win_h: WIN_H,
             max_scroll: 0.0,
@@ -367,20 +423,44 @@ impl SettingsApp {
         ]
     }
 
-    fn build_current_items(&mut self) -> Vec<SettingsItem> {
-        if self.items_dirty || self.cached_items.is_none() {
-            let items = match self.active_page {
-                0 => self.build_general_items(),
-                1 => self.build_music_items(),
-                2 => self.build_about_items(),
-                _ => vec![],
-            };
-            self.cached_items = Some(items);
-            self.items_dirty = false;
+    fn build_current_items(&self) -> Vec<SettingsItem> {
+        match self.active_page {
+            0 => self.build_general_items(),
+            1 => self.build_music_items(),
+            2 => self.build_about_items(),
+            _ => vec![],
         }
-        self.cached_items.as_ref().unwrap().clone()
     }
-    
+
+    fn rebuild_items_cache(&mut self) {
+        self.cached_items = self.build_current_items();
+        let content_start_y = if self.active_page == 0 {
+            SUB_TAB_START_Y + SUB_TAB_H + CONTENT_START_Y
+        } else {
+            CONTENT_START_Y
+        };
+        self.cached_content_height = content_height(&self.cached_items, content_start_y);
+        let scale = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);
+        let view_h = self.win_h / scale;
+        self.cached_max_scroll = (self.cached_content_height - view_h + 20.0).max(0.0);
+        self.cached_row_tops.clear();
+        let mut y = content_start_y;
+        for item in &self.cached_items {
+            if item.is_row() {
+                self.cached_row_tops.push(y);
+            }
+            y += item.height();
+        }
+        self.total_rows = self.cached_row_tops.len();
+        self.items_dirty = false;
+    }
+
+    fn ensure_items_cache(&mut self) {
+        if self.items_dirty {
+            self.rebuild_items_cache();
+        }
+    }
+
     fn mark_items_dirty(&mut self) {
         self.items_dirty = true;
     }
@@ -465,87 +545,25 @@ impl SettingsApp {
     }
 
     fn draw(&mut self) {
-        let win = self.window.as_ref().unwrap();
-        let size = win.inner_size();
-        let p_w = size.width as i32;
-        let p_h = size.height as i32;
+        let (p_w, p_h, scale) = {
+            let win = self.window.as_ref().unwrap();
+            let size = win.inner_size();
+            (size.width as i32, size.height as i32, win.scale_factor() as f32)
+        };
         if p_w <= 0 || p_h <= 0 { return; }
 
+        self.ensure_items_cache();
         let theme = self.theme();
-        let scale = win.scale_factor() as f32;
         let win_w = self.win_w / scale;
         let win_h = self.win_h / scale;
-
-        let mut sk_surface = if let Some(ref s) = self.sk_surface {
-            if s.width() == p_w && s.height() == p_h {
-                s.clone()
-            } else {
-                let new_s = surfaces::raster_n32_premul(skia_safe::ISize::new(p_w, p_h)).unwrap();
-                self.sk_surface = Some(new_s.clone());
-                new_s
-            }
-        } else {
-            let new_s = surfaces::raster_n32_premul(skia_safe::ISize::new(p_w, p_h)).unwrap();
-            self.sk_surface = Some(new_s.clone());
-            new_s
-        };
-
-        let canvas = sk_surface.canvas();
-        canvas.reset_matrix();
-        canvas.clear(theme.win_bg);
-        canvas.scale((scale, scale));
-
-        self.draw_sidebar(canvas, &theme);
-
-        let content_w = win_w - SIDEBAR_W;
-        self.draw_sub_tabs(canvas, &theme, content_w);
-        
-        let items = self.build_current_items();
         let anim = self.get_page_anim();
 
-        let content_start_y = if self.active_page == 0 {
-            SUB_TAB_START_Y + SUB_TAB_H + CONTENT_START_Y
-        } else {
-            CONTENT_START_Y
+        let mut surface = match self.surface.take() {
+            Some(s) => s,
+            None => return,
         };
 
-        let total_h = content_height(&items, content_start_y);
-        self.max_scroll = (total_h - win_h + 20.0).max(0.0);
-        self.target_scroll_y = self.target_scroll_y.clamp(0.0, self.max_scroll);
-        self.scroll_y += (self.target_scroll_y - self.scroll_y) * 0.2;
-        if (self.scroll_y - self.target_scroll_y).abs() < 0.5 {
-            self.scroll_y = self.target_scroll_y;
-        }
-
-        let clip_start_y = if self.active_page == 0 {
-            SUB_TAB_START_Y + SUB_TAB_H
-        } else {
-            0.0
-        };
-
-        canvas.save();
-        canvas.clip_rect(
-            Rect::from_xywh(SIDEBAR_W, clip_start_y, content_w, win_h - clip_start_y),
-            skia_safe::ClipOp::Intersect,
-            true,
-        );
-        canvas.translate((SIDEBAR_W, -self.scroll_y));
-        draw_items(DrawItemsParams {
-            canvas,
-            items: &items,
-            start_y: content_start_y,
-            width: content_w,
-            anims: &anim,
-            hover_anims: &self.anim,
-            theme: &theme,
-            visible_min_y: self.scroll_y,
-            visible_max_y: self.scroll_y + win_h,
-        });
-        canvas.restore();
-
-        self.draw_popup(canvas, &theme);
-
-        if let Some(surface) = self.surface.as_mut() {
+        {
             let mut buffer = surface.buffer_mut().unwrap();
             let info = skia_safe::ImageInfo::new(
                 skia_safe::ISize::new(p_w, p_h),
@@ -555,9 +573,73 @@ impl SettingsApp {
             );
             let dst_row_bytes = (p_w * 4) as usize;
             let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut *buffer);
-            let _ = sk_surface.read_pixels(&info, u8_buffer, dst_row_bytes, (0, 0));
+            let mut sk_surface =
+                surfaces::wrap_pixels(&info, u8_buffer, dst_row_bytes, None).unwrap();
+
+            let canvas = sk_surface.canvas();
+            canvas.reset_matrix();
+            canvas.clear(theme.win_bg);
+            canvas.scale((scale, scale));
+
+            self.draw_sidebar(canvas, &theme);
+
+            let content_w = win_w - SIDEBAR_W;
+            self.draw_sub_tabs(canvas, &theme, content_w);
+
+            let content_start_y = if self.active_page == 0 {
+                SUB_TAB_START_Y + SUB_TAB_H + CONTENT_START_Y
+            } else {
+                CONTENT_START_Y
+            };
+
+            self.max_scroll = self.cached_max_scroll;
+            self.target_scroll_y = self.target_scroll_y.clamp(0.0, self.max_scroll);
+
+            let clip_start_y = if self.active_page == 0 {
+                SUB_TAB_START_Y + SUB_TAB_H
+            } else {
+                0.0
+            };
+
+            canvas.save();
+            canvas.clip_rect(
+                Rect::from_xywh(SIDEBAR_W, clip_start_y, content_w, win_h - clip_start_y),
+                skia_safe::ClipOp::Intersect,
+                true,
+            );
+            canvas.translate((SIDEBAR_W, -self.scroll_y));
+            draw_items(DrawItemsParams {
+                canvas,
+                items: &self.cached_items,
+                start_y: content_start_y,
+                width: content_w,
+                anims: &anim,
+                hover_anims: &self.anim,
+                theme: &theme,
+                visible_min_y: self.scroll_y,
+                visible_max_y: self.scroll_y + win_h,
+            });
+            canvas.restore();
+
+            let ch = self.cached_content_height;
+            let view_h = win_h;
+            if ch > view_h {
+                let bar_h = (view_h / ch) * view_h;
+                let bar_y = (self.scroll_y / (ch - view_h)) * (view_h - bar_h);
+                let mut p = Paint::default();
+                p.set_anti_alias(true);
+                p.set_color(Color::from_argb(60, 255, 255, 255));
+                canvas.draw_round_rect(
+                    Rect::from_xywh(win_w - 6.0, bar_y, 4.0, bar_h),
+                    2.0, 2.0, &p,
+                );
+            }
+
+            self.draw_popup(canvas, &theme);
             buffer.present().unwrap();
         }
+
+        self.surface = Some(surface);
     }
 
     fn draw_sidebar(&self, canvas: &skia_safe::Canvas, theme: &SettingsTheme) {
@@ -591,7 +673,7 @@ impl SettingsApp {
                 );
                 paint.set_color(theme.text_pri);
             } else {
-                let hover_val = self.anim.get_str(&format!("sidebar_{}", i));
+                let hover_val = self.anim.get(SIDEBAR_KEY_BASE + i as u64);
                 if hover_val > 0.005 {
                     let base = theme.sidebar_hover;
                     let alpha = (base.a() as f32 * hover_val) as u8;
@@ -610,27 +692,27 @@ impl SettingsApp {
 
     fn draw_sub_tabs(&self, canvas: &skia_safe::Canvas, theme: &SettingsTheme, content_w: f32) {
         if self.active_page != 0 { return; }
-        
+
         let fm = FontManager::global();
         let tabs = [tr("section_appearance"), tr("section_effects"), tr("section_behavior")];
         let tab_w = content_w / 3.0;
         let start_x = SIDEBAR_W;
-        
+
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
-        
+
         let mut sep = Paint::default();
         sep.set_anti_alias(true);
         sep.set_color(theme.separator);
         sep.set_stroke_width(0.5);
         sep.set_style(skia_safe::paint::Style::Stroke);
         canvas.draw_line((SIDEBAR_W, SUB_TAB_START_Y + SUB_TAB_H), (SIDEBAR_W + content_w, SUB_TAB_START_Y + SUB_TAB_H), &sep);
-        
+
         for (i, label) in tabs.iter().enumerate() {
             let tab_x = start_x + i as f32 * tab_w;
             let is_active = self.active_sub_page == i;
             let is_hover = self.sub_tab_hover == i as i32;
-            
+
             if is_active {
                 paint.set_color(theme.text_pri);
                 let underline_x = tab_x + tab_w / 2.0 - 30.0;
@@ -645,7 +727,7 @@ impl SettingsApp {
             } else {
                 paint.set_color(theme.text_sec);
             }
-            
+
             let text_x = tab_x + tab_w / 2.0;
             let text_y = SUB_TAB_START_Y + SUB_TAB_H / 2.0 + 5.0;
             fm.draw_text(canvas, label, (text_x - 30.0, text_y), 13.0, false, &paint);
@@ -657,7 +739,7 @@ impl SettingsApp {
             Some(p) => p,
             None => return,
         };
-        let opacity = self.anim.get_str("popup_opacity");
+        let opacity = self.anim.get(POPUP_OPACITY_KEY);
         if opacity < 0.005 { return; }
         let fm = FontManager::global();
         let menu = popup.menu_rect();
@@ -746,48 +828,41 @@ impl SettingsApp {
         let (mx, my) = self.logical_mouse_pos;
 
         if let Some(popup) = &self.popup {
-            let menu = popup.menu_rect();
-            if mx >= menu.left && mx <= menu.right && my >= menu.top && my <= menu.bottom {
-                for i in 0..popup.options.len() {
-                    let ir = popup.item_rect(i);
-                    if my >= ir.top && my <= ir.bottom {
-                        let value = popup.values[i].clone();
-                        match popup.kind {
-                            PopupKind::LyricsSource => {
-                                self.config.lyrics_source = value;
-                            }
-                            PopupKind::Language => {
-                                self.config.language = value.clone();
-                                set_lang(&value);
-                            }
-                            PopupKind::Monitor => {
-                                self.config.monitor_index = value.parse::<i32>().unwrap_or(0);
-                            }
-                            PopupKind::IslandStyle => {
-                                self.config.island_style = value;
-                            }
-                            PopupKind::DockPositionPopup => {
-                                self.config.dock_position = value.parse::<DockPosition>().unwrap_or(DockPosition::TopCenter);
-                            }
-                            PopupKind::SettingsTheme => {
-                                self.config.settings_theme = value.clone();
-                                self.update_theme();
-                            }
-                            PopupKind::MiniCoverShape => {
-                                self.config.mini_cover_shape = value;
-                            }
-                            PopupKind::ExpandedCoverShape => {
-                                self.config.expanded_cover_shape = value;
-                            }
-                        }
-                        save_config(&self.config);
-                        self.mark_items_dirty();
-                        break;
+            if let Some(i) = popup.hit_test_item(mx, my) {
+                let value = popup.values[i].clone();
+                match popup.kind {
+                    PopupKind::LyricsSource => {
+                        self.config.lyrics_source = value;
+                    }
+                    PopupKind::Language => {
+                        self.config.language = value;
+                        init_i18n(&self.config.language);
+                    }
+                    PopupKind::Monitor => {
+                        self.config.monitor_index = value.parse::<i32>().unwrap_or(0);
+                    }
+                    PopupKind::IslandStyle => {
+                        self.config.island_style = value;
+                    }
+                    PopupKind::DockPositionPopup => {
+                        self.config.dock_position = value.parse::<DockPosition>().unwrap_or(DockPosition::TopCenter);
+                    }
+                    PopupKind::SettingsTheme => {
+                        self.config.settings_theme = value.clone();
+                        self.update_theme();
+                    }
+                    PopupKind::MiniCoverShape => {
+                        self.config.mini_cover_shape = value;
+                    }
+                    PopupKind::ExpandedCoverShape => {
+                        self.config.expanded_cover_shape = value;
                     }
                 }
+                save_config(&self.config);
+                self.mark_items_dirty();
             }
             self.popup = None;
-            self.anim.set_with_speed_str("popup_opacity", 0.0, 0.3);
+            self.anim.set_with_speed(POPUP_OPACITY_KEY, 0.0, 0.3);
             if let Some(win) = &self.window { win.request_redraw(); }
             return;
         }
@@ -802,6 +877,7 @@ impl SettingsApp {
                         self.active_page = i as usize;
                         self.scroll_y = 0.0;
                         self.target_scroll_y = 0.0;
+                        self.scroll_vel_y = 0.0;
                         self.mark_items_dirty();
                         if let Some(win) = &self.window { win.request_redraw(); }
                     }
@@ -823,6 +899,7 @@ impl SettingsApp {
                     self.active_sub_page = tab_idx;
                     self.scroll_y = 0.0;
                     self.target_scroll_y = 0.0;
+                    self.scroll_vel_y = 0.0;
                     self.mark_items_dirty();
                     if let Some(win) = &self.window { win.request_redraw(); }
                 }
@@ -944,14 +1021,13 @@ impl SettingsApp {
                         let monitors = self.get_monitor_list();
                         let selected_idx = (self.config.monitor_index as usize).min(monitors.len().saturating_sub(1));
                         let values: Vec<String> = (0..monitors.len()).map(|i| i.to_string()).collect();
-                        self.popup = Some(PopupState {
-                            kind: PopupKind::Monitor,
-                            button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                            options: monitors,
+                        self.popup = Some(PopupState::new(
+                            PopupKind::Monitor,
+                            Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+                            monitors,
                             values,
                             selected_idx,
-                            hover_idx: None,
-                        });
+                        ));
                     } else if label == &tr("island_style") {
                         let selected_idx = match self.config.island_style.as_str() {
                             "glass" => 1,
@@ -959,14 +1035,13 @@ impl SettingsApp {
                             "dynamic" => 3,
                             _ => 0,
                         };
-                        self.popup = Some(PopupState {
-                            kind: PopupKind::IslandStyle,
-                            button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                            options: vec![tr("style_default"), tr("style_glass"), tr("style_mica"), tr("style_dynamic")],
-                            values: vec!["default".to_string(), "glass".to_string(), "mica".to_string(), "dynamic".to_string()],
+                        self.popup = Some(PopupState::new(
+                            PopupKind::IslandStyle,
+                            Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+                            vec![tr("style_default"), tr("style_glass"), tr("style_mica"), tr("style_dynamic")],
+                            vec!["default".to_string(), "glass".to_string(), "mica".to_string(), "dynamic".to_string()],
                             selected_idx,
-                            hover_idx: None,
-                        });
+                        ));
                     } else if label == &tr("dock_position") {
                         let dp = self.config.dock_position;
                         let selected_idx = match dp {
@@ -977,10 +1052,10 @@ impl SettingsApp {
                             DockPosition::BottomLeft => 4,
                             DockPosition::BottomRight => 5,
                         };
-                        self.popup = Some(PopupState {
-                            kind: PopupKind::DockPositionPopup,
-                            button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                            options: vec![
+                        self.popup = Some(PopupState::new(
+                            PopupKind::DockPositionPopup,
+                            Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+                            vec![
                                 tr("dock_position_top_center"),
                                 tr("dock_position_top_left"),
                                 tr("dock_position_top_right"),
@@ -988,7 +1063,7 @@ impl SettingsApp {
                                 tr("dock_position_bottom_left"),
                                 tr("dock_position_bottom_right"),
                             ],
-                            values: vec![
+                            vec![
                                 "top_center".to_string(),
                                 "top_left".to_string(),
                                 "top_right".to_string(),
@@ -997,60 +1072,55 @@ impl SettingsApp {
                                 "bottom_right".to_string(),
                             ],
                             selected_idx,
-                            hover_idx: None,
-                        });
+                        ));
                     } else if label == &tr("settings_theme") {
                         let selected_idx = match self.config.settings_theme.as_str() {
                             "light" => 1,
                             "dark" => 2,
                             _ => 0,
                         };
-                        self.popup = Some(PopupState {
-                            kind: PopupKind::SettingsTheme,
-                            button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                            options: vec![tr("theme_system"), tr("theme_light"), tr("theme_dark")],
-                            values: vec!["system".to_string(), "light".to_string(), "dark".to_string()],
+                        self.popup = Some(PopupState::new(
+                            PopupKind::SettingsTheme,
+                            Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+                            vec![tr("theme_system"), tr("theme_light"), tr("theme_dark")],
+                            vec!["system".to_string(), "light".to_string(), "dark".to_string()],
                             selected_idx,
-                            hover_idx: None,
-                        });
+                        ));
                     } else if label == &tr("mini_cover_shape") {
                         let selected_idx = if self.config.mini_cover_shape == "circle" { 1 } else { 0 };
-                        self.popup = Some(PopupState {
-                            kind: PopupKind::MiniCoverShape,
-                            button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                            options: vec![tr("shape_square"), tr("shape_circle")],
-                            values: vec!["square".to_string(), "circle".to_string()],
+                        self.popup = Some(PopupState::new(
+                            PopupKind::MiniCoverShape,
+                            Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+                            vec![tr("shape_square"), tr("shape_circle")],
+                            vec!["square".to_string(), "circle".to_string()],
                             selected_idx,
-                            hover_idx: None,
-                        });
+                        ));
                     } else if label == &tr("expanded_cover_shape") {
                         let selected_idx = if self.config.expanded_cover_shape == "circle" { 1 } else { 0 };
-                        self.popup = Some(PopupState {
-                            kind: PopupKind::ExpandedCoverShape,
-                            button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                            options: vec![tr("shape_square"), tr("shape_circle")],
-                            values: vec!["square".to_string(), "circle".to_string()],
+                        self.popup = Some(PopupState::new(
+                            PopupKind::ExpandedCoverShape,
+                            Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+                            vec![tr("shape_square"), tr("shape_circle")],
+                            vec!["square".to_string(), "circle".to_string()],
                             selected_idx,
-                            hover_idx: None,
-                        });
+                        ));
                     } else {
                         let lang = current_lang();
-                        self.popup = Some(PopupState {
-                            kind: PopupKind::Language,
-                            button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                            options: vec!["English".to_string(), "中文".to_string()],
-                            values: vec!["en".to_string(), "zh".to_string()],
-                            selected_idx: if lang == "zh" { 1 } else { 0 },
-                            hover_idx: None,
-                        });
+                        self.popup = Some(PopupState::new(
+                            PopupKind::Language,
+                            Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+                            vec!["English".to_string(), "中文".to_string()],
+                            vec!["en".to_string(), "zh".to_string()],
+                            if lang == "zh" { 1 } else { 0 },
+                        ));
                     }
-                    self.anim.set_with_speed_str("popup_opacity", 1.0, 0.25);
+                    self.anim.set_with_speed(POPUP_OPACITY_KEY, 1.0, 0.25);
                     if let Some(win) = &self.window { win.request_redraw(); }
                 }
             }
             ClickResult::CenterLink(_) => {
                 self.config = AppConfig::default();
-                set_lang(if self.config.language == "auto" { "en" } else { &self.config.language });
+                init_i18n(&self.config.language);
                 FontManager::global().refresh_custom_font();
                 self.switch_anim = SwitchAnimator::new(&[
                     self.config.adaptive_border,
@@ -1108,15 +1178,14 @@ impl SettingsApp {
                 let btn_y = cy - POPUP_BTN_H / 2.0 - self.scroll_y;
 
                 let source = &self.config.lyrics_source;
-                self.popup = Some(PopupState {
-                    kind: PopupKind::LyricsSource,
-                    button_rect: Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                    options: vec!["163".to_string(), "LRCLIB".to_string()],
-                    values: vec!["163".to_string(), "lrclib".to_string()],
-                    selected_idx: if source == "163" { 0 } else { 1 },
-                    hover_idx: None,
-                });
-                self.anim.set_with_speed_str("popup_opacity", 1.0, 0.25);
+                self.popup = Some(PopupState::new(
+                    PopupKind::LyricsSource,
+                    Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+                    vec!["163".to_string(), "LRCLIB".to_string()],
+                    vec!["163".to_string(), "lrclib".to_string()],
+                    if source == "163" { 0 } else { 1 },
+                ));
+                self.anim.set_with_speed(POPUP_OPACITY_KEY, 1.0, 0.25);
                 if let Some(win) = &self.window { win.request_redraw(); }
             }
             ClickResult::StepperDec(idx) | ClickResult::StepperInc(idx) => {
@@ -1218,8 +1287,8 @@ impl SettingsApp {
             CONTENT_START_Y
         };
         let content_y = my + self.scroll_y;
-        let items = self.build_current_items();
-        hover_test(&items, content_x, content_y, content_start_y, content_w)
+        self.ensure_items_cache();
+        hover_test(&self.cached_items, content_x, content_y, content_start_y, content_w)
     }
 }
 
@@ -1237,7 +1306,7 @@ impl ApplicationHandler for SettingsApp {
         } else {
             (100.0, 100.0)
         };
-        
+
         let attrs = Window::default_attributes()
             .with_title("Settings")
             .with_inner_size(LogicalSize::new(WIN_W as f64, WIN_H as f64))
@@ -1253,10 +1322,7 @@ impl ApplicationHandler for SettingsApp {
         let size = window.inner_size();
         self.win_w = size.width as f32;
         self.win_h = size.height as f32;
-        surface.resize(
-            std::num::NonZeroU32::new(size.width).unwrap(),
-            std::num::NonZeroU32::new(size.height).unwrap(),
-        ).unwrap();
+        resize_surface(&mut surface, size.width, size.height);
         self.surface = Some(surface);
         self.update_theme();
         self.update_detected_apps();
@@ -1275,20 +1341,14 @@ impl ApplicationHandler for SettingsApp {
                 self.win_w = new_size.width as f32;
                 self.win_h = new_size.height as f32;
                 if let Some(surface) = &mut self.surface {
-                    surface.resize(
-                        std::num::NonZeroU32::new(new_size.width).unwrap(),
-                        std::num::NonZeroU32::new(new_size.height).unwrap(),
-                    ).unwrap();
+                    resize_surface(surface, new_size.width, new_size.height);
                     if let Some(win) = &self.window { win.request_redraw(); }
                 }
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 if let (Some(win), Some(surface)) = (&self.window, &mut self.surface) {
                     let size = win.inner_size();
-                    surface.resize(
-                        std::num::NonZeroU32::new(size.width).unwrap(),
-                        std::num::NonZeroU32::new(size.height).unwrap(),
-                    ).unwrap();
+                    resize_surface(surface, size.width, size.height);
                     win.request_redraw();
                 }
             }
@@ -1302,6 +1362,7 @@ impl ApplicationHandler for SettingsApp {
                                     self.active_sub_page -= 1;
                                     self.scroll_y = 0.0;
                                     self.target_scroll_y = 0.0;
+                                    self.scroll_vel_y = 0.0;
                                     self.mark_items_dirty();
                                     if let Some(win) = &self.window { win.request_redraw(); }
                                 }
@@ -1309,6 +1370,7 @@ impl ApplicationHandler for SettingsApp {
                                 self.active_page -= 1;
                                 self.scroll_y = 0.0;
                                 self.target_scroll_y = 0.0;
+                                self.scroll_vel_y = 0.0;
                                 self.mark_items_dirty();
                                 if let Some(win) = &self.window { win.request_redraw(); }
                             }
@@ -1319,6 +1381,7 @@ impl ApplicationHandler for SettingsApp {
                                     self.active_sub_page += 1;
                                     self.scroll_y = 0.0;
                                     self.target_scroll_y = 0.0;
+                                    self.scroll_vel_y = 0.0;
                                     self.mark_items_dirty();
                                     if let Some(win) = &self.window { win.request_redraw(); }
                                 }
@@ -1326,6 +1389,7 @@ impl ApplicationHandler for SettingsApp {
                                 self.active_page += 1;
                                 self.scroll_y = 0.0;
                                 self.target_scroll_y = 0.0;
+                                self.scroll_vel_y = 0.0;
                                 self.mark_items_dirty();
                                 if let Some(win) = &self.window { win.request_redraw(); }
                             }
@@ -1343,17 +1407,7 @@ impl ApplicationHandler for SettingsApp {
 
                 if let Some(popup) = &mut self.popup {
                     let (pmx, pmy) = self.logical_mouse_pos;
-                    let menu = popup.menu_rect();
-                    let mut new_hover = None;
-                    if pmx >= menu.left && pmx <= menu.right && pmy >= menu.top && pmy <= menu.bottom {
-                        for i in 0..popup.options.len() {
-                            let ir = popup.item_rect(i);
-                            if pmy >= ir.top && pmy <= ir.bottom {
-                                new_hover = Some(i);
-                                break;
-                            }
-                        }
-                    }
+                    let new_hover = popup.hit_test_item(pmx, pmy);
                     if new_hover != popup.hover_idx {
                         popup.hover_idx = new_hover;
                         if let Some(win) = &self.window { win.request_redraw(); }
@@ -1376,11 +1430,10 @@ impl ApplicationHandler for SettingsApp {
                     if new_hover != self.sidebar_hover {
                         self.sidebar_hover = new_hover;
                         for idx in 0..3 {
-                            let key = format!("sidebar_{}", idx);
                             if idx == new_hover as usize {
-                                self.anim.set_str(&key, 1.0);
+                                self.anim.set(SIDEBAR_KEY_BASE + idx as u64, 1.0);
                             } else {
-                                self.anim.set_str(&key, 0.0);
+                                self.anim.set(SIDEBAR_KEY_BASE + idx as u64, 0.0);
                             }
                         }
                         if let Some(win) = &self.window { win.request_redraw(); }
@@ -1405,43 +1458,33 @@ impl ApplicationHandler for SettingsApp {
 
                     if mx >= SIDEBAR_W {
                         let content_x = mx - SIDEBAR_W;
-                        let content_start_y = if self.active_page == 0 {
-                            SUB_TAB_START_Y + SUB_TAB_H + CONTENT_START_Y
-                        } else {
-                            CONTENT_START_Y
-                        };
                         let content_y = my + self.scroll_y;
-                        let items = self.build_current_items();
-                        let mut item_y = content_start_y;
                         let mut new_row: Option<usize> = None;
-                        let mut ri: usize = 0;
-                        for item in &items {
-                            if item.is_row() {
-                                if content_y >= item_y && content_y <= item_y + ROW_HEIGHT
-                                    && content_x >= CONTENT_PADDING && content_x <= content_w - CONTENT_PADDING {
-                                    new_row = Some(ri);
-                                }
-                                ri += 1;
+                        self.ensure_items_cache();
+                        if content_x >= CONTENT_PADDING && content_x <= content_w - CONTENT_PADDING {
+                            let idx = match self.cached_row_tops.binary_search_by(|y| y.partial_cmp(&content_y).unwrap()) {
+                                Ok(i) => Some(i),
+                                Err(0) => None,
+                                Err(i) => Some(i - 1),
+                            };
+                            if let Some(i) = idx && content_y <= self.cached_row_tops[i] + ROW_HEIGHT {
+                                new_row = Some(i);
                             }
-                            item_y += item.height();
                         }
-                        self.total_rows = ri;
                         if new_row != self.hover_row {
                             if let Some(old) = self.hover_row {
-                                self.anim.set_str(&format!("hover_row_{}", old), 0.0);
+                                self.anim.set(HOVER_ROW_KEY_BASE + old as u64, 0.0);
                             }
                             if let Some(new) = new_row {
-                                self.anim.set_str(&format!("hover_row_{}", new), 1.0);
+                                self.anim.set(HOVER_ROW_KEY_BASE + new as u64, 1.0);
                             }
                             self.hover_row = new_row;
                         }
-                    } else {
-                        if self.hover_row.is_some() {
-                            if let Some(old) = self.hover_row {
-                                self.anim.set_str(&format!("hover_row_{}", old), 0.0);
-                            }
-                            self.hover_row = None;
+                    } else if self.hover_row.is_some() {
+                        if let Some(old) = self.hover_row {
+                            self.anim.set(HOVER_ROW_KEY_BASE + old as u64, 0.0);
                         }
+                        self.hover_row = None;
                     }
                 }
 
@@ -1457,7 +1500,7 @@ impl ApplicationHandler for SettingsApp {
             WindowEvent::MouseWheel { delta, .. } => {
                 if self.popup.is_some() {
                     self.popup = None;
-            self.anim.set_with_speed_str("popup_opacity", 0.0, 0.3);
+                    self.anim.set_with_speed(POPUP_OPACITY_KEY, 0.0, 0.3);
                     if let Some(win) = &self.window { win.request_redraw(); }
                     return;
                 }
@@ -1482,9 +1525,10 @@ impl ApplicationHandler for SettingsApp {
 
     fn about_to_wait(&mut self, _el: &ActiveEventLoop) {
         if self.window.is_none() { return; }
-        
+
+        let frame_start = Instant::now();
         self.frame_count += 1;
-        if self.frame_count % 30 == 0 {
+        if self.frame_count.is_multiple_of(30) {
             unsafe {
                 let h = OpenMutexW(MUTEX_ALL_ACCESS, false, w!("Local\\WinIsland_SingleInstance_Mutex"));
                 if h.is_err() { _el.exit(); return; }
@@ -1492,35 +1536,46 @@ impl ApplicationHandler for SettingsApp {
             }
         }
 
-        let has_anim = self.switch_anim.is_animating() || self.anim.is_animating();
-        let has_popup = self.popup.is_some();
-        let is_scrolling = (self.target_scroll_y - self.scroll_y).abs() > 0.1;
-
-        if !has_anim && !has_popup && !is_scrolling {
-            return;
-        }
-
         let mut redraw = self.switch_anim.tick();
         if self.anim.tick() { redraw = true; }
 
-        let items = self.build_current_items();
-        let ch = content_height(&items, CONTENT_START_Y);
-        let view_h = self.win_h;
-        let max_scroll = (ch - view_h).max(0.0);
+        self.ensure_items_cache();
+        let max_scroll = self.cached_max_scroll;
         self.target_scroll_y = self.target_scroll_y.clamp(0.0, max_scroll);
-        if is_scrolling {
-            self.scroll_y += (self.target_scroll_y - self.scroll_y) * 0.35;
+
+        let dt = self.last_frame_time.elapsed().as_secs_f32().clamp(0.001, 0.05);
+        self.last_frame_time = Instant::now();
+
+        let diff = self.target_scroll_y - self.scroll_y;
+        let accel = diff * SCROLL_STIFFNESS - self.scroll_vel_y * SCROLL_DAMPING;
+        self.scroll_vel_y += accel * dt;
+        self.scroll_y += self.scroll_vel_y * dt;
+
+        if self.scroll_y < 0.0 {
+            self.scroll_y = 0.0;
+            self.scroll_vel_y = 0.0;
+        } else if self.scroll_y > max_scroll {
+            self.scroll_y = max_scroll;
+            self.scroll_vel_y = 0.0;
+        }
+
+        if diff.abs() > 0.05 || self.scroll_vel_y.abs() > 0.05 {
             redraw = true;
         } else if (self.scroll_y - self.target_scroll_y).abs() > f32::EPSILON {
             self.scroll_y = self.target_scroll_y;
+            self.scroll_vel_y = 0.0;
         }
 
         if redraw {
             if let Some(win) = &self.window {
                 win.request_redraw();
             }
+            let target = Duration::from_millis(16);
+            let elapsed = frame_start.elapsed();
+            if elapsed < target {
+                std::thread::sleep(target - elapsed);
+            }
         }
-        std::thread::sleep(Duration::from_millis(16));
     }
 }
 
@@ -1539,5 +1594,14 @@ pub fn bring_settings_to_front() {
                 let _ = SetForegroundWindow(hwnd);
             }
         }
+    }
+}
+
+fn resize_surface(surface: &mut Surface<Arc<Window>, Arc<Window>>, width: u32, height: u32) {
+    if let (Some(w), Some(h)) = (
+        std::num::NonZeroU32::new(width),
+        std::num::NonZeroU32::new(height),
+    ) {
+        let _ = surface.resize(w, h);
     }
 }
