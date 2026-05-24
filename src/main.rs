@@ -41,11 +41,18 @@ fn main() {
             loop {
                 unsafe {
                     let h = CreateMutexW(None, true, w!("Local\\WinIsland_SingleInstance_Mutex"));
-                    if GetLastError() != ERROR_ALREADY_EXISTS {
-                        break ManuallyDrop::new(h.unwrap_or_default());
-                    }
-                    if let Ok(h) = h {
-                        let _ = CloseHandle(h);
+                    match h {
+                        Ok(handle) => {
+                            if GetLastError() != ERROR_ALREADY_EXISTS {
+                                break ManuallyDrop::new(handle);
+                            }
+                            let _ = CloseHandle(handle);
+                        }
+                        Err(_) => {
+                            if !is_restart {
+                                return;
+                            }
+                        }
                     }
                 }
                 if !is_restart || start.elapsed() > std::time::Duration::from_secs(10) {

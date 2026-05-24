@@ -805,7 +805,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     );
 
                     label_p.set_color(theme.text_pri);
-                    let default_samples = ["Hello World", "你好世界", "こんにちは"];
+                    let default_samples = [tr("font_preview_sample")];
                     for (si, sample) in default_samples.iter().enumerate() {
                         fm.draw_text_with_default_font(
                             canvas,
@@ -838,7 +838,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         });
 
                         label_p.set_color(theme.accent);
-                        let custom_samples = ["Hello World", "你好世界", "こんにちは"];
+                        let custom_samples = [tr("font_preview_sample")];
                         for (si, sample) in custom_samples.iter().enumerate() {
                             fm.draw_text_with_custom_font(
                                 canvas,

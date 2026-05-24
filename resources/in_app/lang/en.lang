@@ -37,6 +37,7 @@ cover_rotate=Cover Rotate
 audio_gate=Audio Gate
 section_experimental=EXPERIMENTAL
 mini_controls=Mini Controls
+font_preview_sample=Hello World
 island_style=Island Style
 style_default=Default
 style_glass=Frosted Glass

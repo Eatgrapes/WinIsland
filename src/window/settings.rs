@@ -975,7 +975,7 @@ impl SettingsApp {
             tr("section_effects"),
             tr("section_behavior"),
         ];
-        let tab_w = content_w / 3.0;
+        let tab_w = content_w / tabs.len() as f32;
         let start_x = SIDEBAR_W;
 
         let mut paint = Paint::default();
@@ -1257,10 +1257,11 @@ impl SettingsApp {
         let content_w = self.win_w / scale - SIDEBAR_W;
 
         if self.active_page == 0 && my >= SUB_TAB_START_Y && my <= SUB_TAB_START_Y + SUB_TAB_H {
-            let tab_w = content_w / 3.0;
+            let tab_count = 3usize;
+            let tab_w = content_w / tab_count as f32;
             let rel_x = mx - SIDEBAR_W;
             let tab_idx = (rel_x / tab_w) as usize;
-            if tab_idx < 3 {
+            if tab_idx < tab_count {
                 if self.active_sub_page != tab_idx {
                     self.active_sub_page = tab_idx;
                     self.scroll_y = 0.0;
@@ -1395,24 +1396,60 @@ impl SettingsApp {
                 }
             }
             ClickResult::Switch(idx) => {
-                let actual_idx = match self.active_sub_page {
-                    1 => idx,
-                    2 => idx + 5,
-                    _ => idx,
-                };
-                match actual_idx {
-                    0 => self.config.adaptive_border = !self.config.adaptive_border,
-                    1 => self.config.motion_blur = !self.config.motion_blur,
-                    2 => self.config.cover_rotate = !self.config.cover_rotate,
-                    3 => self.config.audio_gate = !self.config.audio_gate,
-                    4 => self.config.mini_controls = !self.config.mini_controls,
-                    5 => {
-                        self.config.auto_start = !self.config.auto_start;
-                        let _ = set_autostart(self.config.auto_start);
+                let label = items
+                    .iter()
+                    .filter_map(|item| match item {
+                        SettingsItem::RowSwitch { label, .. } => Some(label.clone()),
+                        _ => None,
+                    })
+                    .nth(idx);
+                if let Some(label) = label {
+                    match label.as_str() {
+                        l if l == tr("adaptive_border") => {
+                            self.config.adaptive_border = !self.config.adaptive_border
+                        }
+                        l if l == tr("motion_blur") => {
+                            self.config.motion_blur = !self.config.motion_blur
+                        }
+                        l if l == tr("cover_rotate") => {
+                            self.config.cover_rotate = !self.config.cover_rotate
+                        }
+                        l if l == tr("audio_gate") => {
+                            self.config.audio_gate = !self.config.audio_gate
+                        }
+                        l if l == tr("mini_controls") => {
+                            self.config.mini_controls = !self.config.mini_controls
+                        }
+                        l if l == tr("start_boot") => {
+                            self.config.auto_start = !self.config.auto_start;
+                            let _ = set_autostart(self.config.auto_start);
+                        }
+                        l if l == tr("auto_hide") => {
+                            self.config.auto_hide = !self.config.auto_hide
+                        }
+                        l if l == tr("check_updates") => {
+                            self.config.check_for_updates = !self.config.check_for_updates
+                        }
+                        l if l == tr("smtc_control") => {
+                            self.config.smtc_enabled = !self.config.smtc_enabled
+                        }
+                        l if l == tr("show_lyrics") => {
+                            self.config.show_lyrics = !self.config.show_lyrics
+                        }
+                        l if l == tr("lyrics_fallback") => {
+                            if self.config.show_lyrics {
+                                self.config.lyrics_fallback = !self.config.lyrics_fallback
+                            }
+                        }
+                        l if l == tr("lyrics_scroll") => {
+                            if self.config.show_lyrics {
+                                self.config.lyrics_scroll = !self.config.lyrics_scroll
+                            }
+                        }
+                        _ => {
+                            eprintln!("WinIsland: unhandled switch label: {}", label);
+                        }
                     }
-                    6 => self.config.auto_hide = !self.config.auto_hide,
-                    7 => self.config.check_for_updates = !self.config.check_for_updates,
-                    _ => {}
                 }
                 self.sync_switch_targets();
                 changed = true;
@@ -1629,21 +1666,35 @@ impl SettingsApp {
 
         match result {
             ClickResult::Switch(idx) => {
-                let actual_idx = idx + 8;
-                match actual_idx {
-                    8 => self.config.smtc_enabled = !self.config.smtc_enabled,
-                    9 => self.config.show_lyrics = !self.config.show_lyrics,
-                    10 => {
-                        if self.config.show_lyrics {
-                            self.config.lyrics_fallback = !self.config.lyrics_fallback
+                let label = items
+                    .iter()
+                    .filter_map(|item| match item {
+                        SettingsItem::RowSwitch { label, .. } => Some(label.clone()),
+                        _ => None,
+                    })
+                    .nth(idx);
+                if let Some(label) = label {
+                    match label.as_str() {
+                        l if l == tr("smtc_control") => {
+                            self.config.smtc_enabled = !self.config.smtc_enabled
+                        }
+                        l if l == tr("show_lyrics") => {
+                            self.config.show_lyrics = !self.config.show_lyrics
+                        }
+                        l if l == tr("lyrics_fallback") => {
+                            if self.config.show_lyrics {
+                                self.config.lyrics_fallback = !self.config.lyrics_fallback
+                            }
+                        }
+                        l if l == tr("lyrics_scroll") => {
+                            if self.config.show_lyrics {
+                                self.config.lyrics_scroll = !self.config.lyrics_scroll
+                            }
+                        }
+                        _ => {
+                            eprintln!("WinIsland: unhandled switch label: {}", label);
                         }
                     }
-                    11 => {
-                        if self.config.show_lyrics {
-                            self.config.lyrics_scroll = !self.config.lyrics_scroll
-                        }
-                    }
-                    _ => {}
                 }
                 self.sync_switch_targets();
                 changed = true;
@@ -1976,10 +2027,11 @@ impl ApplicationHandler for SettingsApp {
                         && my >= SUB_TAB_START_Y
                         && my <= SUB_TAB_START_Y + SUB_TAB_H
                     {
-                        let tab_w = content_w / 3.0;
+                        let tab_count = 3i32;
+                        let tab_w = content_w / tab_count as f32;
                         let rel_x = mx - SIDEBAR_W;
                         let tab_idx = (rel_x / tab_w) as i32;
-                        let new_sub_hover = if tab_idx >= 0 && tab_idx < 3 {
+                        let new_sub_hover = if tab_idx >= 0 && tab_idx < tab_count {
                             tab_idx
                         } else {
                             -1
