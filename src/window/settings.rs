@@ -252,9 +252,7 @@ impl SettingsApp {
     }
 
     fn build_general_items(&self) -> Vec<SettingsItem> {
-        let mut items: Vec<SettingsItem> = vec![
-            SettingsItem::PageTitle { text: tr("tab_general") },
-        ];
+        let mut items: Vec<SettingsItem> = vec![];
 
         match self.active_sub_page {
             0 => {
@@ -490,15 +488,17 @@ impl SettingsApp {
         let mut monitors: Vec<String> = Vec::new();
         unsafe {
             let mut idx = 0u32;
+            let mut active_count = 0;
             loop {
                 let mut dd: DISPLAY_DEVICEW = std::mem::zeroed();
                 dd.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
                 if EnumDisplayDevicesW(None, idx, &mut dd, 0).as_bool() {
                     if (dd.StateFlags & DISPLAY_DEVICE_ACTIVE) != 0 {
+                        active_count += 1;
                         let name = String::from_utf16_lossy(&dd.DeviceName).trim_end_matches('\0').to_string();
                         let mut dm: DISPLAY_DEVICEW = std::mem::zeroed();
                         dm.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
-                        let label = if EnumDisplayDevicesW(
+                        let mut label = if EnumDisplayDevicesW(
                             windows::core::PCWSTR(dd.DeviceName.as_ptr()),
                             0, &mut dm, 0
                         ).as_bool() {
@@ -507,6 +507,7 @@ impl SettingsApp {
                         } else {
                             name.clone()
                         };
+                        label = format!("Display {}: {}", active_count, label);
                         monitors.push(label);
                     }
                     idx += 1;
@@ -539,6 +540,7 @@ impl SettingsApp {
 
     fn update_detected_apps(&mut self) {
         use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
+        let mut changed = false;
         if let Ok(manager_async) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
             if let Ok(manager) = manager_async.get() {
                 if let Ok(sessions) = manager.GetSessions() {
@@ -549,6 +551,7 @@ impl SettingsApp {
                                     let name = id.to_string();
                                     if !self.detected_apps.contains(&name) {
                                         self.detected_apps.push(name);
+                                        changed = true;
                                     }
                                 }
                             }
@@ -560,7 +563,11 @@ impl SettingsApp {
         for app in &self.config.smtc_known_apps {
             if !self.detected_apps.contains(app) {
                 self.detected_apps.push(app.clone());
+                changed = true;
             }
+        }
+        if changed {
+            self.items_dirty = true;
         }
     }
 
@@ -1562,6 +1569,9 @@ impl ApplicationHandler for SettingsApp {
                 if h.is_err() { _el.exit(); return; }
                 let _ = windows::Win32::Foundation::CloseHandle(h.unwrap());
             }
+        }
+        if self.frame_count.is_multiple_of(120) {
+            self.update_detected_apps();
         }
 
         let has_anim = self.switch_anim.is_animating() || self.anim.is_animating();
