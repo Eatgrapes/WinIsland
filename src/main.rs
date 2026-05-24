@@ -8,6 +8,7 @@ mod window;
 use crate::core::i18n::init_i18n;
 use crate::window::app::App;
 use std::env;
+use std::mem::ManuallyDrop;
 use windows::Win32::Foundation::ERROR_ALREADY_EXISTS;
 use windows::Win32::Foundation::GetLastError;
 use windows::Win32::System::Threading::CreateMutexW;
@@ -22,8 +23,9 @@ fn main() {
     let is_restart = args.iter().any(|arg| arg == "--restart");
 
     if args.iter().any(|arg| arg == "--settings") {
+        let _settings_mutex;
         unsafe {
-            let _ = CreateMutexW(None, true, w!("Local\\WinIsland_Settings_Mutex"));
+            _settings_mutex = CreateMutexW(None, true, w!("Local\\WinIsland_Settings_Mutex"));
             if GetLastError() == ERROR_ALREADY_EXISTS {
                 crate::window::settings::bring_settings_to_front();
                 return;
@@ -32,27 +34,23 @@ fn main() {
         crate::window::settings::run_settings(config);
     } else {
         if is_restart {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+        let _single_mutex = {
             let start = std::time::Instant::now();
             loop {
                 unsafe {
-                    let _ = CreateMutexW(None, true, w!("Local\\WinIsland_SingleInstance_Mutex"));
+                    let h = CreateMutexW(None, true, w!("Local\\WinIsland_SingleInstance_Mutex"));
                     if GetLastError() != ERROR_ALREADY_EXISTS {
-                        break;
+                        break ManuallyDrop::new(h);
                     }
                 }
-                if start.elapsed() > std::time::Duration::from_secs(5) {
+                if !is_restart || start.elapsed() > std::time::Duration::from_secs(10) {
                     return;
                 }
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                std::thread::sleep(std::time::Duration::from_millis(200));
             }
-        } else {
-            unsafe {
-                let _ = CreateMutexW(None, true, w!("Local\\WinIsland_SingleInstance_Mutex"));
-                if GetLastError() == ERROR_ALREADY_EXISTS {
-                    return;
-                }
-            }
-        }
+        };
 
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let _guard = runtime.enter();
