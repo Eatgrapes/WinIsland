@@ -530,7 +530,17 @@ impl SettingsApp {
             true,
         );
         canvas.translate((SIDEBAR_W, -self.scroll_y));
-        draw_items(canvas, &items, content_start_y, content_w, &anim, &self.anim, &theme);
+        draw_items(DrawItemsParams {
+            canvas,
+            items: &items,
+            start_y: content_start_y,
+            width: content_w,
+            anims: &anim,
+            hover_anims: &self.anim,
+            theme: &theme,
+            visible_min_y: self.scroll_y,
+            visible_max_y: self.scroll_y + win_h,
+        });
         canvas.restore();
 
         self.draw_popup(canvas, &theme);
