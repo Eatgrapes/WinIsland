@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use crate::icons::arrows::draw_arrow_left;
 use crate::core::smtc::MediaInfo;
 use crate::ui::expanded::music_view::draw_text_cached;
-use crate::utils::font::FontManager;
+use crate::utils::font::{FontManager, DrawTextCachedParams};
 
 thread_local! {
     static LYRIC_SCROLL_STATE: RefCell<LyricScrollState> = RefCell::new(LyricScrollState::new());
@@ -269,27 +269,27 @@ pub fn draw_widget_page(
         
         if should_scroll {
             let text_x = lyric_area_left + 2.0 * scale - current_scroll_offset;
-            draw_text_cached(
+            draw_text_cached(DrawTextCachedParams {
                 canvas,
-                &line.text,
-                (text_x, line_y),
-                font_sz,
+                text: &line.text,
+                pos: (text_x, line_y),
+                size: font_sz,
                 style,
-                &text_paint,
-                false,
-                10000.0,
-            );
+                paint: &text_paint,
+                align_center: false,
+                max_w: 10000.0,
+            });
         } else {
-            draw_text_cached(
+            draw_text_cached(DrawTextCachedParams {
                 canvas,
-                &line.text,
-                (center_x, line_y),
-                font_sz,
+                text: &line.text,
+                pos: (center_x, line_y),
+                size: font_sz,
                 style,
-                &text_paint,
-                true,
-                lyric_area_w,
-            );
+                paint: &text_paint,
+                align_center: true,
+                max_w: lyric_area_w,
+            });
         }
     }
 
