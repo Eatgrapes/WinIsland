@@ -575,12 +575,11 @@ fn fetch_properties(
 
         let smtc_changed = smtc_pos != info.last_smtc_pos;
         let diff_with_extrapolated = (smtc_pos as i64 - current_extrapolated as i64).abs();
-        let diff_from_last = (smtc_pos as i64 - info.position_ms as i64).abs();
 
         let should_sync = song_changed
             || (info.is_playing != is_playing)
             || (smtc_pos > 0 && info.position_ms == 0)
-            || (smtc_changed && (diff_with_extrapolated > 2000 || (!is_playing && diff_from_last > 500)));
+            || (smtc_changed && (diff_with_extrapolated > 2000 || !is_playing));
 
         if should_sync {
             info.position_ms = smtc_pos;

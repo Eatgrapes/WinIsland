@@ -16,7 +16,7 @@ thread_local! {
     static IMG_CACHE: RefCell<Option<(String, Image)>> = const { RefCell::new(None) };
     static COLOR_CACHE: RefCell<HashMap<String, Vec<Color>>> = RefCell::new(HashMap::new());
     static VIZ_HEIGHTS: RefCell<[f32; 6]> = const { RefCell::new([3.0; 6]) };
-    static PROGRESS_SMOOTH: RefCell<f32> = const { RefCell::new(0.0) };
+    static PROGRESS_SMOOTH: RefCell<f32> = const { RefCell::new(-1.0) };
     static PAUSE_ANIM: RefCell<f32> = const { RefCell::new(0.0) };
     static PAUSE_SPRING: RefCell<Spring> = RefCell::new(Spring::new(1.0));
     static PREV_SKIP_ANIM: RefCell<Option<std::time::Instant>> = const { RefCell::new(None) };
@@ -436,6 +436,8 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             let mut smooth = cell.borrow_mut();
             let dragging = PROGRESS_DRAGGING.with(|d| *d.borrow());
             if dragging {
+                *smooth = raw_progress;
+            } else if *smooth < 0.0 {
                 *smooth = raw_progress;
             } else {
                 let diff = (raw_progress - *smooth).abs();
