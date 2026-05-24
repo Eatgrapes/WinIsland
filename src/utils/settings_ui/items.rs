@@ -104,17 +104,3 @@ impl SettingsItem {
         )
     }
 }
-
-#[allow(dead_code)]
-pub fn get_row_item(items: &[SettingsItem], row_idx: usize) -> Option<&SettingsItem> {
-    let mut count = 0;
-    for item in items {
-        if item.is_row() {
-            if count == row_idx {
-                return Some(item);
-            }
-            count += 1;
-        }
-    }
-    None
-}

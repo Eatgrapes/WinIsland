@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use winit::window::Window;
 use crate::core::config::{DockPosition, PADDING, TOP_OFFSET};
 use crate::ui::expanded::music_view::{draw_music_page, get_media_palette, draw_visualizer, get_cached_media_image, get_cached_media_image_with_key, draw_text_cached, DrawMusicPageParams, DrawVisualizerParams};
-use crate::utils::font::DrawTextCachedParams;
+use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::ui::expanded::widget_view::draw_widget_page;
 use crate::core::smtc::MediaInfo;
 use crate::utils::glass::get_glass_background;
@@ -14,9 +14,9 @@ use crate::utils::backdrop::{get_dynamic_bg_color, get_last_valid_color};
 use crate::icons::controls::{draw_play_button, draw_pause_button};
 
 thread_local! {
-    static SK_SURFACE: RefCell<Option<SkSurface>> = RefCell::new(None);
-    static MINI_COVER_ROTATION: RefCell<f32> = RefCell::new(0.0);
-    static MINI_PAUSE_ANIM: RefCell<f32> = RefCell::new(0.0);
+    static SK_SURFACE: RefCell<Option<SkSurface>> = const { RefCell::new(None) };
+    static MINI_COVER_ROTATION: RefCell<f32> = const { RefCell::new(0.0) };
+    static MINI_PAUSE_ANIM: RefCell<f32> = const { RefCell::new(0.0) };
 }
 
 pub struct LayoutParams {
@@ -391,7 +391,6 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
                     space_left + available_w / 2.0
                 };
                 let text_centered = !scrolling;
-                let text_max_w = if scrolling { 10000.0 } else { available_w };
 
                 canvas.save();
                 let clip_rect = Rect::from_xywh(space_left, offset_y, available_w, current_h);
@@ -410,7 +409,8 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
                         }
 
                         let text_y = offset_y + current_h / 2.0 + 4.0 * global_scale - (10.0 * global_scale * lyric_transition);
-                        draw_text_cached(DrawTextCachedParams { canvas, text: old_lyric, pos: (text_x, text_y), size: lyric_font_sz, style: skia_safe::FontStyle::normal(), paint: &text_paint, align_center: text_centered, max_w: text_max_w });
+                        let old_lx = if text_centered { let w = FontManager::global().measure_text_cached(old_lyric, lyric_font_sz, skia_safe::FontStyle::normal()); text_x - w / 2.0 } else { text_x };
+                        draw_text_cached(DrawTextCachedParams { canvas, text: old_lyric, x: old_lx, y: text_y, size: lyric_font_sz, bold: false, paint: &text_paint });
                     }
 
                     if !current_lyric.is_empty() {
@@ -425,7 +425,8 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
                         }
 
                         let text_y = offset_y + current_h / 2.0 + 4.0 * global_scale + (10.0 * global_scale * (1.0 - lyric_transition));
-                        draw_text_cached(DrawTextCachedParams { canvas, text: current_lyric, pos: (text_x, text_y), size: lyric_font_sz, style: skia_safe::FontStyle::normal(), paint: &text_paint, align_center: text_centered, max_w: text_max_w });
+                        let cur_lx = if text_centered { let w = FontManager::global().measure_text_cached(current_lyric, lyric_font_sz, skia_safe::FontStyle::normal()); text_x - w / 2.0 } else { text_x };
+                        draw_text_cached(DrawTextCachedParams { canvas, text: current_lyric, x: cur_lx, y: text_y, size: lyric_font_sz, bold: false, paint: &text_paint });
                     }
                 } else {
                     let text_y = offset_y + current_h / 2.0 + 4.0 * global_scale;
@@ -435,14 +436,16 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
                         let progress = lyric_transition * 2.0;
                         let fade_alpha = (alpha as f32 * (1.0 - progress)) as u8;
                         text_paint.set_color(Color::from_argb(fade_alpha, 255, 255, 255));
-                        draw_text_cached(DrawTextCachedParams { canvas, text: old_lyric, pos: (text_x, text_y), size: lyric_font_sz, style: skia_safe::FontStyle::normal(), paint: &text_paint, align_center: text_centered, max_w: text_max_w });
+                        let old_lx2 = if text_centered { let w = FontManager::global().measure_text_cached(old_lyric, lyric_font_sz, skia_safe::FontStyle::normal()); text_x - w / 2.0 } else { text_x };
+                        draw_text_cached(DrawTextCachedParams { canvas, text: old_lyric, x: old_lx2, y: text_y, size: lyric_font_sz, bold: false, paint: &text_paint });
                     } else if lyric_transition >= 0.5 && !current_lyric.is_empty() {
                         let mut text_paint = Paint::default();
                         text_paint.set_anti_alias(true);
                         let progress = (lyric_transition - 0.5) * 2.0;
                         let fade_alpha = (alpha as f32 * progress) as u8;
                         text_paint.set_color(Color::from_argb(fade_alpha, 255, 255, 255));
-                        draw_text_cached(DrawTextCachedParams { canvas, text: current_lyric, pos: (text_x, text_y), size: lyric_font_sz, style: skia_safe::FontStyle::normal(), paint: &text_paint, align_center: text_centered, max_w: text_max_w });
+                        let cur_lx2 = if text_centered { let w = FontManager::global().measure_text_cached(current_lyric, lyric_font_sz, skia_safe::FontStyle::normal()); text_x - w / 2.0 } else { text_x };
+                        draw_text_cached(DrawTextCachedParams { canvas, text: current_lyric, x: cur_lx2, y: text_y, size: lyric_font_sz, bold: false, paint: &text_paint });
                     }
                 }
                 canvas.restore();

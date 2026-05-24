@@ -120,22 +120,30 @@ impl AudioProcessor {
             };
             if let Ok(s) = stream {
                 let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
-                unsafe {
+                let session = unsafe {
                     let enumerator: IMMDeviceEnumerator = match CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok() {
                         Some(e) => e,
                         None => { let _ = s.play(); while !cancel.is_cancelled() { std::thread::sleep(std::time::Duration::from_millis(100)); } return; }
                     };
+                    let mut session = None;
                     if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eConsole) {
                         if let Ok(mgr) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) {
-                            if let Ok(session) = mgr.GetSimpleAudioVolume(None, 0) {
-                                let _ = session.SetMute(true, std::ptr::null());
+                            if let Ok(ses) = mgr.GetSimpleAudioVolume(None, 0) {
+                                session = Some(ses);
                             }
                         }
                     }
+                    session
+                };
+                if let Some(ref ses) = session {
+                    let _ = unsafe { ses.SetMute(true, std::ptr::null()) };
                 }
                 let _ = s.play();
                 while !cancel.is_cancelled() {
                     std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                if let Some(ref ses) = session {
+                    let _ = unsafe { ses.SetMute(false, std::ptr::null()) };
                 }
             }
         });

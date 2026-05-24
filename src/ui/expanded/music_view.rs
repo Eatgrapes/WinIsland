@@ -487,23 +487,21 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         draw_text_cached(DrawTextCachedParams {
             canvas,
             text: &elapsed_str,
-            pos: (bar_left - elapsed_w - 6.0 * scale, text_baseline_y),
+            x: bar_left - elapsed_w - 6.0 * scale,
+            y: text_baseline_y,
             size: time_font_size,
-            style: FontStyle::normal(),
+            bold: false,
             paint: &time_paint,
-            align_center: false,
-            max_w: f32::MAX,
         });
 
         draw_text_cached(DrawTextCachedParams {
             canvas,
             text: &remaining_str,
-            pos: (bar_right + 6.0 * scale, text_baseline_y),
+            x: bar_right + 6.0 * scale,
+            y: text_baseline_y,
             size: time_font_size,
-            style: FontStyle::normal(),
+            bold: false,
             paint: &time_paint,
-            align_center: false,
-            max_w: f32::MAX,
         });
 
         let mut track_paint = Paint::default();

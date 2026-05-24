@@ -3,7 +3,7 @@ use crate::core::persistence::save_config;
 use crate::core::i18n::{tr, init_i18n, set_lang, current_lang};
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
-use crate::utils::font::FontManager;
+use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::settings_ui::*;
 use crate::utils::settings_ui::items::*;
 use skia_safe::{surfaces, Color, Paint, Rect};
@@ -564,7 +564,10 @@ impl SettingsApp {
         };
 
         {
-            let mut buffer = surface.buffer_mut().unwrap();
+            let mut buffer = match surface.buffer_mut() {
+                Ok(b) => b,
+                Err(_) => { self.surface = Some(surface); return; }
+            };
             let info = skia_safe::ImageInfo::new(
                 skia_safe::ISize::new(p_w, p_h),
                 skia_safe::ColorType::BGRA8888,
@@ -573,8 +576,13 @@ impl SettingsApp {
             );
             let dst_row_bytes = (p_w * 4) as usize;
             let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut *buffer);
-            let mut sk_surface =
-                surfaces::wrap_pixels(&info, u8_buffer, dst_row_bytes, None).unwrap();
+            let expected_size = (p_w * p_h * 4) as usize;
+            let actual_size = u8_buffer.len();
+            if actual_size != expected_size { return; }
+            let mut sk_surface = match surfaces::wrap_pixels(&info, u8_buffer, dst_row_bytes, None) {
+                Some(s) => s,
+                None => { return; }
+            };
 
             let canvas = sk_surface.canvas();
             canvas.reset_matrix();
@@ -636,7 +644,7 @@ impl SettingsApp {
             }
 
             self.draw_popup(canvas, &theme);
-            buffer.present().unwrap();
+            let _ = buffer.present();
         }
 
         self.surface = Some(surface);
@@ -686,7 +694,7 @@ impl SettingsApp {
                 paint.set_color(theme.text_sec);
             }
 
-            fm.draw_text(canvas, label, (row_x + 12.0, row_y + 21.0), 13.0, false, &paint);
+            fm.draw_text_cached(DrawTextCachedParams { canvas, text: label, x: row_x + 12.0, y: row_y + 21.0, size: 13.0, bold: false, paint: &paint });
         }
     }
 
@@ -730,7 +738,7 @@ impl SettingsApp {
 
             let text_x = tab_x + tab_w / 2.0;
             let text_y = SUB_TAB_START_Y + SUB_TAB_H / 2.0 + 5.0;
-            fm.draw_text(canvas, label, (text_x - 30.0, text_y), 13.0, false, &paint);
+            fm.draw_text_cached(DrawTextCachedParams { canvas, text: label, x: text_x - 30.0, y: text_y, size: 13.0, bold: false, paint: &paint });
         }
     }
 
@@ -777,7 +785,7 @@ impl SettingsApp {
 
             paint.set_color(Color::from_argb(text_alpha, theme.text_pri.r(), theme.text_pri.g(), theme.text_pri.b()));
             paint.set_style(skia_safe::paint::Style::Fill);
-            fm.draw_text(canvas, opt_label, (item_rect.left + 8.0, item_rect.top + 19.0), 12.0, false, &paint);
+            fm.draw_text_cached(DrawTextCachedParams { canvas, text: opt_label, x: item_rect.left + 8.0, y: item_rect.top + 19.0, size: 12.0, bold: false, paint: &paint });
 
             if i == popup.selected_idx {
                 let check_base = if popup.hover_idx == Some(i) { theme.text_pri } else { theme.accent };
@@ -1198,35 +1206,23 @@ impl SettingsApp {
                         }
                 }
             }
-            ClickResult::AppItem(idx) => {
-                if self.config.smtc_enabled && !self.detected_apps.is_empty() {
-                    let mut row_count = 0;
-                    let mut app_row_start = None;
-                    for item in items {
-                        if matches!(item, SettingsItem::RowAppItem { .. }) {
-                            if app_row_start.is_none() {
-                                app_row_start = Some(row_count);
-                            }
-                        }
-                        if item.is_row() {
-                            row_count += 1;
-                        }
-                    }
-                    if let Some(start) = app_row_start {
-                        let app_idx = idx - start;
-                        if app_idx < self.detected_apps.len() {
-                            let app = &self.detected_apps[app_idx];
-                            if self.config.smtc_apps.contains(app) {
-                                self.config.smtc_apps.retain(|a| a != app);
-                            } else {
-                                self.config.smtc_apps.push(app.clone());
-                                if !self.config.smtc_known_apps.contains(app) {
-                                    self.config.smtc_known_apps.push(app.clone());
-                                }
-                            }
-                            changed = true;
+            ClickResult::AppItem(idx) if self.config.smtc_enabled && !self.detected_apps.is_empty() => {
+                let app_start = items
+                    .iter()
+                    .position(|i| matches!(i, SettingsItem::RowAppItem { .. }))
+                    .unwrap_or(items.len());
+                let app_idx = idx - app_start;
+                if app_idx < self.detected_apps.len() {
+                    let app = &self.detected_apps[app_idx];
+                    if self.config.smtc_apps.contains(app) {
+                        self.config.smtc_apps.retain(|a| a != app);
+                    } else {
+                        self.config.smtc_apps.push(app.clone());
+                        if !self.config.smtc_known_apps.contains(app) {
+                            self.config.smtc_known_apps.push(app.clone());
                         }
                     }
+                    changed = true;
                 }
             }
             _ => {}

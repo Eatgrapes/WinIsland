@@ -75,24 +75,22 @@ impl ScrollText {
             FontManager::global().draw_text_cached(DrawTextCachedParams {
                 canvas,
                 text,
-                pos: (x - self.offset, y),
+                x: x - self.offset,
+                y,
                 size,
-                style,
+                bold: *style.weight() >= 700,
                 paint,
-                align_center: false,
-                max_w: f32::MAX,
             });
             let next_x = x - self.offset + full_w + 50.0 * scale;
             if next_x < x + max_w {
                 FontManager::global().draw_text_cached(DrawTextCachedParams {
                     canvas,
                     text,
-                    pos: (next_x, y),
+                    x: next_x,
+                    y,
                     size,
-                    style,
+                    bold: *style.weight() >= 700,
                     paint,
-                    align_center: false,
-                    max_w: f32::MAX,
                 });
             }
             canvas.restore();
@@ -101,12 +99,11 @@ impl ScrollText {
             FontManager::global().draw_text_cached(DrawTextCachedParams {
                 canvas,
                 text,
-                pos: (x, y),
+                x,
+                y,
                 size,
-                style,
+                bold: *style.weight() >= 700,
                 paint,
-                align_center: false,
-                max_w,
             });
         }
     }

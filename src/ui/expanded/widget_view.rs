@@ -265,30 +265,27 @@ pub fn draw_widget_page(
             255,
         ));
 
-        let style = FontStyle::normal();
-        
         if should_scroll {
             let text_x = lyric_area_left + 2.0 * scale - current_scroll_offset;
             draw_text_cached(DrawTextCachedParams {
                 canvas,
                 text: &line.text,
-                pos: (text_x, line_y),
+                x: text_x,
+                y: line_y,
                 size: font_sz,
-                style,
+                bold: false,
                 paint: &text_paint,
-                align_center: false,
-                max_w: 10000.0,
             });
         } else {
+            let lw = FontManager::global().measure_text_cached(&line.text, font_sz, FontStyle::normal());
             draw_text_cached(DrawTextCachedParams {
                 canvas,
                 text: &line.text,
-                pos: (center_x, line_y),
+                x: center_x - lw / 2.0,
+                y: line_y,
                 size: font_sz,
-                style,
+                bold: false,
                 paint: &text_paint,
-                align_center: true,
-                max_w: lyric_area_w,
             });
         }
     }

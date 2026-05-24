@@ -194,12 +194,11 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
                         text,
-                        pos: (CONTENT_PADDING, y + 35.0),
+                        x: CONTENT_PADDING,
+                        y: y + 35.0,
                         size: 20.0,
-                        style: FontStyle::bold(),
+                        bold: true,
                         paint: &paint,
-                        align_center: false,
-                        max_w: f32::MAX,
                     });
                 }
             }
@@ -210,12 +209,11 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
                         text: label,
-                        pos: (CONTENT_PADDING + 4.0, y + 22.0),
+                        x: CONTENT_PADDING + 4.0,
+                        y: y + 22.0,
                         size: 12.0,
-                        style: FontStyle::normal(),
+                        bold: false,
                         paint: &paint,
-                        align_center: false,
-                        max_w: f32::MAX,
                     });
                 }
             }
@@ -249,12 +247,11 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
                         text: label,
-                        pos: (row_x, cy + 5.0),
+                        x: row_x,
+                        y: cy + 5.0,
                         size: 13.0,
-                        style: FontStyle::normal(),
+                        bold: false,
                         paint: &paint,
-                        align_center: false,
-                        max_w: f32::MAX,
                     });
                 }
 
@@ -269,15 +266,15 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 let val_center = (btn_dec_x + STEPPER_BTN_SIZE + btn_inc_x) / 2.0;
                 if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
                     paint.set_color(if *enabled { theme.text_pri } else { theme.text_sec });
+                    let val_w = fm.measure_text_cached(value, 13.0, FontStyle::normal());
                     fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
                         text: value,
-                        pos: (val_center, cy + 5.0),
+                        x: val_center - val_w / 2.0,
+                        y: cy + 5.0,
                         size: 13.0,
-                        style: FontStyle::normal(),
+                        bold: false,
                         paint: &paint,
-                        align_center: true,
-                        max_w: f32::MAX,
                     });
                 }
 
@@ -306,12 +303,11 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
                         text: label,
-                        pos: (row_x, cy + 5.0),
+                        x: row_x,
+                        y: cy + 5.0,
                         size: 13.0,
-                        style: FontStyle::normal(),
+                        bold: false,
                         paint: &paint,
-                        align_center: false,
-                        max_w: f32::MAX,
                     });
                 }
 
@@ -348,12 +344,11 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
                         text: label,
-                        pos: (row_x, cy + 5.0),
+                        x: row_x,
+                        y: cy + 5.0,
                         size: 13.0,
-                        style: FontStyle::normal(),
+                        bold: false,
                         paint: &paint,
-                        align_center: false,
-                        max_w: f32::MAX,
                     });
 
                     let sel_w: f32 = 60.0;
@@ -411,12 +406,11 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
                         text: label,
-                        pos: (row_x, cy + 5.0),
+                        x: row_x,
+                        y: cy + 5.0,
                         size: 13.0,
-                        style: FontStyle::normal(),
+                        bold: false,
                         paint: &paint,
-                        align_center: false,
-                        max_w: f32::MAX,
                     });
                 }
 
@@ -522,12 +516,11 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
                         text: &display,
-                        pos: (row_x, cy + 5.0),
+                        x: row_x,
+                        y: cy + 5.0,
                         size: 13.0,
-                        style: FontStyle::normal(),
+                        bold: false,
                         paint: &paint,
-                        align_center: false,
-                        max_w: max_label_w,
                     });
                 }
 
@@ -556,12 +549,11 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
                         text: label,
-                        pos: (row_x, cy + 5.0),
+                        x: row_x,
+                        y: cy + 5.0,
                         size: 13.0,
-                        style: FontStyle::normal(),
+                        bold: false,
                         paint: &paint,
-                        align_center: false,
-                        max_w: f32::MAX,
                     });
                 }
 
@@ -582,15 +574,15 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 let h = item.height();
                 if y + h >= visible_min_y && y <= visible_max_y {
                     paint.set_color(*color);
+                    let link_w = fm.measure_text_cached(label, 13.0, FontStyle::normal());
                     fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
                         text: label,
-                        pos: (width / 2.0, y + 24.0),
+                        x: width / 2.0 - link_w / 2.0,
+                        y: y + 24.0,
                         size: 13.0,
-                        style: FontStyle::normal(),
+                        bold: false,
                         paint: &paint,
-                        align_center: true,
-                        max_w: f32::MAX,
                     });
                 }
             }
@@ -598,15 +590,15 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 let h = item.height();
                 if y + h >= visible_min_y && y <= visible_max_y {
                     paint.set_color(*color);
+                    let ct_w = fm.measure_text_cached(text, *size, FontStyle::normal());
                     fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
                         text,
-                        pos: (width / 2.0, y + 22.0),
+                        x: width / 2.0 - ct_w / 2.0,
+                        y: y + 22.0,
                         size: *size,
-                        style: FontStyle::normal(),
+                        bold: false,
                         paint: &paint,
-                        align_center: true,
-                        max_w: f32::MAX,
                     });
                 }
             }
@@ -647,12 +639,11 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         fm.draw_text_cached(DrawTextCachedParams {
                             canvas,
                             text: &tr("font_preview_custom"),
-                            pos: (div_x + 8.0, y + 16.0),
+                            x: div_x + 8.0,
+                            y: y + 16.0,
                             size: 11.0,
-                            style: FontStyle::normal(),
+                            bold: false,
                             paint: &label_p,
-                            align_center: false,
-                            max_w: f32::MAX,
                         });
 
                         label_p.set_color(theme.accent);
