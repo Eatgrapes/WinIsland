@@ -76,6 +76,7 @@ jobs:
           path: Page/.vitepress/dist
 
   deploy-docs:
+    if: github.repository == 'Eatgrapes/WinIsland'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

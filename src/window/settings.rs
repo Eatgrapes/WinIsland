@@ -1158,7 +1158,7 @@ impl SettingsApp {
         match self.active_page {
             0 => match self.active_sub_page {
                 0 => SwitchAnimator::new(&[]),
-                1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[0, 1, 2]),
+                1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[0, 1, 2, 3]),
                 2 => SwitchAnimator::new_with_anims(&self.switch_anim, &[4, 5, 6]),
                 _ => SwitchAnimator::new(&[]),
             },
