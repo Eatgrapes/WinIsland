@@ -853,6 +853,12 @@ impl ApplicationHandler for App {
                             .arg("--settings")
                             .spawn();
                     }
+                    Some(TrayAction::Restart) => {
+                        let _ = std::process::Command::new(std::env::current_exe().unwrap())
+                            .arg("--restart")
+                            .spawn();
+                        event_loop.exit();
+                    }
                     Some(TrayAction::Exit) => {
                         event_loop.exit();
                     }

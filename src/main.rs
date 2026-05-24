@@ -19,6 +19,8 @@ fn main() {
     init_i18n(&config.language);
 
     let args: Vec<String> = env::args().collect();
+    let is_restart = args.iter().any(|arg| arg == "--restart");
+
     if args.iter().any(|arg| arg == "--settings") {
         unsafe {
             let _ = CreateMutexW(None, true, w!("Local\\WinIsland_Settings_Mutex"));
@@ -29,10 +31,26 @@ fn main() {
         }
         crate::window::settings::run_settings(config);
     } else {
-        unsafe {
-            let _ = CreateMutexW(None, true, w!("Local\\WinIsland_SingleInstance_Mutex"));
-            if GetLastError() == ERROR_ALREADY_EXISTS {
-                return;
+        if is_restart {
+            let start = std::time::Instant::now();
+            loop {
+                unsafe {
+                    let _ = CreateMutexW(None, true, w!("Local\\WinIsland_SingleInstance_Mutex"));
+                    if GetLastError() != ERROR_ALREADY_EXISTS {
+                        break;
+                    }
+                }
+                if start.elapsed() > std::time::Duration::from_secs(5) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        } else {
+            unsafe {
+                let _ = CreateMutexW(None, true, w!("Local\\WinIsland_SingleInstance_Mutex"));
+                if GetLastError() == ERROR_ALREADY_EXISTS {
+                    return;
+                }
             }
         }
 

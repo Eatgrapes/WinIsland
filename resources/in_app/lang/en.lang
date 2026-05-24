@@ -75,4 +75,5 @@ update_failed_save=Failed to save the new version.
 tray_show=Show
 tray_hide=Hide
 tray_settings=Settings
+tray_restart=Restart
 tray_exit=Exit
