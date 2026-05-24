@@ -1006,11 +1006,8 @@ impl SettingsApp {
             ClickResult::SourceButton(idx) => {
                 let content_w = width;
                 let mut btn_content_y = start_y;
-                let mut row_count = 0;
-                for item in items {
-                    if row_count >= idx { break; }
+                for item in items.iter().take(idx) {
                     btn_content_y += item.height();
-                    if item.is_row() { row_count += 1; }
                 }
                 let cy = btn_content_y + ROW_HEIGHT / 2.0;
                 let btn_x = SIDEBAR_W + CONTENT_PADDING + content_w - GROUP_INNER_PAD - POPUP_BTN_W;
@@ -1167,11 +1164,8 @@ impl SettingsApp {
             ClickResult::SourceButton(idx) => {
                 let content_w = width;
                 let mut btn_content_y = start_y;
-                let mut row_count = 0;
-                for item in items {
-                    if row_count >= idx { break; }
+                for item in items.iter().take(idx) {
                     btn_content_y += item.height();
-                    if item.is_row() { row_count += 1; }
                 }
                 let cy = btn_content_y + ROW_HEIGHT / 2.0;
                 let btn_x = SIDEBAR_W + CONTENT_PADDING + content_w - GROUP_INNER_PAD - POPUP_BTN_W;
