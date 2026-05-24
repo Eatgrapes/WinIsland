@@ -374,7 +374,7 @@ impl SettingsApp {
                 items.push(SettingsItem::GroupEnd);
 
                 items.push(SettingsItem::Spacer { height: 10.0 });
-                items.push(SettingsItem::CenterLink { label: tr("reset_defaults"), color: COLOR_DANGER });
+                items.push(SettingsItem::CenterLink { label: tr("reset_defaults"), color: self.theme().danger });
             }
             _ => {}
         }
@@ -430,14 +430,15 @@ impl SettingsApp {
     }
 
     fn build_about_items(&self) -> Vec<SettingsItem> {
+        let theme = self.theme();
         vec![
             SettingsItem::PageTitle { text: tr("tab_about") },
             SettingsItem::Spacer { height: 20.0 },
-            SettingsItem::CenterText { text: "WinIsland".to_string(), size: 28.0, color: COLOR_TEXT_PRI },
-            SettingsItem::CenterText { text: format!("Version {}", APP_VERSION), size: 14.0, color: COLOR_TEXT_SEC },
-            SettingsItem::CenterText { text: format!("{} {}", tr("created_by"), APP_AUTHOR), size: 14.0, color: COLOR_TEXT_SEC },
+            SettingsItem::CenterText { text: "WinIsland".to_string(), size: 28.0, color: theme.text_pri },
+            SettingsItem::CenterText { text: format!("Version {}", APP_VERSION), size: 14.0, color: theme.text_sec },
+            SettingsItem::CenterText { text: format!("{} {}", tr("created_by"), APP_AUTHOR), size: 14.0, color: theme.text_sec },
             SettingsItem::Spacer { height: 10.0 },
-            SettingsItem::CenterLink { label: tr("visit_homepage"), color: COLOR_ACCENT },
+            SettingsItem::CenterLink { label: tr("visit_homepage"), color: theme.accent },
         ]
     }
 

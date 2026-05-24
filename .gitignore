@@ -1,6 +1,7 @@
 /target
 .idea/
 /.claude/
+/.planning/
 Page/node_modules/
 Page/.vitepress/cache
 Page/package-lock.json
