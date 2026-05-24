@@ -59,6 +59,7 @@ impl AnimPool {
         changed
     }
 
+    #[allow(dead_code)]
     pub fn get_str(&self, key: &str) -> f32 {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -66,6 +67,7 @@ impl AnimPool {
         self.get(h.finish())
     }
 
+    #[allow(dead_code)]
     pub fn set_str(&mut self, key: &str, target: f32) {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -73,6 +75,7 @@ impl AnimPool {
         self.set_with_speed(h.finish(), target, 0.3)
     }
 
+    #[allow(dead_code)]
     pub fn set_with_speed_str(&mut self, key: &str, target: f32, speed: f32) {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();

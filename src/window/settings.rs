@@ -1,6 +1,6 @@
 use crate::core::config::{AppConfig, DockPosition, APP_AUTHOR, APP_HOMEPAGE, APP_VERSION};
 use crate::core::persistence::save_config;
-use crate::core::i18n::{tr, init_i18n, current_lang};
+use crate::core::i18n::{tr, init_i18n, set_lang, current_lang};
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
 use crate::utils::font::FontManager;
@@ -836,7 +836,7 @@ impl SettingsApp {
                     }
                     PopupKind::Language => {
                         self.config.language = value;
-                        init_i18n(&self.config.language);
+                        set_lang(&self.config.language);
                     }
                     PopupKind::Monitor => {
                         self.config.monitor_index = value.parse::<i32>().unwrap_or(0);
@@ -1534,6 +1534,14 @@ impl ApplicationHandler for SettingsApp {
                 if h.is_err() { _el.exit(); return; }
                 let _ = windows::Win32::Foundation::CloseHandle(h.unwrap());
             }
+        }
+
+        let has_anim = self.switch_anim.is_animating() || self.anim.is_animating();
+        let has_popup = self.popup.is_some();
+        let is_scrolling = (self.target_scroll_y - self.scroll_y).abs() > 0.1;
+
+        if !has_anim && !has_popup && !is_scrolling {
+            return;
         }
 
         let mut redraw = self.switch_anim.tick();

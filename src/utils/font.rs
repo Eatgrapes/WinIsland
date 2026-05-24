@@ -155,12 +155,14 @@ impl FontManager {
         canvas.draw_str(text, pos, &font, paint);
     }
 
+    #[allow(dead_code)]
     pub fn measure(&self, text: &str, size: f32, bold: bool) -> (f32, (f32, f32)) {
         let font = self.get_font(size, bold);
         let (w, rect) = font.measure_str(text, None);
         (w, (rect.width(), rect.height()))
     }
 
+    #[allow(dead_code)]
     pub fn draw_text_centered(&self, canvas: &Canvas, text: &str, center_x: f32, y: f32, size: f32, bold: bool, paint: &Paint) {
         let font = self.get_font(size, bold);
         let (_, rect) = font.measure_str(text, None);
@@ -190,6 +192,7 @@ impl FontManager {
         canvas.draw_str(text, pos, &font, paint);
     }
 
+    #[allow(dead_code)]
     pub fn draw_text_in_rect_deprecated(&self, canvas: &Canvas, text: &str, x: f32, y: f32, w: f32, size: f32, bold: bool, paint: &Paint) {
         let font = self.get_font(size, bold);
         let (_, rect) = font.measure_str(text, None);
