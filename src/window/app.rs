@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use softbuffer::{Context, Surface};
@@ -9,7 +10,9 @@ use winit::platform::windows::WindowAttributesExtWindows;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowId, WindowLevel, WindowButtons};
 use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, GWL_STYLE, WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE, WS_MAXIMIZEBOX, WS_THICKFRAME};
+use windows::core::PCWSTR;
 use crate::core::config::{AppConfig, PADDING, TOP_OFFSET, WINDOW_TITLE};
 use crate::core::persistence::load_config;
 use crate::core::render::{draw_island, get_mini_control_rects};
@@ -24,6 +27,7 @@ use crate::window::tray::{TrayAction, TrayManager};
 use crate::utils::icon::get_app_icon;
 use crate::ui::expanded::music_view::{get_progress_bar_rect, get_pause_btn_rect, get_prev_btn_rect, get_next_btn_rect, trigger_pause_click, trigger_prev_click, trigger_next_click, trigger_cover_flip, set_progress_hover, set_progress_dragging};
 use crate::utils::glass::set_glass_hwnd;
+use crate::plugin::PluginManager;
 
 pub struct App {
     window: Option<Arc<Window>>,
@@ -74,6 +78,7 @@ pub struct App {
     is_cursor_suppressed: bool,
     touch_id: Option<u64>,
     touch_pos: PhysicalPosition<f64>,
+    plugin_mgr: PluginManager,
 }
 
 impl Default for App {
@@ -128,6 +133,7 @@ impl Default for App {
             is_cursor_suppressed: false,
             touch_id: None,
             touch_pos: PhysicalPosition::new(0.0, 0.0),
+            plugin_mgr: PluginManager::default(),
         }
     }
 }
@@ -143,6 +149,50 @@ struct IslandLayout {
 }
 
 impl App {
+    fn set_aumid() {
+        let aumid = "WinIsland.PluginManager";
+        let wide: Vec<u16> = aumid.encode_utf16().chain(std::iter::once(0)).collect();
+        unsafe {
+            let _ = SetCurrentProcessExplicitAppUserModelID(PCWSTR::from_raw(wide.as_ptr()));
+        }
+    }
+
+    fn show_toast(title: &str, message: &str) {
+        use windows::UI::Notifications::{ToastNotification, ToastNotificationManager, ToastTemplateType};
+        use windows::core::HSTRING;
+        Self::set_aumid();
+        let tmpl = match ToastNotificationManager::GetTemplateContent(ToastTemplateType::ToastText02) {
+            Ok(t) => t,
+            Err(e) => { log::error!("Toast template failed: {:?}", e); return; }
+        };
+        if let Ok(nodes) = tmpl.SelectNodes(&HSTRING::from("//text")) {
+            if let Ok(node) = nodes.Item(0) { let _ = node.SetInnerText(&HSTRING::from(title)); }
+            if let Ok(node) = nodes.Item(1) { let _ = node.SetInnerText(&HSTRING::from(message)); }
+        }
+        let toast = match ToastNotification::CreateToastNotification(&tmpl) {
+            Ok(t) => t,
+            Err(e) => { log::error!("CreateToastNotification failed: {:?}", e); return; }
+        };
+        let notifier = match ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from("WinIsland.PluginManager")) {
+            Ok(n) => n,
+            Err(e) => { log::error!("CreateToastNotifier failed: {:?}", e); return; }
+        };
+        if let Err(e) = notifier.Show(&toast) { log::error!("Toast Show failed: {:?}", e); }
+    }
+
+    fn install_zip_drop(&mut self, path: &Path) {
+        match self.plugin_mgr.install_from_zip(path) {
+            Ok(manifest) => {
+                Self::show_toast("Plugin Installed", &format!("{} loaded successfully!", manifest.name));
+                log::info!("Plugin '{}' installed via drop", manifest.name);
+            }
+            Err(e) => {
+                Self::show_toast("Plugin Error", &e);
+                log::error!("Failed to install plugin from drop: {}", e);
+            }
+        }
+    }
+
     fn get_target_monitor(window: &Window, monitor_index: i32) -> Option<winit::monitor::MonitorHandle> {
         if monitor_index <= 0 {
             return window.primary_monitor().or_else(|| window.current_monitor());
@@ -480,6 +530,8 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         event_loop.set_control_flow(ControlFlow::Poll);
         if self.window.is_none() {
+            Self::set_aumid();
+            self.plugin_mgr.load_all();
             let max_w = self.config.expanded_width.max(450.0);
             self.os_w = (max_w * self.config.global_scale + PADDING) as u32;
             self.os_h = (self.config.expanded_height * self.config.global_scale + PADDING) as u32;
@@ -563,6 +615,11 @@ impl ApplicationHandler for App {
                     win.set_maximized(false);
                 }
                 WindowEvent::CloseRequested => (),
+                WindowEvent::DroppedFile(path) if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip")) => {
+                    self.install_zip_drop(&path);
+                }
+                WindowEvent::HoveredFile(_) => (),
+                WindowEvent::HoveredFileCancelled => (),
                 WindowEvent::MouseInput {
                     state,
                     button: MouseButton::Left,
