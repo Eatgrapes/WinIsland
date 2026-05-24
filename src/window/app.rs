@@ -617,6 +617,7 @@ impl ApplicationHandler for App {
                 .with_title(WINDOW_TITLE)
                 .with_inner_size(PhysicalSize::new(self.os_w, self.os_h))
                 .with_transparent(true)
+                .with_visible(false)
                 .with_decorations(false)
                 .with_resizable(false)
                 .with_enabled_buttons(WindowButtons::empty())
@@ -680,10 +681,18 @@ impl ApplicationHandler for App {
                     std::num::NonZeroU32::new(self.os_h).unwrap(),
                 )
                 .unwrap();
+            // Paint an initial transparent frame to prevent white flash
+            if let Ok(mut buf) = surface.buffer_mut() {
+                for p in buf.iter_mut() {
+                    *p = 0;
+                }
+                let _ = buf.present();
+            }
             self.surface = Some(surface);
             let is_light = window.theme() == Some(winit::window::Theme::Light);
             self.tray = Some(TrayManager::new(is_light));
             Self::enforce_topmost(&window, self.win_x, self.win_y, self.os_w, self.os_h);
+            window.set_visible(true);
             window.request_redraw();
         }
     }
