@@ -1,7 +1,7 @@
-use skia_safe::{Color, Image, ISize, ImageInfo, ColorType, AlphaType};
+use skia_safe::{AlphaType, Color, ColorType, ISize, Image, ImageInfo};
 use std::cell::RefCell;
 use windows::Win32::Foundation::HWND;
-use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
+use windows::Win32::Graphics::Dwm::{DWMWINDOWATTRIBUTE, DwmSetWindowAttribute};
 
 thread_local! {
     static DYNAMIC_BG_CACHE: RefCell<Option<(String, Color)>> = RefCell::new(None);
@@ -28,7 +28,8 @@ pub fn try_enable_mica(hwnd: HWND) -> bool {
             attr,
             &value as *const _ as *const _,
             std::mem::size_of::<i32>() as u32,
-        ).is_ok()
+        )
+        .is_ok()
     }
 }
 
@@ -79,11 +80,17 @@ fn extract_dominant_color(img: &Image) -> Color {
         AlphaType::Premul,
         None,
     );
-    
+
     let pixel_count = (w * h * 4) as usize;
     let mut pixels = vec![0u8; pixel_count];
-    
-    if !img.read_pixels(&info, &mut pixels, (w * 4) as usize, (0, 0), skia_safe::image::CachingHint::Allow) {
+
+    if !img.read_pixels(
+        &info,
+        &mut pixels,
+        (w * 4) as usize,
+        (0, 0),
+        skia_safe::image::CachingHint::Allow,
+    ) {
         return Color::from_argb(200, 40, 40, 40);
     }
 

@@ -107,27 +107,47 @@ impl AudioProcessor {
             };
             let stream_config: StreamConfig = config.config();
             let stream = match config.sample_format() {
-                SampleFormat::F32 => {
-                    build_capture_stream::<f32>(&device, &stream_config, spectrum_arc, gate_clone, gate_override_clone)
-                }
-                SampleFormat::I16 => {
-                    build_capture_stream::<i16>(&device, &stream_config, spectrum_arc, gate_clone, gate_override_clone)
-                }
-                SampleFormat::U16 => {
-                    build_capture_stream::<u16>(&device, &stream_config, spectrum_arc, gate_clone, gate_override_clone)
-                }
+                SampleFormat::F32 => build_capture_stream::<f32>(
+                    &device,
+                    &stream_config,
+                    spectrum_arc,
+                    gate_clone,
+                    gate_override_clone,
+                ),
+                SampleFormat::I16 => build_capture_stream::<i16>(
+                    &device,
+                    &stream_config,
+                    spectrum_arc,
+                    gate_clone,
+                    gate_override_clone,
+                ),
+                SampleFormat::U16 => build_capture_stream::<u16>(
+                    &device,
+                    &stream_config,
+                    spectrum_arc,
+                    gate_clone,
+                    gate_override_clone,
+                ),
                 _ => return,
             };
             if let Ok(s) = stream {
                 let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
                 let _session = unsafe {
-                    let enumerator: IMMDeviceEnumerator = match CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok() {
-                        Some(e) => e,
-                        None => { let _ = s.play(); while !cancel.is_cancelled() { std::thread::sleep(std::time::Duration::from_millis(100)); } return; }
-                    };
+                    let enumerator: IMMDeviceEnumerator =
+                        match CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok() {
+                            Some(e) => e,
+                            None => {
+                                let _ = s.play();
+                                while !cancel.is_cancelled() {
+                                    std::thread::sleep(std::time::Duration::from_millis(100));
+                                }
+                                return;
+                            }
+                        };
                     let mut session = None;
                     if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eConsole) {
-                        if let Ok(mgr) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) {
+                        if let Ok(mgr) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None)
+                        {
                             if let Ok(ses) = mgr.GetSimpleAudioVolume(None, 0) {
                                 session = Some(ses);
                             }

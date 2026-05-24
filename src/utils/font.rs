@@ -141,8 +141,20 @@ impl FontManager {
         make_font(typeface, size, style)
     }
 
-    pub fn draw_text_with_custom_font(&self, canvas: &Canvas, text: &str, pos: (f32, f32), size: f32, bold: bool, paint: &Paint) {
-        let style = if bold { FontStyle::bold() } else { FontStyle::normal() };
+    pub fn draw_text_with_custom_font(
+        &self,
+        canvas: &Canvas,
+        text: &str,
+        pos: (f32, f32),
+        size: f32,
+        bold: bool,
+        paint: &Paint,
+    ) {
+        let style = if bold {
+            FontStyle::bold()
+        } else {
+            FontStyle::normal()
+        };
         if let Some(tf) = get_custom_typeface() {
             let font = make_font(tf, size, style);
             canvas.draw_str(text, pos, &font, paint);
@@ -152,8 +164,20 @@ impl FontManager {
         }
     }
 
-    pub fn draw_text_with_default_font(&self, canvas: &Canvas, text: &str, pos: (f32, f32), size: f32, bold: bool, paint: &Paint) {
-        let style = if bold { FontStyle::bold() } else { FontStyle::normal() };
+    pub fn draw_text_with_default_font(
+        &self,
+        canvas: &Canvas,
+        text: &str,
+        pos: (f32, f32),
+        size: f32,
+        bold: bool,
+        paint: &Paint,
+    ) {
+        let style = if bold {
+            FontStyle::bold()
+        } else {
+            FontStyle::normal()
+        };
         let typeface = FONT_MGR.with(|mgr| {
             mgr.match_family_style("Microsoft YaHei", style)
                 .or_else(|| mgr.match_family_style("Segoe UI", style))
@@ -240,7 +264,11 @@ impl FontManager {
     }
 
     pub fn draw_text_cached(&self, params: DrawTextCachedParams<'_>) {
-        let style = if params.bold { FontStyle::bold() } else { FontStyle::normal() };
+        let style = if params.bold {
+            FontStyle::bold()
+        } else {
+            FontStyle::normal()
+        };
         let cache_key = format!(
             "{}\0{}\0{}",
             params.text, params.bold as u32, params.size as i32

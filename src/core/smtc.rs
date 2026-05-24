@@ -623,7 +623,10 @@ fn fetch_properties(
                     let fetched_title = props.Title()?.to_string();
                     let fetched_artist = props.Artist()?.to_string();
                     if fetched_title != title_clone || fetched_artist != artist_clone {
-                        return Err(windows::core::Error::new(windows::core::HRESULT(-2), "Stale properties"));
+                        return Err(windows::core::Error::new(
+                            windows::core::HRESULT(-2),
+                            "Stale properties",
+                        ));
                     }
                     let thumb_ref = props.Thumbnail()?;
                     let stream = thumb_ref.OpenReadAsync()?.get()?;

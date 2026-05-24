@@ -1,17 +1,23 @@
-use skia_safe::{Color, Paint, Rect, RRect, surfaces, image_filters, Surface as SkSurface, SamplingOptions, FilterMode, MipmapMode, ISize, ClipOp};
-use skia_safe::canvas::SrcRectConstraint;
-use softbuffer::Surface;
-use std::sync::Arc;
-use std::cell::RefCell;
-use winit::window::Window;
 use crate::core::config::{DockPosition, PADDING, TOP_OFFSET};
-use crate::ui::expanded::music_view::{draw_music_page, get_media_palette, draw_visualizer, get_cached_media_image, get_cached_media_image_with_key, draw_text_cached, DrawMusicPageParams, DrawVisualizerParams};
-use crate::utils::font::{DrawTextCachedParams, FontManager};
-use crate::ui::expanded::widget_view::draw_widget_page;
 use crate::core::smtc::MediaInfo;
-use crate::utils::glass::get_glass_background;
+use crate::icons::controls::{draw_pause_button, draw_play_button};
+use crate::ui::expanded::music_view::{
+    DrawMusicPageParams, DrawVisualizerParams, draw_music_page, draw_text_cached, draw_visualizer,
+    get_cached_media_image, get_cached_media_image_with_key, get_media_palette,
+};
+use crate::ui::expanded::widget_view::draw_widget_page;
 use crate::utils::backdrop::{get_dynamic_bg_color, get_last_valid_color};
-use crate::icons::controls::{draw_play_button, draw_pause_button};
+use crate::utils::font::{DrawTextCachedParams, FontManager};
+use crate::utils::glass::get_glass_background;
+use skia_safe::canvas::SrcRectConstraint;
+use skia_safe::{
+    ClipOp, Color, FilterMode, ISize, MipmapMode, Paint, RRect, Rect, SamplingOptions,
+    Surface as SkSurface, image_filters, surfaces,
+};
+use softbuffer::Surface;
+use std::cell::RefCell;
+use std::sync::Arc;
+use winit::window::Window;
 
 thread_local! {
     static SK_SURFACE: RefCell<Option<SkSurface>> = const { RefCell::new(None) };
@@ -69,7 +75,10 @@ pub struct DrawIslandParams<'a> {
     pub style: StyleParams<'a>,
 }
 
-pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: DrawIslandParams<'_>) -> bool {
+pub fn draw_island(
+    surface: &mut Surface<Arc<Window>, Arc<Window>>,
+    params: DrawIslandParams<'_>,
+) -> bool {
     let DrawIslandParams {
         layout,
         media,
@@ -116,15 +125,18 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
     let mut sk_surface = SK_SURFACE.with(|cell| {
         let mut opt = cell.borrow_mut();
         if let Some(ref s) = *opt {
-            if s.width() == os_w as i32 && s.height() == os_h as i32 { return s.clone(); }
+            if s.width() == os_w as i32 && s.height() == os_h as i32 {
+                return s.clone();
+            }
         }
-        let new_surface = surfaces::raster_n32_premul(ISize::new(os_w as i32, os_h as i32)).unwrap();
+        let new_surface =
+            surfaces::raster_n32_premul(ISize::new(os_w as i32, os_h as i32)).unwrap();
         *opt = Some(new_surface.clone());
         new_surface
     });
     let canvas = sk_surface.canvas();
     canvas.clear(Color::TRANSPARENT);
-    
+
     let dock_bottom = dock_position.is_bottom();
     let offset_x = if dock_position.is_left() {
         PADDING / 2.0
@@ -154,7 +166,11 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
     let rect = Rect::from_xywh(offset_x, offset_y, current_w, current_h);
     let rrect = RRect::new_rect_xy(rect, current_r, current_r);
     let has_blur = sigmas.0 > 0.1 || sigmas.1 > 0.1;
-    let blur_filter = if has_blur { image_filters::blur(sigmas, None, None, None) } else { None };
+    let blur_filter = if has_blur {
+        image_filters::blur(sigmas, None, None, None)
+    } else {
+        None
+    };
     canvas.save();
     canvas.clip_rrect(rrect, ClipOp::Intersect, true);
 
@@ -175,7 +191,13 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
     if use_glass {
         let screen_x = win_x + offset_x as i32;
         let screen_y = win_y + offset_y as i32;
-        if let Some(bg_img) = get_glass_background(screen_x, screen_y, current_w as u32, current_h as u32, 40.0 * global_scale) {
+        if let Some(bg_img) = get_glass_background(
+            screen_x,
+            screen_y,
+            current_w as u32,
+            current_h as u32,
+            40.0 * global_scale,
+        ) {
             let mut paint = Paint::default();
             paint.set_anti_alias(true);
             let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
@@ -204,7 +226,7 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
 
     let expanded_alpha_f = (expansion_progress.powf(2.0)).clamp(0.0, 1.0) * (1.0 - hide_progress);
     let mini_alpha_f = (1.0 - expansion_progress * 1.5).clamp(0.0, 1.0) * (1.0 - hide_progress);
-    
+
     let viz_h_scale = 0.45 + (1.0 - 0.45) * expansion_progress;
 
     let mut widget_animating = false;
@@ -244,12 +266,25 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
 
         canvas.save();
         canvas.translate((current_w - page_shift, 0.0));
-        let widget_anim = draw_widget_page(canvas, offset_x, offset_y, current_w, current_h, alpha, global_scale, media, font_size, dt);
+        let widget_anim = draw_widget_page(
+            canvas,
+            offset_x,
+            offset_y,
+            current_w,
+            current_h,
+            alpha,
+            global_scale,
+            media,
+            font_size,
+            dt,
+        );
         canvas.restore();
 
         widget_animating = widget_anim;
 
-        if blur_filter.is_some() { canvas.restore(); }
+        if blur_filter.is_some() {
+            canvas.restore();
+        }
         canvas.restore();
     }
     if mini_alpha_f > 0.01 && current_w > 45.0 * global_scale && music_active {
@@ -262,13 +297,17 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
                 let y = offset_y + (current_h - s) / 2.0;
                 (s, x, y)
             } else {
-                (base_size, offset_x + 10.0 * global_scale, offset_y + (current_h - base_size) / 2.0)
+                (
+                    base_size,
+                    offset_x + 10.0 * global_scale,
+                    offset_y + (current_h - base_size) / 2.0,
+                )
             };
             let mut paint = Paint::default();
             paint.set_anti_alias(true);
             paint.set_alpha_f(alpha as f32 / 255.0);
             canvas.save();
-            
+
             let is_mini_rotating = cover_rotate && mini_cover_shape == "circle" && media.is_playing;
             let mini_rotation_angle = MINI_COVER_ROTATION.with(|cell| {
                 let mut angle = cell.borrow_mut();
@@ -280,7 +319,7 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
                 }
                 *angle
             });
-            
+
             if cover_rotate && mini_cover_shape == "circle" {
                 let img_cx = ix + size / 2.0;
                 let img_cy = iy + size / 2.0;
@@ -288,11 +327,23 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
                 canvas.rotate(mini_rotation_angle, None);
                 canvas.translate((-img_cx, -img_cy));
             }
-            
+
             if mini_cover_shape == "circle" {
-                canvas.clip_rrect(RRect::new_rect_xy(Rect::from_xywh(ix, iy, size, size), size / 2.0, size / 2.0), ClipOp::Intersect, true);
+                canvas.clip_rrect(
+                    RRect::new_rect_xy(Rect::from_xywh(ix, iy, size, size), size / 2.0, size / 2.0),
+                    ClipOp::Intersect,
+                    true,
+                );
             } else {
-                canvas.clip_rrect(RRect::new_rect_xy(Rect::from_xywh(ix, iy, size, size), 5.0 * global_scale, 5.0 * global_scale), ClipOp::Intersect, true);
+                canvas.clip_rrect(
+                    RRect::new_rect_xy(
+                        Rect::from_xywh(ix, iy, size, size),
+                        5.0 * global_scale,
+                        5.0 * global_scale,
+                    ),
+                    ClipOp::Intersect,
+                    true,
+                );
             }
             let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::Linear);
             let img_w = image.width() as f32;
@@ -312,9 +363,15 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
             } else {
                 None
             };
-            canvas.draw_image_rect_with_sampling_options(&image, src_rect.as_ref().map(|r| (r, SrcRectConstraint::Fast)), Rect::from_xywh(ix, iy, size, size), sampling, &paint);
+            canvas.draw_image_rect_with_sampling_options(
+                &image,
+                src_rect.as_ref().map(|r| (r, SrcRectConstraint::Fast)),
+                Rect::from_xywh(ix, iy, size, size),
+                sampling,
+                &paint,
+            );
             canvas.restore();
-            
+
             if is_mini_rotating {
                 widget_animating = true;
             }
@@ -336,27 +393,29 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
         });
 
         let is_paused = music_active && !media.is_playing;
-        
+
         if is_paused {
             let lyric_fade_f = (1.0 - expansion_progress * 2.5).clamp(0.0, 1.0);
             let ctrl_alpha = (alpha as f32 * lyric_fade_f) as u8;
-            
+
             if ctrl_alpha > 0 {
                 let space_left = offset_x + 30.0 * global_scale;
                 let space_right = offset_x + current_w - 29.0 * global_scale;
                 let center_x = (space_left + space_right) / 2.0;
                 let center_y = offset_y + current_h / 2.0;
-                
+
                 let btn_scale = 0.28 * global_scale;
-                
+
                 let pause_t = MINI_PAUSE_ANIM.with(|cell| {
                     let mut v = cell.borrow_mut();
                     let target = if media.is_playing { 1.0_f32 } else { 0.0 };
                     *v += (target - *v) * 0.15;
-                    if (*v - target).abs() < 0.005 { *v = target; }
+                    if (*v - target).abs() < 0.005 {
+                        *v = target;
+                    }
                     *v
                 });
-                
+
                 canvas.save();
                 canvas.translate((center_x, center_y));
                 if pause_t > 0.99 {
@@ -380,7 +439,11 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
             let alpha = (alpha as f32 * lyric_fade_f) as u8;
 
             if alpha > 0 {
-                let lyric_font_sz = if font_size > 0.0 { font_size * 0.8 * global_scale } else { 12.0 * global_scale };
+                let lyric_font_sz = if font_size > 0.0 {
+                    font_size * 0.8 * global_scale
+                } else {
+                    12.0 * global_scale
+                };
                 let space_left = offset_x + 30.0 * global_scale;
                 let space_right = offset_x + current_w - 29.0 * global_scale;
                 let available_w = space_right - space_left;
@@ -405,12 +468,35 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
 
                         let blur_sigma = lyric_transition * 12.0 * global_scale;
                         if blur_sigma > 0.1 {
-                            text_paint.set_image_filter(image_filters::blur((blur_sigma, 0.0), None, None, None));
+                            text_paint.set_image_filter(image_filters::blur(
+                                (blur_sigma, 0.0),
+                                None,
+                                None,
+                                None,
+                            ));
                         }
 
-                        let text_y = offset_y + current_h / 2.0 + 4.0 * global_scale - (10.0 * global_scale * lyric_transition);
-                        let old_lx = if text_centered { let w = FontManager::global().measure_text_cached(old_lyric, lyric_font_sz, skia_safe::FontStyle::normal()); text_x - w / 2.0 } else { text_x };
-                        draw_text_cached(DrawTextCachedParams { canvas, text: old_lyric, x: old_lx, y: text_y, size: lyric_font_sz, bold: false, paint: &text_paint });
+                        let text_y = offset_y + current_h / 2.0 + 4.0 * global_scale
+                            - (10.0 * global_scale * lyric_transition);
+                        let old_lx = if text_centered {
+                            let w = FontManager::global().measure_text_cached(
+                                old_lyric,
+                                lyric_font_sz,
+                                skia_safe::FontStyle::normal(),
+                            );
+                            text_x - w / 2.0
+                        } else {
+                            text_x
+                        };
+                        draw_text_cached(DrawTextCachedParams {
+                            canvas,
+                            text: old_lyric,
+                            x: old_lx,
+                            y: text_y,
+                            size: lyric_font_sz,
+                            bold: false,
+                            paint: &text_paint,
+                        });
                     }
 
                     if !current_lyric.is_empty() {
@@ -421,12 +507,37 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
 
                         let blur_sigma = (1.0 - lyric_transition) * 12.0 * global_scale;
                         if blur_sigma > 0.1 {
-                            text_paint.set_image_filter(image_filters::blur((blur_sigma, 0.0), None, None, None));
+                            text_paint.set_image_filter(image_filters::blur(
+                                (blur_sigma, 0.0),
+                                None,
+                                None,
+                                None,
+                            ));
                         }
 
-                        let text_y = offset_y + current_h / 2.0 + 4.0 * global_scale + (10.0 * global_scale * (1.0 - lyric_transition));
-                        let cur_lx = if text_centered { let w = FontManager::global().measure_text_cached(current_lyric, lyric_font_sz, skia_safe::FontStyle::normal()); text_x - w / 2.0 } else { text_x };
-                        draw_text_cached(DrawTextCachedParams { canvas, text: current_lyric, x: cur_lx, y: text_y, size: lyric_font_sz, bold: false, paint: &text_paint });
+                        let text_y = offset_y
+                            + current_h / 2.0
+                            + 4.0 * global_scale
+                            + (10.0 * global_scale * (1.0 - lyric_transition));
+                        let cur_lx = if text_centered {
+                            let w = FontManager::global().measure_text_cached(
+                                current_lyric,
+                                lyric_font_sz,
+                                skia_safe::FontStyle::normal(),
+                            );
+                            text_x - w / 2.0
+                        } else {
+                            text_x
+                        };
+                        draw_text_cached(DrawTextCachedParams {
+                            canvas,
+                            text: current_lyric,
+                            x: cur_lx,
+                            y: text_y,
+                            size: lyric_font_sz,
+                            bold: false,
+                            paint: &text_paint,
+                        });
                     }
                 } else {
                     let text_y = offset_y + current_h / 2.0 + 4.0 * global_scale;
@@ -436,29 +547,68 @@ pub fn draw_island(surface: &mut Surface<Arc<Window>, Arc<Window>>, params: Draw
                         let progress = lyric_transition * 2.0;
                         let fade_alpha = (alpha as f32 * (1.0 - progress)) as u8;
                         text_paint.set_color(Color::from_argb(fade_alpha, 255, 255, 255));
-                        let old_lx2 = if text_centered { let w = FontManager::global().measure_text_cached(old_lyric, lyric_font_sz, skia_safe::FontStyle::normal()); text_x - w / 2.0 } else { text_x };
-                        draw_text_cached(DrawTextCachedParams { canvas, text: old_lyric, x: old_lx2, y: text_y, size: lyric_font_sz, bold: false, paint: &text_paint });
+                        let old_lx2 = if text_centered {
+                            let w = FontManager::global().measure_text_cached(
+                                old_lyric,
+                                lyric_font_sz,
+                                skia_safe::FontStyle::normal(),
+                            );
+                            text_x - w / 2.0
+                        } else {
+                            text_x
+                        };
+                        draw_text_cached(DrawTextCachedParams {
+                            canvas,
+                            text: old_lyric,
+                            x: old_lx2,
+                            y: text_y,
+                            size: lyric_font_sz,
+                            bold: false,
+                            paint: &text_paint,
+                        });
                     } else if lyric_transition >= 0.5 && !current_lyric.is_empty() {
                         let mut text_paint = Paint::default();
                         text_paint.set_anti_alias(true);
                         let progress = (lyric_transition - 0.5) * 2.0;
                         let fade_alpha = (alpha as f32 * progress) as u8;
                         text_paint.set_color(Color::from_argb(fade_alpha, 255, 255, 255));
-                        let cur_lx2 = if text_centered { let w = FontManager::global().measure_text_cached(current_lyric, lyric_font_sz, skia_safe::FontStyle::normal()); text_x - w / 2.0 } else { text_x };
-                        draw_text_cached(DrawTextCachedParams { canvas, text: current_lyric, x: cur_lx2, y: text_y, size: lyric_font_sz, bold: false, paint: &text_paint });
+                        let cur_lx2 = if text_centered {
+                            let w = FontManager::global().measure_text_cached(
+                                current_lyric,
+                                lyric_font_sz,
+                                skia_safe::FontStyle::normal(),
+                            );
+                            text_x - w / 2.0
+                        } else {
+                            text_x
+                        };
+                        draw_text_cached(DrawTextCachedParams {
+                            canvas,
+                            text: current_lyric,
+                            x: cur_lx2,
+                            y: text_y,
+                            size: lyric_font_sz,
+                            bold: false,
+                            paint: &text_paint,
+                        });
                     }
                 }
                 canvas.restore();
             }
         }
     }
-    canvas.restore(); 
-    let info = skia_safe::ImageInfo::new(skia_safe::ISize::new(os_w as i32, os_h as i32), skia_safe::ColorType::BGRA8888, skia_safe::AlphaType::Premul, None);
+    canvas.restore();
+    let info = skia_safe::ImageInfo::new(
+        skia_safe::ISize::new(os_w as i32, os_h as i32),
+        skia_safe::ColorType::BGRA8888,
+        skia_safe::AlphaType::Premul,
+        None,
+    );
     let dst_row_bytes = (os_w * 4) as usize;
     let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut *buffer);
     let _ = sk_surface.read_pixels(&info, u8_buffer, dst_row_bytes, (0, 0));
     buffer.present().unwrap();
-    
+
     widget_animating
 }
 
@@ -466,20 +616,39 @@ pub fn get_mini_control_rects(
     current_w: f32,
     current_h: f32,
     global_scale: f32,
-) -> (Option<(f32, f32, f32, f32)>, Option<(f32, f32, f32, f32)>, Option<(f32, f32, f32, f32)>) {
+) -> (
+    Option<(f32, f32, f32, f32)>,
+    Option<(f32, f32, f32, f32)>,
+    Option<(f32, f32, f32, f32)>,
+) {
     let offset_x = 0.0;
     let offset_y = 0.0;
     let space_left = offset_x + 30.0 * global_scale;
     let space_right = offset_x + current_w - 29.0 * global_scale;
     let center_x = (space_left + space_right) / 2.0;
     let center_y = offset_y + current_h / 2.0;
-    
+
     let btn_gap = 28.0 * global_scale;
     let hit_size = 20.0 * global_scale;
-    
-    let prev_rect = (center_x - btn_gap - hit_size / 2.0, center_y - hit_size / 2.0, hit_size, hit_size);
-    let play_rect = (center_x - hit_size / 2.0, center_y - hit_size / 2.0, hit_size, hit_size);
-    let next_rect = (center_x + btn_gap - hit_size / 2.0, center_y - hit_size / 2.0, hit_size, hit_size);
-    
+
+    let prev_rect = (
+        center_x - btn_gap - hit_size / 2.0,
+        center_y - hit_size / 2.0,
+        hit_size,
+        hit_size,
+    );
+    let play_rect = (
+        center_x - hit_size / 2.0,
+        center_y - hit_size / 2.0,
+        hit_size,
+        hit_size,
+    );
+    let next_rect = (
+        center_x + btn_gap - hit_size / 2.0,
+        center_y - hit_size / 2.0,
+        hit_size,
+        hit_size,
+    );
+
     (Some(prev_rect), Some(play_rect), Some(next_rect))
 }

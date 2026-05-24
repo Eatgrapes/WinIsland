@@ -1,9 +1,9 @@
-use skia_safe::{Canvas, Color, Paint, FontStyle, Rect, ClipOp};
-use std::cell::RefCell;
-use crate::icons::arrows::draw_arrow_left;
 use crate::core::smtc::MediaInfo;
+use crate::icons::arrows::draw_arrow_left;
 use crate::ui::expanded::music_view::draw_text_cached;
-use crate::utils::font::{FontManager, DrawTextCachedParams};
+use crate::utils::font::{DrawTextCachedParams, FontManager};
+use skia_safe::{Canvas, ClipOp, Color, FontStyle, Paint, Rect};
+use std::cell::RefCell;
 
 thread_local! {
     static LYRIC_SCROLL_STATE: RefCell<LyricScrollState> = RefCell::new(LyricScrollState::new());
@@ -69,20 +69,20 @@ impl CurrentLineScrollState {
             self.pause = 0.0;
             self.direction = 1;
         }
-        
+
         if overflow <= 0.0 {
             self.offset = 0.0;
             return;
         }
-        
+
         if self.pause > 0.0 {
             self.pause -= dt / 60.0;
             return;
         }
-        
+
         let scroll_speed = 0.6 * dt;
         self.offset += scroll_speed * self.direction as f32;
-        
+
         if self.offset >= overflow {
             self.offset = overflow;
             self.pause = 1.5;
@@ -93,7 +93,7 @@ impl CurrentLineScrollState {
             self.direction = 1;
         }
     }
-    
+
     fn hash_text(text: &str) -> u64 {
         let mut hash: u64 = 5381;
         for byte in text.bytes() {
@@ -162,7 +162,11 @@ pub fn draw_widget_page(
     let current_idx = match lyrics.binary_search_by_key(&current_pos, |line| line.time_ms) {
         Ok(idx) => idx,
         Err(idx) => {
-            if idx > 0 { idx - 1 } else { 0 }
+            if idx > 0 {
+                idx - 1
+            } else {
+                0
+            }
         }
     };
 
@@ -202,15 +206,19 @@ pub fn draw_widget_page(
 
     let current_line_text = &lyrics[current_idx].text;
     let current_font_sz = font_size + 6.0 * scale;
-    let current_text_w = FontManager::global().measure_text_cached(current_line_text, current_font_sz, FontStyle::normal());
+    let current_text_w = FontManager::global().measure_text_cached(
+        current_line_text,
+        current_font_sz,
+        FontStyle::normal(),
+    );
     let current_overflow = (current_text_w - lyric_area_w).max(0.0);
-    
+
     let current_scroll_offset = CURRENT_LINE_SCROLL.with(|cell| {
         let mut state = cell.borrow_mut();
         state.update(current_line_text, current_overflow, dt);
         state.offset
     });
-    
+
     let is_current_scrolling = current_overflow > 0.0;
 
     canvas.save();
@@ -222,9 +230,10 @@ pub fn draw_widget_page(
 
     let total_lines = lyrics.len();
     let extra_lines = 3;
-    
+
     for i in 0..(visible_count + extra_lines) {
-        let idx = (current_idx as isize - half as isize - extra_lines as isize / 2 + i as isize) as isize;
+        let idx =
+            (current_idx as isize - half as isize - extra_lines as isize / 2 + i as isize) as isize;
         if idx < 0 || idx >= total_lines as isize {
             continue;
         }
@@ -237,19 +246,32 @@ pub fn draw_widget_page(
             continue;
         }
 
-        let line_y = center_y + (i as f32 - half as f32 - (extra_lines / 2) as f32) * line_h - scroll_offset;
+        let line_y =
+            center_y + (i as f32 - half as f32 - (extra_lines / 2) as f32) * line_h - scroll_offset;
 
         let (font_sz, text_alpha, should_scroll) = if is_current {
             let fade = if is_animating { ease_progress } else { 1.0 };
-            (font_size + 6.0 * scale, (alpha as f32 / 255.0) * fade, is_current_scrolling)
+            (
+                font_size + 6.0 * scale,
+                (alpha as f32 / 255.0) * fade,
+                is_current_scrolling,
+            )
         } else if is_old_current && is_animating {
             let fade = 1.0 - ease_progress;
-            (font_size + 6.0 * scale, (alpha as f32 / 255.0) * fade, false)
+            (
+                font_size + 6.0 * scale,
+                (alpha as f32 / 255.0) * fade,
+                false,
+            )
         } else {
             let dist = (idx as f32 - current_idx as f32).abs();
             let scale_factor = 0.96_f32.powf(dist);
             let opacity_factor = 0.7_f32.powf(dist);
-            (font_size * scale_factor, (alpha as f32 / 255.0) * opacity_factor, false)
+            (
+                font_size * scale_factor,
+                (alpha as f32 / 255.0) * opacity_factor,
+                false,
+            )
         };
 
         if text_alpha < 0.05 {
@@ -277,7 +299,8 @@ pub fn draw_widget_page(
                 paint: &text_paint,
             });
         } else {
-            let lw = FontManager::global().measure_text_cached(&line.text, font_sz, FontStyle::normal());
+            let lw =
+                FontManager::global().measure_text_cached(&line.text, font_sz, FontStyle::normal());
             draw_text_cached(DrawTextCachedParams {
                 canvas,
                 text: &line.text,

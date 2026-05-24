@@ -1,5 +1,6 @@
 pub mod anim;
 pub mod autostart;
+pub mod backdrop;
 pub mod blur;
 pub mod color;
 pub mod font;
@@ -10,4 +11,3 @@ pub mod physics;
 pub mod scroll;
 pub mod settings_ui;
 pub mod updater;
-pub mod backdrop;
