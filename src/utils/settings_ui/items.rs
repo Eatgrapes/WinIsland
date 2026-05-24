@@ -105,6 +105,7 @@ impl SettingsItem {
     }
 }
 
+#[allow(dead_code)]
 pub fn get_row_item(items: &[SettingsItem], row_idx: usize) -> Option<&SettingsItem> {
     let mut count = 0;
     for item in items {

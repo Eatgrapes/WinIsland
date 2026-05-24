@@ -931,44 +931,44 @@ impl SettingsApp {
         match result {
             ClickResult::StepperDec(idx) | ClickResult::StepperInc(idx) => {
                 let is_dec = matches!(result, ClickResult::StepperDec(_));
-                if let Some(item) = get_row_item(items, idx) {
-                    if let SettingsItem::RowStepper { label, .. } = item {
-                        let l = label.clone();
-                        if l == tr("global_scale") {
-                            if is_dec { self.config.global_scale = ((self.config.global_scale - 0.05) * 100.0).round() / 100.0; self.config.global_scale = self.config.global_scale.max(0.5); }
-                            else { self.config.global_scale = ((self.config.global_scale + 0.05) * 100.0).round() / 100.0; self.config.global_scale = self.config.global_scale.min(5.0); }
-                            changed = true;
-                        } else if l == tr("base_width") {
-                            if is_dec { self.config.base_width -= 5.0; } else { self.config.base_width += 5.0; }
-                            changed = true;
-                        } else if l == tr("base_height") {
-                            if is_dec { self.config.base_height -= 2.0; } else { self.config.base_height += 2.0; }
-                            changed = true;
-                        } else if l == tr("expanded_width") {
-                            if is_dec { self.config.expanded_width -= 10.0; } else { self.config.expanded_width += 10.0; }
-                            changed = true;
-                        } else if l == tr("expanded_height") {
-                            if is_dec { self.config.expanded_height -= 10.0; } else { self.config.expanded_height += 10.0; }
-                            changed = true;
-                        } else if l == tr("position_x_offset") {
-                            if is_dec { self.config.position_x_offset -= 5; } else { self.config.position_x_offset += 5; }
-                            changed = true;
-                        } else if l == tr("position_y_offset") {
-                            if is_dec { self.config.position_y_offset -= 5; } else { self.config.position_y_offset += 5; }
-                            changed = true;
-                        } else if l == tr("font_size") {
-                            if is_dec { self.config.font_size = (self.config.font_size - 1.0).max(0.0); }
-                            else { self.config.font_size = (self.config.font_size + 1.0).min(30.0); }
-                            changed = true;
-                        } else if l == tr("hide_delay") {
-                            if is_dec { self.config.auto_hide_delay = (self.config.auto_hide_delay - 1.0).max(1.0); }
-                            else { self.config.auto_hide_delay = (self.config.auto_hide_delay + 1.0).min(60.0); }
-                            changed = true;
-                        } else if l == tr("update_interval") {
-                            if is_dec { self.config.update_check_interval = (self.config.update_check_interval - 1.0).max(1.0); }
-                            else { self.config.update_check_interval = (self.config.update_check_interval + 1.0).min(24.0); }
-                            changed = true;
-                        }
+                if let Some(item) = items.get(idx)
+                    && let SettingsItem::RowStepper { label, .. } = item
+                {
+                    let l = label.clone();
+                    if l == tr("global_scale") {
+                        if is_dec { self.config.global_scale = ((self.config.global_scale - 0.05) * 100.0).round() / 100.0; self.config.global_scale = self.config.global_scale.max(0.5); }
+                        else { self.config.global_scale = ((self.config.global_scale + 0.05) * 100.0).round() / 100.0; self.config.global_scale = self.config.global_scale.min(5.0); }
+                        changed = true;
+                    } else if l == tr("base_width") {
+                        if is_dec { self.config.base_width -= 5.0; } else { self.config.base_width += 5.0; }
+                        changed = true;
+                    } else if l == tr("base_height") {
+                        if is_dec { self.config.base_height -= 2.0; } else { self.config.base_height += 2.0; }
+                        changed = true;
+                    } else if l == tr("expanded_width") {
+                        if is_dec { self.config.expanded_width -= 10.0; } else { self.config.expanded_width += 10.0; }
+                        changed = true;
+                    } else if l == tr("expanded_height") {
+                        if is_dec { self.config.expanded_height -= 10.0; } else { self.config.expanded_height += 10.0; }
+                        changed = true;
+                    } else if l == tr("position_x_offset") {
+                        if is_dec { self.config.position_x_offset -= 5; } else { self.config.position_x_offset += 5; }
+                        changed = true;
+                    } else if l == tr("position_y_offset") {
+                        if is_dec { self.config.position_y_offset -= 5; } else { self.config.position_y_offset += 5; }
+                        changed = true;
+                    } else if l == tr("font_size") {
+                        if is_dec { self.config.font_size = (self.config.font_size - 1.0).max(0.0); }
+                        else { self.config.font_size = (self.config.font_size + 1.0).min(30.0); }
+                        changed = true;
+                    } else if l == tr("hide_delay") {
+                        if is_dec { self.config.auto_hide_delay = (self.config.auto_hide_delay - 1.0).max(1.0); }
+                        else { self.config.auto_hide_delay = (self.config.auto_hide_delay + 1.0).min(60.0); }
+                        changed = true;
+                    } else if l == tr("update_interval") {
+                        if is_dec { self.config.update_check_interval = (self.config.update_check_interval - 1.0).max(1.0); }
+                        else { self.config.update_check_interval = (self.config.update_check_interval + 1.0).min(24.0); }
+                        changed = true;
                     }
                 }
             }
@@ -1016,7 +1016,7 @@ impl SettingsApp {
                 let btn_x = SIDEBAR_W + CONTENT_PADDING + content_w - GROUP_INNER_PAD - POPUP_BTN_W;
                 let btn_y = cy - POPUP_BTN_H / 2.0 - self.scroll_y;
 
-                if let Some(SettingsItem::RowSourceSelect { label, .. }) = get_row_item(items, idx) {
+                if let Some(SettingsItem::RowSourceSelect { label, .. }) = items.get(idx) {
                     if label == &tr("monitor") {
                         let monitors = self.get_monitor_list();
                         let selected_idx = (self.config.monitor_index as usize).min(monitors.len().saturating_sub(1));
@@ -1190,8 +1190,9 @@ impl SettingsApp {
             }
             ClickResult::StepperDec(idx) | ClickResult::StepperInc(idx) => {
                 let is_dec = matches!(result, ClickResult::StepperDec(_));
-                if let Some(item) = get_row_item(items, idx) {
-                    if let SettingsItem::RowStepper { label, .. } = item {
+                if let Some(item) = items.get(idx)
+                    && let SettingsItem::RowStepper { label, .. } = item
+                {
                         if label == &tr("lyrics_delay") && self.config.show_lyrics {
                             if is_dec { self.config.lyrics_delay = ((self.config.lyrics_delay * 10.0 - 1.0).round() / 10.0).max(-10.0); }
                             else { self.config.lyrics_delay = ((self.config.lyrics_delay * 10.0 + 1.0).round() / 10.0).min(10.0); }
@@ -1201,7 +1202,6 @@ impl SettingsApp {
                             else { self.config.lyrics_scroll_max_width = (self.config.lyrics_scroll_max_width + 10.0).min(500.0); }
                             changed = true;
                         }
-                    }
                 }
             }
             ClickResult::AppItem(idx) => {
