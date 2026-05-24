@@ -197,10 +197,38 @@ impl App {
         if monitor_index <= 0 {
             return window.primary_monitor().or_else(|| window.current_monitor());
         }
+        use windows::Win32::Graphics::Gdi::*;
+        let mut win32_names: Vec<String> = Vec::new();
+        unsafe {
+            let mut idx = 0u32;
+            loop {
+                let mut dd: DISPLAY_DEVICEW = std::mem::zeroed();
+                dd.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+                if EnumDisplayDevicesW(None, idx, &mut dd, 0).as_bool() {
+                    if (dd.StateFlags & DISPLAY_DEVICE_ACTIVE) != 0 {
+                        let name = String::from_utf16_lossy(&dd.DeviceName).trim_end_matches('\0').to_string();
+                        win32_names.push(name);
+                    }
+                    idx += 1;
+                } else {
+                    break;
+                }
+            }
+        }
+        let target_name = win32_names.get(monitor_index as usize - 1);
         let monitors: Vec<_> = window.available_monitors().collect();
+        if let Some(name) = target_name {
+            for mon in &monitors {
+                if let Some(mon_name) = mon.name() {
+                    if mon_name.contains(name.trim_start_matches("\\\\.\\")) || name.contains(&mon_name) {
+                        return Some(mon.clone());
+                    }
+                }
+            }
+        }
         let idx = monitor_index as usize;
-        if idx < monitors.len() {
-            Some(monitors[idx].clone())
+        if idx <= monitors.len() {
+            monitors.get(idx - 1).cloned()
         } else {
             window.primary_monitor().or_else(|| window.current_monitor())
         }

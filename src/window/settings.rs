@@ -65,6 +65,8 @@ impl PopupState {
         options: Vec<String>,
         values: Vec<String>,
         selected_idx: usize,
+        _win_w: f32,
+        win_h: f32,
     ) -> Self {
         let item_count = options.len() as f32;
         let menu_h = POPUP_MENU_PAD * 2.0 + item_count * POPUP_ITEM_H;
@@ -81,8 +83,26 @@ impl PopupState {
 
         let menu_w = max_text_w;
         let right_edge = button_rect.right;
-        let menu_x = right_edge - menu_w;
-        let menu_rect = Rect::from_xywh(menu_x, button_rect.bottom + 2.0, menu_w, menu_h);
+
+        let menu_x;
+        let menu_y;
+
+        let fits_below = button_rect.bottom + 2.0 + menu_h <= win_h;
+        let fits_right = right_edge - menu_w >= 0.0;
+
+        if fits_below {
+            menu_y = button_rect.bottom + 2.0;
+        } else {
+            menu_y = (button_rect.top - menu_h - 2.0).max(0.0);
+        }
+
+        if fits_right {
+            menu_x = right_edge - menu_w;
+        } else {
+            menu_x = button_rect.left;
+        }
+
+        let menu_rect = Rect::from_xywh(menu_x, menu_y, menu_w, menu_h);
 
         Self {
             kind,
@@ -933,6 +953,7 @@ impl SettingsApp {
     }
 
     fn handle_general_click(&mut self, items: &[SettingsItem], mx: f32, my: f32, width: f32, start_y: f32) {
+        let scale = self.window.as_ref().unwrap().scale_factor() as f32;
         let result = hit_test(items, mx, my, start_y, width);
         let mut changed = false;
 
@@ -1032,6 +1053,8 @@ impl SettingsApp {
                             monitors,
                             values,
                             selected_idx,
+                            self.win_w / scale,
+                            self.win_h / scale,
                         ));
                     } else if label == &tr("island_style") {
                         let selected_idx = match self.config.island_style.as_str() {
@@ -1046,6 +1069,8 @@ impl SettingsApp {
                             vec![tr("style_default"), tr("style_glass"), tr("style_mica"), tr("style_dynamic")],
                             vec!["default".to_string(), "glass".to_string(), "mica".to_string(), "dynamic".to_string()],
                             selected_idx,
+                            self.win_w / scale,
+                            self.win_h / scale,
                         ));
                     } else if label == &tr("dock_position") {
                         let dp = self.config.dock_position;
@@ -1077,6 +1102,8 @@ impl SettingsApp {
                                 "bottom_right".to_string(),
                             ],
                             selected_idx,
+                            self.win_w / scale,
+                            self.win_h / scale,
                         ));
                     } else if label == &tr("settings_theme") {
                         let selected_idx = match self.config.settings_theme.as_str() {
@@ -1090,6 +1117,8 @@ impl SettingsApp {
                             vec![tr("theme_system"), tr("theme_light"), tr("theme_dark")],
                             vec!["system".to_string(), "light".to_string(), "dark".to_string()],
                             selected_idx,
+                            self.win_w / scale,
+                            self.win_h / scale,
                         ));
                     } else if label == &tr("mini_cover_shape") {
                         let selected_idx = if self.config.mini_cover_shape == "circle" { 1 } else { 0 };
@@ -1099,6 +1128,8 @@ impl SettingsApp {
                             vec![tr("shape_square"), tr("shape_circle")],
                             vec!["square".to_string(), "circle".to_string()],
                             selected_idx,
+                            self.win_w / scale,
+                            self.win_h / scale,
                         ));
                     } else if label == &tr("expanded_cover_shape") {
                         let selected_idx = if self.config.expanded_cover_shape == "circle" { 1 } else { 0 };
@@ -1108,6 +1139,8 @@ impl SettingsApp {
                             vec![tr("shape_square"), tr("shape_circle")],
                             vec!["square".to_string(), "circle".to_string()],
                             selected_idx,
+                            self.win_w / scale,
+                            self.win_h / scale,
                         ));
                     } else {
                         let lang = current_lang();
@@ -1117,6 +1150,8 @@ impl SettingsApp {
                             vec!["English".to_string(), "中文".to_string()],
                             vec!["en".to_string(), "zh".to_string()],
                             if lang == "zh" { 1 } else { 0 },
+                            self.win_w / scale,
+                            self.win_h / scale,
                         ));
                     }
                     self.anim.set_with_speed(POPUP_OPACITY_KEY, 1.0, 0.25);
@@ -1153,6 +1188,7 @@ impl SettingsApp {
     }
 
     fn handle_music_click(&mut self, items: &[SettingsItem], mx: f32, my: f32, width: f32, start_y: f32) {
+        let scale = self.window.as_ref().unwrap().scale_factor() as f32;
         let result = hit_test(items, mx, my, start_y, width);
         let mut changed = false;
 
@@ -1186,6 +1222,8 @@ impl SettingsApp {
                     vec!["163".to_string(), "LRCLIB".to_string()],
                     vec!["163".to_string(), "lrclib".to_string()],
                     if source == "163" { 0 } else { 1 },
+                    self.win_w / scale,
+                    self.win_h / scale,
                 ));
                 self.anim.set_with_speed(POPUP_OPACITY_KEY, 1.0, 0.25);
                 if let Some(win) = &self.window { win.request_redraw(); }
