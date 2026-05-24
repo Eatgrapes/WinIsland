@@ -662,16 +662,11 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
 
 fn count_group_rows_from(items: &[SettingsItem], start: usize) -> usize {
     let mut count = 0;
-    let mut found_group = false;
     for item in &items[start..] {
-        if matches!(item, SettingsItem::GroupStart) {
-            found_group = true;
-            continue;
-        }
         if matches!(item, SettingsItem::GroupEnd) {
             break;
         }
-        if found_group && item.is_row() {
+        if item.is_row() {
             count += 1;
         }
     }
