@@ -736,6 +736,9 @@ impl SettingsApp {
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
 
+        paint.set_color(theme.text_pri);
+        fm.draw_text_cached(DrawTextCachedParams { canvas, text: &tr("tab_general"), x: SIDEBAR_W + CONTENT_PADDING, y: 35.0, size: 20.0, bold: true, paint: &paint });
+
         let mut sep = Paint::default();
         sep.set_anti_alias(true);
         sep.set_color(theme.separator);
