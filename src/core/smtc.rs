@@ -222,18 +222,8 @@ fn smtc_poll_loop(
         current_allowed_apps = apps;
     }
 
-    // Initial update
-    update_media_info(
-        &manager,
-        &info_tx,
-        &current_lyrics_source,
-        current_lyrics_fallback,
-        &mut current_allowed_apps,
-    );
-    // SMTC timeline may not be ready on first fetch — retry once
-    let info = info_tx.borrow();
-    if info.position_ms == 0 && info.is_playing {
-        drop(info);
+    // Initial update with retries for SMTC timeline readiness
+    for attempt in 0..5 {
         update_media_info(
             &manager,
             &info_tx,
@@ -241,8 +231,15 @@ fn smtc_poll_loop(
             current_lyrics_fallback,
             &mut current_allowed_apps,
         );
-    } else {
+        let info = info_tx.borrow();
+        if info.position_ms > 0 || !info.is_playing {
+            drop(info);
+            break;
+        }
         drop(info);
+        if attempt < 4 {
+            std::thread::sleep(Duration::from_millis(100));
+        }
     }
 
     let mut last_manager_refresh = Instant::now();

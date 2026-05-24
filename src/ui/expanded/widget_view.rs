@@ -25,14 +25,14 @@ impl LyricScrollState {
         }
     }
 
-    fn update(&mut self, new_idx: usize) {
+    fn update(&mut self, new_idx: usize, dt: f32) {
         if self.current_idx != new_idx {
             self.old_idx = self.current_idx;
             self.current_idx = new_idx;
             self.scroll_progress = 0.0;
         }
         if self.scroll_progress < 1.0 {
-            self.scroll_progress += 0.08;
+            self.scroll_progress += 4.8 * dt / 60.0;
             if self.scroll_progress > 1.0 {
                 self.scroll_progress = 1.0;
             }
@@ -193,7 +193,7 @@ pub fn draw_widget_page(
 
     let (old_idx, scroll_progress, is_animating) = LYRIC_SCROLL_STATE.with(|cell| {
         let mut state = cell.borrow_mut();
-        state.update(current_idx);
+        state.update(current_idx, dt);
         (state.old_idx, state.scroll_progress, state.is_animating())
     });
 

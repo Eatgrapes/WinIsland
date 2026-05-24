@@ -10,7 +10,7 @@ use crate::window::app::App;
 use std::env;
 use std::mem::ManuallyDrop;
 use windows::Win32::Foundation::ERROR_ALREADY_EXISTS;
-use windows::Win32::Foundation::GetLastError;
+use windows::Win32::Foundation::{CloseHandle, GetLastError};
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::core::w;
 use winit::event_loop::EventLoop;
@@ -42,7 +42,10 @@ fn main() {
                 unsafe {
                     let h = CreateMutexW(None, true, w!("Local\\WinIsland_SingleInstance_Mutex"));
                     if GetLastError() != ERROR_ALREADY_EXISTS {
-                        break ManuallyDrop::new(h);
+                        break ManuallyDrop::new(h.unwrap_or_default());
+                    }
+                    if let Ok(h) = h {
+                        let _ = CloseHandle(h);
                     }
                 }
                 if !is_restart || start.elapsed() > std::time::Duration::from_secs(10) {

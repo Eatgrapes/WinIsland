@@ -64,6 +64,7 @@ pub struct StyleParams<'a> {
     pub mini_cover_shape: &'a str,
     pub expanded_cover_shape: &'a str,
     pub cover_rotate: bool,
+    pub mini_controls: bool,
     pub dt: f32,
 }
 
@@ -119,6 +120,7 @@ pub fn draw_island(
         mini_cover_shape,
         expanded_cover_shape,
         cover_rotate,
+        mini_controls: _,
         dt,
     } = style;
     let mut buffer = surface.buffer_mut().unwrap();
@@ -392,7 +394,7 @@ pub fn draw_island(
             smooth_factors: (0.6, 0.08),
         });
 
-        let is_paused = music_active && !media.is_playing;
+        let is_paused = music_active && !media.is_playing && style.mini_controls;
 
         if is_paused {
             let lyric_fade_f = (1.0 - expansion_progress * 2.5).clamp(0.0, 1.0);
@@ -613,6 +615,8 @@ pub fn draw_island(
 }
 
 pub fn get_mini_control_rects(
+    offset_x: f32,
+    offset_y: f32,
     current_w: f32,
     current_h: f32,
     global_scale: f32,
@@ -621,8 +625,6 @@ pub fn get_mini_control_rects(
     Option<(f32, f32, f32, f32)>,
     Option<(f32, f32, f32, f32)>,
 ) {
-    let offset_x = 0.0;
-    let offset_y = 0.0;
     let space_left = offset_x + 30.0 * global_scale;
     let space_right = offset_x + current_w - 29.0 * global_scale;
     let center_x = (space_left + space_right) / 2.0;

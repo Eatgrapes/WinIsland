@@ -27,10 +27,11 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, SWP_NOACTIVATE, SetWindowLongPtrW,
-    SetWindowPos, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
+    FindWindowW, GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, PostMessageW,
+    SWP_NOACTIVATE, SetWindowLongPtrW, SetWindowPos, WM_CLOSE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_MAXIMIZEBOX, WS_THICKFRAME,
 };
-use windows::core::PCWSTR;
+use windows::core::{PCWSTR, w};
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton, TouchPhase, WindowEvent};
@@ -529,11 +530,11 @@ impl App {
                 let media = self.smtc.get_info();
                 let music_on = self.config.smtc_enabled && !media.title.is_empty();
 
-                if music_on && !media.is_playing {
+                if music_on && !media.is_playing && self.config.mini_controls {
                     let w = self.spring_w.value;
                     let h = self.spring_h.value;
                     let (prev_rect, play_rect, next_rect) =
-                        get_mini_control_rects(w, h, self.config.global_scale);
+                        get_mini_control_rects(offset_x as f32, island_y as f32, w, h, self.config.global_scale);
 
                     let cx = rel_x as f32;
                     let cy = rel_y as f32;
@@ -829,6 +830,7 @@ impl ApplicationHandler for App {
                                     mini_cover_shape: &self.config.mini_cover_shape,
                                     expanded_cover_shape: &self.config.expanded_cover_shape,
                                     cover_rotate: self.config.cover_rotate,
+                                    mini_controls: self.config.mini_controls,
                                     dt,
                                 },
                             },
@@ -863,6 +865,14 @@ impl ApplicationHandler for App {
                             .spawn();
                     }
                     Some(TrayAction::Restart) => {
+                        unsafe {
+                            let hwnd = FindWindowW(None, w!("Settings"));
+                            if let Ok(hwnd) = hwnd {
+                                if !hwnd.is_invalid() {
+                                    let _ = PostMessageW(hwnd, WM_CLOSE, None, None);
+                                }
+                            }
+                        }
                         let _ = std::process::Command::new(std::env::current_exe().unwrap())
                             .arg("--restart")
                             .spawn();

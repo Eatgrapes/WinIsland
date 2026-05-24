@@ -193,6 +193,7 @@ impl SettingsApp {
             config.motion_blur,
             config.cover_rotate,
             config.audio_gate,
+            config.mini_controls,
             config.auto_start,
             config.auto_hide,
             config.check_for_updates,
@@ -408,6 +409,17 @@ impl SettingsApp {
                     on: self.config.audio_gate,
                     enabled: true,
                 });
+                items.push(SettingsItem::GroupEnd);
+                items.push(SettingsItem::SectionHeader {
+                    label: tr("section_experimental"),
+                });
+                items.push(SettingsItem::GroupStart);
+                items.push(SettingsItem::RowSwitch {
+                    label: tr("mini_controls"),
+                    on: self.config.mini_controls,
+                    enabled: true,
+                });
+                items.push(SettingsItem::GroupEnd);
                 items.push(SettingsItem::RowSourceSelect {
                     label: tr("island_style"),
                     options: vec![
@@ -715,24 +727,25 @@ impl SettingsApp {
         self.switch_anim.set_target(1, self.config.motion_blur);
         self.switch_anim.set_target(2, self.config.cover_rotate);
         self.switch_anim.set_target(3, self.config.audio_gate);
-        self.switch_anim.set_target(4, self.config.auto_start);
-        self.switch_anim.set_target(5, self.config.auto_hide);
+        self.switch_anim.set_target(4, self.config.mini_controls);
+        self.switch_anim.set_target(5, self.config.auto_start);
+        self.switch_anim.set_target(6, self.config.auto_hide);
         self.switch_anim
-            .set_target(6, self.config.check_for_updates);
-        self.switch_anim.set_target(7, self.config.smtc_enabled);
-        self.switch_anim.set_target(8, self.config.show_lyrics);
+            .set_target(7, self.config.check_for_updates);
+        self.switch_anim.set_target(8, self.config.smtc_enabled);
+        self.switch_anim.set_target(9, self.config.show_lyrics);
         let fb_on = if self.config.show_lyrics {
             self.config.lyrics_fallback
         } else {
             false
         };
-        self.switch_anim.set_target(9, fb_on);
+        self.switch_anim.set_target(10, fb_on);
         let fw_on = if self.config.show_lyrics {
             self.config.lyrics_scroll
         } else {
             false
         };
-        self.switch_anim.set_target(10, fw_on);
+        self.switch_anim.set_target(11, fw_on);
     }
 
     fn update_detected_apps(&mut self) {
@@ -1158,11 +1171,11 @@ impl SettingsApp {
         match self.active_page {
             0 => match self.active_sub_page {
                 0 => SwitchAnimator::new(&[]),
-                1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[0, 1, 2, 3]),
-                2 => SwitchAnimator::new_with_anims(&self.switch_anim, &[4, 5, 6]),
+                1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[0, 1, 2, 3, 4]),
+                2 => SwitchAnimator::new_with_anims(&self.switch_anim, &[5, 6, 7]),
                 _ => SwitchAnimator::new(&[]),
             },
-            1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[7, 8, 9, 10]),
+            1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[8, 9, 10, 11]),
             _ => SwitchAnimator::new(&[]),
         }
     }
@@ -1384,7 +1397,7 @@ impl SettingsApp {
             ClickResult::Switch(idx) => {
                 let actual_idx = match self.active_sub_page {
                     1 => idx,
-                    2 => idx + 4,
+                    2 => idx + 5,
                     _ => idx,
                 };
                 match actual_idx {
@@ -1392,12 +1405,13 @@ impl SettingsApp {
                     1 => self.config.motion_blur = !self.config.motion_blur,
                     2 => self.config.cover_rotate = !self.config.cover_rotate,
                     3 => self.config.audio_gate = !self.config.audio_gate,
-                    4 => {
+                    4 => self.config.mini_controls = !self.config.mini_controls,
+                    5 => {
                         self.config.auto_start = !self.config.auto_start;
                         let _ = set_autostart(self.config.auto_start);
                     }
-                    5 => self.config.auto_hide = !self.config.auto_hide,
-                    6 => self.config.check_for_updates = !self.config.check_for_updates,
+                    6 => self.config.auto_hide = !self.config.auto_hide,
+                    7 => self.config.check_for_updates = !self.config.check_for_updates,
                     _ => {}
                 }
                 self.sync_switch_targets();
@@ -1615,16 +1629,16 @@ impl SettingsApp {
 
         match result {
             ClickResult::Switch(idx) => {
-                let actual_idx = idx + 7;
+                let actual_idx = idx + 8;
                 match actual_idx {
-                    7 => self.config.smtc_enabled = !self.config.smtc_enabled,
-                    8 => self.config.show_lyrics = !self.config.show_lyrics,
-                    9 => {
+                    8 => self.config.smtc_enabled = !self.config.smtc_enabled,
+                    9 => self.config.show_lyrics = !self.config.show_lyrics,
+                    10 => {
                         if self.config.show_lyrics {
                             self.config.lyrics_fallback = !self.config.lyrics_fallback
                         }
                     }
-                    10 => {
+                    11 => {
                         if self.config.show_lyrics {
                             self.config.lyrics_scroll = !self.config.lyrics_scroll
                         }
