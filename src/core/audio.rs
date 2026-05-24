@@ -120,7 +120,7 @@ impl AudioProcessor {
             };
             if let Ok(s) = stream {
                 let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
-                let session = unsafe {
+                let _session = unsafe {
                     let enumerator: IMMDeviceEnumerator = match CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok() {
                         Some(e) => e,
                         None => { let _ = s.play(); while !cancel.is_cancelled() { std::thread::sleep(std::time::Duration::from_millis(100)); } return; }
@@ -135,16 +135,18 @@ impl AudioProcessor {
                     }
                     session
                 };
-                if let Some(ref ses) = session {
-                    let _ = unsafe { ses.SetMute(true, std::ptr::null()) };
-                }
+                // TODO: Re-enable auto-mute for monitoring wallpaper-only audio
+                // if let Some(ref ses) = session {
+                //     let _ = unsafe { ses.SetMute(true, std::ptr::null()) };
+                // }
                 let _ = s.play();
                 while !cancel.is_cancelled() {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                 }
-                if let Some(ref ses) = session {
-                    let _ = unsafe { ses.SetMute(false, std::ptr::null()) };
-                }
+                // TODO: Re-enable auto-mute cleanup
+                // if let Some(ref ses) = session {
+                //     let _ = unsafe { ses.SetMute(false, std::ptr::null()) };
+                // }
             }
         });
     }
