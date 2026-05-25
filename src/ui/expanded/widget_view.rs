@@ -114,6 +114,7 @@ pub fn draw_widget_page(
     scale: f32,
     media: &MediaInfo,
     _font_size: f32,
+    lyrics_delay: f64,
     dt: f32,
 ) -> bool {
     let arrow_alpha = alpha;
@@ -154,11 +155,12 @@ pub fn draw_widget_page(
         return false;
     }
 
-    let current_pos = if media.is_playing {
+    let raw_pos = if media.is_playing {
         media.position_ms + media.last_update.elapsed().as_millis() as u64
     } else {
         media.position_ms
     };
+    let current_pos = (raw_pos as i64 + (lyrics_delay * 1000.0) as i64).max(0) as u64;
 
     let current_idx = match lyrics.binary_search_by_key(&current_pos, |line| line.time_ms) {
         Ok(idx) => idx,

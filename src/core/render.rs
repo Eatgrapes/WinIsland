@@ -65,6 +65,7 @@ pub struct StyleParams<'a> {
     pub expanded_cover_shape: &'a str,
     pub cover_rotate: bool,
     pub mini_controls: bool,
+    pub lyrics_delay: f64,
     pub dt: f32,
 }
 
@@ -121,6 +122,7 @@ pub fn draw_island(
         expanded_cover_shape,
         cover_rotate,
         mini_controls: _,
+        lyrics_delay,
         dt,
     } = style;
     let mut buffer = surface.buffer_mut().unwrap();
@@ -279,6 +281,7 @@ pub fn draw_island(
             global_scale,
             media,
             font_size,
+            lyrics_delay,
             dt,
         );
         canvas.restore();

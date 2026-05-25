@@ -1885,7 +1885,7 @@ impl ApplicationHandler for SettingsApp {
         };
 
         let attrs = Window::default_attributes()
-            .with_title("Settings")
+            .with_title("WinIsland Settings")
             .with_inner_size(LogicalSize::new(WIN_W as f64, WIN_H as f64))
             .with_min_inner_size(LogicalSize::new(WIN_W as f64, WIN_H as f64))
             .with_position(LogicalPosition::new(win_x, win_y))
@@ -2249,7 +2249,7 @@ pub fn bring_settings_to_front() {
     // SAFETY: FindWindowW searches for a top-level window by name. ShowWindow and
     // SetForegroundWindow operate on the found valid hwnd with standard parameters.
     unsafe {
-        let hwnd = FindWindowW(None, w!("Settings"));
+        let hwnd = FindWindowW(None, w!("WinIsland Settings"));
         if let Ok(hwnd) = hwnd
             && !hwnd.is_invalid()
         {

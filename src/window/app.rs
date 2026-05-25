@@ -853,6 +853,7 @@ impl ApplicationHandler for App {
                                     expanded_cover_shape: &self.config.expanded_cover_shape,
                                     cover_rotate: self.config.cover_rotate,
                                     mini_controls: self.config.mini_controls,
+                                    lyrics_delay: self.config.lyrics_delay,
                                     dt,
                                 },
                             },
@@ -889,7 +890,7 @@ impl ApplicationHandler for App {
                         // PostMessageW posts WM_CLOSE to gracefully close the settings window.
                         // Both use valid string literals and standard message parameters.
                         unsafe {
-                            let hwnd = FindWindowW(None, w!("Settings"));
+                            let hwnd = FindWindowW(None, w!("WinIsland Settings"));
                             if let Ok(hwnd) = hwnd
                                 && !hwnd.is_invalid()
                             {
