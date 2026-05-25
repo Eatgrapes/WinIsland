@@ -104,6 +104,9 @@ async fn do_check(app_dir: &Path) {
             .encode_utf16()
             .collect();
 
+        // SAFETY: MessageBoxW displays a modal dialog. The text and title are
+        // null-terminated UTF-16 strings allocated in the outer scope and moved
+        // into the closure. None hWnd makes it a top-level message box.
         let result = tokio::task::spawn_blocking(move || unsafe {
             MessageBoxW(
                 None,
@@ -157,13 +160,19 @@ async fn perform_update(remote_json_str: String, app_dir: PathBuf) {
     let current_exe_str = current_exe.to_string_lossy().into_owned();
     let new_exe_str = new_exe_path.to_string_lossy().into_owned();
 
+    // Escape single quotes for PowerShell: '' -> ''
+    let ps_escape = |s: &str| s.replace('\'', "''");
+
     let pid = std::process::id();
     let script = format!(
         "Start-Sleep -Seconds 1; \
          while (Get-Process -Id {} -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 100 }}; \
          Move-Item -Path '{}' -Destination '{}' -Force; \
          Start-Process -FilePath '{}'",
-        pid, new_exe_str, current_exe_str, current_exe_str
+        pid,
+        ps_escape(&new_exe_str),
+        ps_escape(&current_exe_str),
+        ps_escape(&current_exe_str)
     );
 
     let _ = Command::new("powershell")
@@ -176,6 +185,8 @@ async fn perform_update(remote_json_str: String, app_dir: PathBuf) {
 async fn show_error_box(title: String, text: String) {
     let title_w: Vec<u16> = title.add_null().encode_utf16().collect();
     let text_w: Vec<u16> = text.add_null().encode_utf16().collect();
+    // SAFETY: MessageBoxW displays a modal error dialog with the provided
+    // null-terminated UTF-16 strings. All pointers are valid for the call duration.
     tokio::task::spawn_blocking(move || unsafe {
         MessageBoxW(
             None,

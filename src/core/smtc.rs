@@ -593,7 +593,8 @@ fn fetch_properties(
             should_fetch_thumbnail = true;
         }
         let current_extrapolated = if info.is_playing {
-            info.position_ms + info.last_update.elapsed().as_millis() as u64
+            info.position_ms
+                .saturating_add(info.last_update.elapsed().as_millis() as u64)
         } else {
             info.position_ms
         };

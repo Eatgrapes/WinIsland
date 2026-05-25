@@ -53,7 +53,14 @@ pub fn get_glass_background(
     result
 }
 
+/// SAFETY: Caller must ensure the screen coordinates (sx, sy) and dimensions (w, h)
+/// are within valid desktop bounds. This function uses GDI screen capture (GetDC/BitBlt)
+/// which requires the calling thread to have a message pump or be in STA.
 unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) -> Option<Image> {
+    // SAFETY: All GDI operations use valid handles obtained from GetDC/CreateCompatibleDC.
+    // GetDC(HWND::default()) captures the entire desktop. BitBlt copies from screen DC
+    // to memory DC. GetDIBits reads pixels into a pre-allocated Vec<u8>. All handles
+    // are properly released via DeleteObject/DeleteDC/ReleaseDC.
     unsafe {
         let margin = w.max(h) as i32;
         let cap_x = (sx - margin).max(0);

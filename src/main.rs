@@ -24,6 +24,9 @@ fn main() {
 
     if args.iter().any(|arg| arg == "--settings") {
         let _settings_mutex;
+        // SAFETY: CreateMutexW creates a named mutex for single-instance enforcement.
+        // The name is a static string literal. GetLastError checks if the mutex
+        // already exists (ERROR_ALREADY_EXISTS) to bring existing window to front.
         unsafe {
             _settings_mutex = CreateMutexW(None, true, w!("Local\\WinIsland_Settings_Mutex"));
             if GetLastError() == ERROR_ALREADY_EXISTS {
@@ -39,6 +42,10 @@ fn main() {
         let _single_mutex = {
             let start = std::time::Instant::now();
             loop {
+                // SAFETY: CreateMutexW creates a named mutex for single-instance lock.
+                // The name is a static string literal. On success with no ERROR_ALREADY_EXISTS,
+                // the handle is kept in ManuallyDrop to hold the lock for the process lifetime.
+                // On ERROR_ALREADY_EXISTS, the handle is closed and we retry or exit.
                 unsafe {
                     let h = CreateMutexW(None, true, w!("Local\\WinIsland_SingleInstance_Mutex"));
                     match h {

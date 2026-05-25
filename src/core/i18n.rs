@@ -81,6 +81,9 @@ pub fn tr(key: &str) -> String {
 
 fn get_system_lang() -> String {
     let mut buffer = [0u16; 128];
+    // SAFETY: GetUserDefaultLocaleName reads the system locale into the provided
+    // buffer. The buffer is stack-allocated with 128 elements, sufficient for any
+    // valid locale name. from_utf16_lossy handles potentially malformed input.
     unsafe {
         let len = GetUserDefaultLocaleName(&mut buffer);
         if len > 0 {

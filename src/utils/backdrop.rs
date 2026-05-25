@@ -9,6 +9,9 @@ thread_local! {
 }
 
 pub fn try_enable_mica(hwnd: HWND) -> bool {
+    // SAFETY: DwmSetWindowAttribute modifies DWM window attributes through a valid
+    // HWND. The attribute values (38=MICA, 1029=ACRYLIC fallback) and pointer are
+    // valid for the lifetime of the call. hwnd is obtained from winit's window handle.
     unsafe {
         let value: i32 = 2;
         let attr = DWMWINDOWATTRIBUTE(38);

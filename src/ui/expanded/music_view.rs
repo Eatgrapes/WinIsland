@@ -511,7 +511,9 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         let time_w = 36.0 * scale;
 
         let current_pos_ms = if media.is_playing {
-            media.position_ms + media.last_update.elapsed().as_millis() as u64
+            media
+                .position_ms
+                .saturating_add(media.last_update.elapsed().as_millis() as u64)
         } else {
             media.position_ms
         };

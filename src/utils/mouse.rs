@@ -12,6 +12,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 pub fn get_global_cursor_pos() -> (i32, i32) {
     let mut point = POINT::default();
+    // SAFETY: GetCursorPos writes to a stack-allocated POINT struct. The pointer
+    // is valid for the lifetime of the call. No preconditions or side effects.
     unsafe {
         let _ = GetCursorPos(&mut point);
     }
@@ -23,10 +25,15 @@ pub fn is_point_in_rect(px: f64, py: f64, rx: f64, ry: f64, rw: f64, rh: f64) ->
 }
 
 pub fn is_left_button_pressed() -> bool {
+    // SAFETY: GetAsyncKeyState queries virtual key state. VK_LBUTTON is a constant.
+    // No pointers or handles are involved. Thread-safe (per-thread key state).
     unsafe { (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0 }
 }
 
 pub fn is_cursor_hidden() -> bool {
+    // SAFETY: GetCursorInfo writes to a stack-allocated CURSORINFO struct with
+    // correct cbSize. The pointer is valid for the lifetime of the call. No
+    // preconditions — returns current cursor visibility state.
     unsafe {
         let mut info = CURSORINFO {
             cbSize: std::mem::size_of::<CURSORINFO>() as u32,
@@ -40,6 +47,12 @@ pub fn is_cursor_hidden() -> bool {
 }
 
 pub fn is_foreground_fullscreen() -> bool {
+    // SAFETY: All Win32 API calls in this function use valid stack-allocated
+    // structs/buffers and query-only operations. GetForegroundWindow returns a
+    // handle that may be null (checked). GetWindowThreadProcessId, GetClassNameW,
+    // GetWindowRect, MonitorFromWindow, and GetMonitorInfoW all read window/monitor
+    // metadata — no mutations to system state. The returned HWND is not stored
+    // or used beyond this function's scope.
     unsafe {
         let hwnd = GetForegroundWindow();
         if hwnd.0.is_null() {

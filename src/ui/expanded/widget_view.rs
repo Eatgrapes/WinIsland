@@ -156,7 +156,9 @@ pub fn draw_widget_page(
     }
 
     let raw_pos = if media.is_playing {
-        media.position_ms + media.last_update.elapsed().as_millis() as u64
+        media
+            .position_ms
+            .saturating_add(media.last_update.elapsed().as_millis() as u64)
     } else {
         media.position_ms
     };

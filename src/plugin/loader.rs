@@ -85,7 +85,9 @@ impl NativePlugin {
             _lib: lib,
         };
 
+        // SAFETY: vtable pointer was validated non-null above and is 'static for the DLL's lifetime.
         let vtable = unsafe { &*plugin.vtable };
+        // SAFETY: calling the plugin's on_load via vtable with its own handle.
         let result: PluginResultC = unsafe { (vtable.on_load)(plugin.handle) };
         result.into_result().map_err(|e| {
             PluginError::ExecutionError(format!(
@@ -189,6 +191,7 @@ impl ShortcutProvider for NativePlugin {
     fn get_shortcuts(&self) -> Vec<Shortcut> {
         let vtable = self.vtable();
         let count = match vtable.get_shortcuts_count {
+            // SAFETY: calling through vtable with the opaque handle from the same DLL.
             Some(f) => unsafe { f(self.handle) },
             None => return Vec::new(),
         };
@@ -205,6 +208,8 @@ impl ShortcutProvider for NativePlugin {
                 icon: [0u8; 256],
                 hotkey: [0u8; 32],
             };
+            // SAFETY: calling through vtable with opaque handle; &mut c is a valid
+            // pointer to a stack-allocated ShortcutC struct for the DLL to fill.
             unsafe { get_at(self.handle, i, &mut c) };
             shortcuts.push(Shortcut {
                 id: super::types::read_c_str(&c.id),
@@ -240,6 +245,9 @@ impl ShortcutProvider for NativePlugin {
 impl Drop for NativePlugin {
     fn drop(&mut self) {
         let vtable = self.vtable();
+        // SAFETY: on_unload and destroy are called with the plugin's own handle
+        // during drop, which is the correct lifecycle point for cleanup.
+        // The vtable and handle are from the same DLL and remain valid.
         unsafe {
             let _ = (vtable.on_unload)(self.handle);
             (vtable.destroy)(self.handle);

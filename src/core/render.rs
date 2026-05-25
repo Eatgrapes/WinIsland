@@ -1,6 +1,6 @@
 use crate::core::config::{DockPosition, PADDING, TOP_OFFSET};
 use crate::core::smtc::MediaInfo;
-use crate::icons::controls::{draw_pause_button, draw_play_button};
+use crate::icons::controls::draw_play_button;
 use crate::ui::expanded::music_view::{
     DrawMusicPageParams, DrawVisualizerParams, draw_music_page, draw_text_cached, draw_visualizer,
     get_cached_media_image, get_cached_media_image_with_key, get_media_palette,
@@ -22,7 +22,7 @@ use winit::window::Window;
 thread_local! {
     static SK_SURFACE: RefCell<Option<SkSurface>> = const { RefCell::new(None) };
     static MINI_COVER_ROTATION: RefCell<f32> = const { RefCell::new(0.0) };
-    static MINI_PAUSE_ANIM: RefCell<f32> = const { RefCell::new(0.0) };
+
 }
 
 pub struct LayoutParams {
@@ -248,7 +248,7 @@ pub fn draw_island(
 
         canvas.save();
         canvas.translate((-page_shift, 0.0));
-        draw_music_page(DrawMusicPageParams {
+        let _ = draw_music_page(DrawMusicPageParams {
             canvas,
             ox: offset_x,
             oy: offset_y,
@@ -412,32 +412,9 @@ pub fn draw_island(
 
                 let btn_scale = 0.28 * global_scale;
 
-                let pause_t = MINI_PAUSE_ANIM.with(|cell| {
-                    let mut v = cell.borrow_mut();
-                    let target = if media.is_playing { 1.0_f32 } else { 0.0 };
-                    *v += (target - *v) * 0.15;
-                    if (*v - target).abs() < 0.005 {
-                        *v = target;
-                    }
-                    *v
-                });
-
                 canvas.save();
                 canvas.translate((center_x, center_y));
-                if pause_t > 0.99 {
-                    draw_pause_button(canvas, 0.0, 0.0, ctrl_alpha, btn_scale);
-                } else if pause_t < 0.01 {
-                    draw_play_button(canvas, 0.0, 0.0, ctrl_alpha, btn_scale);
-                } else {
-                    let pause_alpha = (ctrl_alpha as f32 * pause_t) as u8;
-                    let play_alpha = (ctrl_alpha as f32 * (1.0 - pause_t)) as u8;
-                    if pause_alpha > 0 {
-                        draw_pause_button(canvas, 0.0, 0.0, pause_alpha, btn_scale);
-                    }
-                    if play_alpha > 0 {
-                        draw_play_button(canvas, 0.0, 0.0, play_alpha, btn_scale);
-                    }
-                }
+                draw_play_button(canvas, 0.0, 0.0, ctrl_alpha, btn_scale);
                 canvas.restore();
             }
         } else if !current_lyric.is_empty() || !old_lyric.is_empty() {
@@ -635,27 +612,15 @@ pub fn get_mini_control_rects(
     let center_x = (space_left + space_right) / 2.0;
     let center_y = offset_y + current_h / 2.0;
 
-    let btn_gap = 28.0 * global_scale;
     let hit_size = 20.0 * global_scale;
 
-    let prev_rect = (
-        center_x - btn_gap - hit_size / 2.0,
-        center_y - hit_size / 2.0,
-        hit_size,
-        hit_size,
-    );
     let play_rect = (
         center_x - hit_size / 2.0,
         center_y - hit_size / 2.0,
         hit_size,
         hit_size,
     );
-    let next_rect = (
-        center_x + btn_gap - hit_size / 2.0,
-        center_y - hit_size / 2.0,
-        hit_size,
-        hit_size,
-    );
 
-    (Some(prev_rect), Some(play_rect), Some(next_rect))
+    // Only the play/pause button is rendered; prev/next are invisible.
+    (None, Some(play_rect), None)
 }
