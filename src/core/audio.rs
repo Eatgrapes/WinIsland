@@ -24,7 +24,7 @@ pub struct AudioProcessor {
 impl AudioProcessor {
     pub fn new() -> Self {
         let spectrum = Arc::new(Mutex::new([0.0f32; 6]));
-        let gate = Arc::new(AtomicU32::new(0f32.to_bits()));
+        let gate = Arc::new(AtomicU32::new(1.0f32.to_bits()));
         // AtomicU32 stores f32 bit patterns since std::sync::atomic doesn't provide AtomicF32.
         // Relaxed ordering is sufficient: we only need eventual consistency for the gate value.
         let gate_override = Arc::new(AtomicU32::new(1.0f32.to_bits()));

@@ -1,6 +1,7 @@
 /target
 .idea/
 /.claude/
+/.trae/
 /.planning/
 Page/node_modules/
 Page/.vitepress/cache

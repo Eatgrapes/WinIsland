@@ -87,7 +87,7 @@ impl SettingsItem {
             SettingsItem::CenterLink { .. } => 40.0,
             SettingsItem::CenterText { .. } => 35.0,
             SettingsItem::Spacer { height } => *height,
-            SettingsItem::FontPreview { .. } => 120.0,
+            SettingsItem::FontPreview { .. } => 70.0,
             _ => ROW_HEIGHT,
         }
     }

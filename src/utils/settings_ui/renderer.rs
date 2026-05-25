@@ -776,7 +776,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
             }
             SettingsItem::Spacer { .. } => {}
             SettingsItem::FontPreview { has_custom_font } => {
-                let preview_h = 100.0;
+                let preview_h = 50.0;
                 let visible = y + preview_h >= visible_min_y && y <= visible_max_y;
                 if visible {
                     let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
@@ -798,7 +798,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     fm.draw_text_with_default_font(
                         canvas,
                         &tr("font_preview_default"),
-                        (row_x + 8.0, y + 16.0),
+                        (row_x + 8.0, y + 14.0),
                         11.0,
                         false,
                         &label_p,
@@ -810,7 +810,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         fm.draw_text_with_default_font(
                             canvas,
                             sample,
-                            (row_x + 8.0, y + 36.0 + si as f32 * 18.0),
+                            (row_x + 8.0, y + 34.0 + si as f32 * 18.0),
                             14.0,
                             false,
                             &label_p,
@@ -824,14 +824,14 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         div_p.set_color(theme.separator);
                         div_p.set_stroke_width(1.0);
                         div_p.set_style(skia_safe::paint::Style::Stroke);
-                        canvas.draw_line((div_x, y + 8.0), (div_x, y + preview_h - 8.0), &div_p);
+                        canvas.draw_line((div_x, y + 6.0), (div_x, y + preview_h - 6.0), &div_p);
 
                         label_p.set_color(theme.text_sec);
                         fm.draw_text_cached(DrawTextCachedParams {
                             canvas,
                             text: &tr("font_preview_custom"),
                             x: div_x + 8.0,
-                            y: y + 16.0,
+                            y: y + 14.0,
                             size: 11.0,
                             bold: false,
                             paint: &label_p,
@@ -843,7 +843,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                             fm.draw_text_with_custom_font(
                                 canvas,
                                 sample,
-                                (div_x + 8.0, y + 36.0 + si as f32 * 18.0),
+                                (div_x + 8.0, y + 34.0 + si as f32 * 18.0),
                                 14.0,
                                 false,
                                 &label_p,
