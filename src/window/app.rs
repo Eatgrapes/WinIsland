@@ -268,12 +268,11 @@ impl App {
         let monitors: Vec<_> = window.available_monitors().collect();
         if let Some(name) = target_name {
             for mon in &monitors {
-                if let Some(mon_name) = mon.name() {
-                    if mon_name.contains(name.trim_start_matches("\\\\.\\"))
-                        || name.contains(&mon_name)
-                    {
-                        return Some(mon.clone());
-                    }
+                if let Some(mon_name) = mon.name()
+                    && (mon_name.contains(name.trim_start_matches("\\\\.\\"))
+                        || name.contains(&mon_name))
+                {
+                    return Some(mon.clone());
                 }
             }
         }
@@ -502,9 +501,7 @@ impl App {
                     let dist_sq = (rel_x as f64 - gear_x).powi(2) + (rel_y as f64 - gear_y).powi(2);
                     if dist_sq <= (20.0 * scale).powi(2) {
                         if let Ok(exe) = std::env::current_exe() {
-                            let _ = std::process::Command::new(exe)
-                                .arg("--settings")
-                                .spawn();
+                            let _ = std::process::Command::new(exe).arg("--settings").spawn();
                         }
                         return;
                     }
@@ -541,34 +538,46 @@ impl App {
                 if music_on && !media.is_playing && self.config.mini_controls {
                     let w = self.spring_w.value;
                     let h = self.spring_h.value;
-                    let (prev_rect, play_rect, next_rect) =
-                        get_mini_control_rects(offset_x as f32, island_y as f32, w, h, self.config.global_scale);
+                    let (prev_rect, play_rect, next_rect) = get_mini_control_rects(
+                        offset_x as f32,
+                        island_y as f32,
+                        w,
+                        h,
+                        self.config.global_scale,
+                    );
 
                     let cx = rel_x as f32;
                     let cy = rel_y as f32;
 
                     let mut hit_control = false;
-                    if let Some((px, py, pw, ph)) = prev_rect {
-                        if cx >= px && cx <= px + pw && cy >= py && cy <= py + ph {
-                            self.smtc.request_prev();
-                            hit_control = true;
-                        }
+                    if let Some((px, py, pw, ph)) = prev_rect
+                        && cx >= px
+                        && cx <= px + pw
+                        && cy >= py
+                        && cy <= py + ph
+                    {
+                        self.smtc.request_prev();
+                        hit_control = true;
                     }
-                    if !hit_control {
-                        if let Some((px, py, pw, ph)) = play_rect {
-                            if cx >= px && cx <= px + pw && cy >= py && cy <= py + ph {
-                                self.smtc.request_toggle_play();
-                                hit_control = true;
-                            }
-                        }
+                    if !hit_control
+                        && let Some((px, py, pw, ph)) = play_rect
+                        && cx >= px
+                        && cx <= px + pw
+                        && cy >= py
+                        && cy <= py + ph
+                    {
+                        self.smtc.request_toggle_play();
+                        hit_control = true;
                     }
-                    if !hit_control {
-                        if let Some((px, py, pw, ph)) = next_rect {
-                            if cx >= px && cx <= px + pw && cy >= py && cy <= py + ph {
-                                self.smtc.request_next();
-                                hit_control = true;
-                            }
-                        }
+                    if !hit_control
+                        && let Some((px, py, pw, ph)) = next_rect
+                        && cx >= px
+                        && cx <= px + pw
+                        && cy >= py
+                        && cy <= py + ph
+                    {
+                        self.smtc.request_next();
+                        hit_control = true;
                     }
                     if hit_control {
                         return;
@@ -656,7 +665,7 @@ impl ApplicationHandler for App {
                         style & !(WS_MAXIMIZEBOX.0 as isize | WS_THICKFRAME.0 as isize),
                     );
                 }
-                set_glass_hwnd(win32_handle.hwnd.get() as isize);
+                set_glass_hwnd(win32_handle.hwnd.get());
                 if self.config.island_style == "mica" {
                     try_enable_mica(hwnd);
                 }
@@ -848,10 +857,8 @@ impl ApplicationHandler for App {
                                 },
                             },
                         );
-                        if widget_animating {
-                            if let Some(win) = &self.window {
-                                win.request_redraw();
-                            }
+                        if widget_animating && let Some(win) = &self.window {
+                            win.request_redraw();
                         }
                     }
                 }
@@ -874,9 +881,7 @@ impl ApplicationHandler for App {
                     }
                     Some(TrayAction::OpenSettings) => {
                         if let Ok(exe) = std::env::current_exe() {
-                            let _ = std::process::Command::new(exe)
-                                .arg("--settings")
-                                .spawn();
+                            let _ = std::process::Command::new(exe).arg("--settings").spawn();
                         }
                     }
                     Some(TrayAction::Restart) => {
@@ -885,16 +890,14 @@ impl ApplicationHandler for App {
                         // Both use valid string literals and standard message parameters.
                         unsafe {
                             let hwnd = FindWindowW(None, w!("Settings"));
-                            if let Ok(hwnd) = hwnd {
-                                if !hwnd.is_invalid() {
-                                    let _ = PostMessageW(hwnd, WM_CLOSE, None, None);
-                                }
+                            if let Ok(hwnd) = hwnd
+                                && !hwnd.is_invalid()
+                            {
+                                let _ = PostMessageW(hwnd, WM_CLOSE, None, None);
                             }
                         }
                         if let Ok(exe) = std::env::current_exe() {
-                            let _ = std::process::Command::new(exe)
-                                .arg("--restart")
-                                .spawn();
+                            let _ = std::process::Command::new(exe).arg("--restart").spawn();
                         }
                         event_loop.exit();
                     }

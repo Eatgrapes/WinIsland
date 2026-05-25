@@ -159,13 +159,11 @@ impl AudioProcessor {
                             }
                         };
                     let mut session = None;
-                    if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eConsole) {
-                        if let Ok(mgr) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None)
-                        {
-                            if let Ok(ses) = mgr.GetSimpleAudioVolume(None, 0) {
-                                session = Some(ses);
-                            }
-                        }
+                    if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eConsole)
+                        && let Ok(mgr) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None)
+                        && let Ok(ses) = mgr.GetSimpleAudioVolume(None, 0)
+                    {
+                        session = Some(ses);
                     }
                     session
                 };

@@ -86,23 +86,20 @@ impl PopupState {
         let menu_w = max_text_w;
         let right_edge = button_rect.right;
 
-        let menu_x;
-        let menu_y;
-
         let fits_below = button_rect.bottom + 2.0 + menu_h <= win_h;
         let fits_right = right_edge - menu_w >= 0.0;
 
-        if fits_below {
-            menu_y = button_rect.bottom + 2.0;
+        let menu_y = if fits_below {
+            button_rect.bottom + 2.0
         } else {
-            menu_y = (button_rect.top - menu_h - 2.0).max(0.0);
-        }
+            (button_rect.top - menu_h - 2.0).max(0.0)
+        };
 
-        if fits_right {
-            menu_x = right_edge - menu_w;
+        let menu_x = if fits_right {
+            right_edge - menu_w
         } else {
-            menu_x = button_rect.left;
-        }
+            button_rect.left
+        };
 
         let menu_rect = Rect::from_xywh(menu_x, menu_y, menu_w, menu_h);
 
@@ -761,21 +758,18 @@ impl SettingsApp {
         use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
         let mut changed = false;
         if let Ok(manager_async) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
+            && let Ok(manager) = manager_async.get()
+            && let Ok(sessions) = manager.GetSessions()
+            && let Ok(size) = sessions.Size()
         {
-            if let Ok(manager) = manager_async.get() {
-                if let Ok(sessions) = manager.GetSessions() {
-                    if let Ok(size) = sessions.Size() {
-                        for i in 0..size {
-                            if let Ok(session) = sessions.GetAt(i) {
-                                if let Ok(id) = session.SourceAppUserModelId() {
-                                    let name = id.to_string();
-                                    if !self.detected_apps.contains(&name) {
-                                        self.detected_apps.push(name);
-                                        changed = true;
-                                    }
-                                }
-                            }
-                        }
+            for i in 0..size {
+                if let Ok(session) = sessions.GetAt(i)
+                    && let Ok(id) = session.SourceAppUserModelId()
+                {
+                    let name = id.to_string();
+                    if !self.detected_apps.contains(&name) {
+                        self.detected_apps.push(name);
+                        changed = true;
                     }
                 }
             }
@@ -792,7 +786,9 @@ impl SettingsApp {
     }
 
     fn draw(&mut self) {
-        let Some(win) = self.window.as_ref() else { return };
+        let Some(win) = self.window.as_ref() else {
+            return;
+        };
         let (p_w, p_h, scale) = {
             let size = win.inner_size();
             (
@@ -831,7 +827,7 @@ impl SettingsApp {
                 None,
             );
             let dst_row_bytes = (p_w * 4) as usize;
-            let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut *buffer);
+            let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut buffer);
             let expected_size = (p_w * p_h * 4) as usize;
             let actual_size = u8_buffer.len();
             if actual_size != expected_size {
@@ -1243,8 +1239,7 @@ impl SettingsApp {
                 let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
                 if my >= row_y
                     && my <= row_y + SIDEBAR_ROW_H
-                    && mx >= SIDEBAR_PAD
-                    && mx <= SIDEBAR_W - SIDEBAR_PAD
+                    && (SIDEBAR_PAD..=SIDEBAR_W - SIDEBAR_PAD).contains(&mx)
                 {
                     if self.active_page != i as usize {
                         self.active_page = i as usize;
@@ -1262,24 +1257,26 @@ impl SettingsApp {
             return;
         }
 
-        let scale = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);
+        let scale = self
+            .window
+            .as_ref()
+            .map(|w| w.scale_factor() as f32)
+            .unwrap_or(1.0);
         let content_w = self.win_w / scale - SIDEBAR_W;
 
-        if self.active_page == 0 && my >= SUB_TAB_START_Y && my <= SUB_TAB_START_Y + SUB_TAB_H {
+        if self.active_page == 0 && (SUB_TAB_START_Y..=SUB_TAB_START_Y + SUB_TAB_H).contains(&my) {
             let tab_count = 3usize;
             let tab_w = content_w / tab_count as f32;
             let rel_x = mx - SIDEBAR_W;
             let tab_idx = (rel_x / tab_w) as usize;
-            if tab_idx < tab_count {
-                if self.active_sub_page != tab_idx {
-                    self.active_sub_page = tab_idx;
-                    self.scroll_y = 0.0;
-                    self.target_scroll_y = 0.0;
-                    self.scroll_vel_y = 0.0;
-                    self.mark_items_dirty();
-                    if let Some(win) = &self.window {
-                        win.request_redraw();
-                    }
+            if tab_idx < tab_count && self.active_sub_page != tab_idx {
+                self.active_sub_page = tab_idx;
+                self.scroll_y = 0.0;
+                self.target_scroll_y = 0.0;
+                self.scroll_vel_y = 0.0;
+                self.mark_items_dirty();
+                if let Some(win) = &self.window {
+                    win.request_redraw();
                 }
             }
             return;
@@ -1312,7 +1309,11 @@ impl SettingsApp {
         width: f32,
         start_y: f32,
     ) {
-        let scale = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);
+        let scale = self
+            .window
+            .as_ref()
+            .map(|w| w.scale_factor() as f32)
+            .unwrap_or(1.0);
         let result = hit_test(items, mx, my, start_y, width);
         let mut changed = false;
 
@@ -1426,9 +1427,7 @@ impl SettingsApp {
                         l if l == tr("audio_gate") => {
                             self.config.audio_gate = !self.config.audio_gate;
                         }
-                        l if l == tr("auto_gate") => {
-                            self.config.auto_gate = !self.config.auto_gate
-                        }
+                        l if l == tr("auto_gate") => self.config.auto_gate = !self.config.auto_gate,
                         l if l == tr("mini_controls") => {
                             self.config.mini_controls = !self.config.mini_controls
                         }
@@ -1436,9 +1435,7 @@ impl SettingsApp {
                             self.config.auto_start = !self.config.auto_start;
                             let _ = set_autostart(self.config.auto_start);
                         }
-                        l if l == tr("auto_hide") => {
-                            self.config.auto_hide = !self.config.auto_hide
-                        }
+                        l if l == tr("auto_hide") => self.config.auto_hide = !self.config.auto_hide,
                         l if l == tr("check_updates") => {
                             self.config.check_for_updates = !self.config.check_for_updates
                         }
@@ -1673,7 +1670,11 @@ impl SettingsApp {
         width: f32,
         start_y: f32,
     ) {
-        let scale = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);
+        let scale = self
+            .window
+            .as_ref()
+            .map(|w| w.scale_factor() as f32)
+            .unwrap_or(1.0);
         let result = hit_test(items, mx, my, start_y, width);
         let mut changed = false;
 
@@ -1829,8 +1830,7 @@ impl SettingsApp {
                 let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
                 if my >= row_y
                     && my <= row_y + SIDEBAR_ROW_H
-                    && mx >= SIDEBAR_PAD
-                    && mx <= SIDEBAR_W - SIDEBAR_PAD
+                    && (SIDEBAR_PAD..=SIDEBAR_W - SIDEBAR_PAD).contains(&mx)
                 {
                     return true;
                 }
@@ -1838,10 +1838,14 @@ impl SettingsApp {
             return false;
         }
 
-        let scale = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);
+        let scale = self
+            .window
+            .as_ref()
+            .map(|w| w.scale_factor() as f32)
+            .unwrap_or(1.0);
         let content_w = self.win_w / scale - SIDEBAR_W;
 
-        if self.active_page == 0 && my >= SUB_TAB_START_Y && my <= SUB_TAB_START_Y + SUB_TAB_H {
+        if self.active_page == 0 && (SUB_TAB_START_Y..=SUB_TAB_START_Y + SUB_TAB_H).contains(&my) {
             return true;
         }
 
@@ -1904,12 +1908,10 @@ impl ApplicationHandler for SettingsApp {
     fn window_event(&mut self, _el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => _el.exit(),
-            WindowEvent::ThemeChanged(theme) => {
-                if self.config.settings_theme == "system" {
-                    self.is_light = theme == winit::window::Theme::Light;
-                    if let Some(win) = &self.window {
-                        win.request_redraw();
-                    }
+            WindowEvent::ThemeChanged(theme) if self.config.settings_theme == "system" => {
+                self.is_light = theme == winit::window::Theme::Light;
+                if let Some(win) = &self.window {
+                    win.request_redraw();
                 }
             }
             WindowEvent::Resized(new_size) => {
@@ -1929,24 +1931,13 @@ impl ApplicationHandler for SettingsApp {
                     win.request_redraw();
                 }
             }
-            WindowEvent::KeyboardInput { event, .. } => {
-                if event.state == ElementState::Pressed {
-                    match event.logical_key {
-                        Key::Named(NamedKey::F11) => {}
-                        Key::Named(NamedKey::ArrowLeft) => {
-                            if self.active_page == 0 {
-                                if self.active_sub_page > 0 {
-                                    self.active_sub_page -= 1;
-                                    self.scroll_y = 0.0;
-                                    self.target_scroll_y = 0.0;
-                                    self.scroll_vel_y = 0.0;
-                                    self.mark_items_dirty();
-                                    if let Some(win) = &self.window {
-                                        win.request_redraw();
-                                    }
-                                }
-                            } else if self.active_page > 0 {
-                                self.active_page -= 1;
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                match event.logical_key {
+                    Key::Named(NamedKey::F11) => {}
+                    Key::Named(NamedKey::ArrowLeft) => {
+                        if self.active_page == 0 {
+                            if self.active_sub_page > 0 {
+                                self.active_sub_page -= 1;
                                 self.scroll_y = 0.0;
                                 self.target_scroll_y = 0.0;
                                 self.scroll_vel_y = 0.0;
@@ -1955,36 +1946,49 @@ impl ApplicationHandler for SettingsApp {
                                     win.request_redraw();
                                 }
                             }
-                        }
-                        Key::Named(NamedKey::ArrowRight) => {
-                            if self.active_page == 0 {
-                                if self.active_sub_page < 2 {
-                                    self.active_sub_page += 1;
-                                    self.scroll_y = 0.0;
-                                    self.target_scroll_y = 0.0;
-                                    self.scroll_vel_y = 0.0;
-                                    self.mark_items_dirty();
-                                    if let Some(win) = &self.window {
-                                        win.request_redraw();
-                                    }
-                                }
-                            } else if self.active_page < 2 {
-                                self.active_page += 1;
-                                self.scroll_y = 0.0;
-                                self.target_scroll_y = 0.0;
-                                self.scroll_vel_y = 0.0;
-                                self.mark_items_dirty();
-                                if let Some(win) = &self.window {
-                                    win.request_redraw();
-                                }
+                        } else if self.active_page > 0 {
+                            self.active_page -= 1;
+                            self.scroll_y = 0.0;
+                            self.target_scroll_y = 0.0;
+                            self.scroll_vel_y = 0.0;
+                            self.mark_items_dirty();
+                            if let Some(win) = &self.window {
+                                win.request_redraw();
                             }
                         }
-                        _ => {}
                     }
+                    Key::Named(NamedKey::ArrowRight) => {
+                        if self.active_page == 0 {
+                            if self.active_sub_page < 2 {
+                                self.active_sub_page += 1;
+                                self.scroll_y = 0.0;
+                                self.target_scroll_y = 0.0;
+                                self.scroll_vel_y = 0.0;
+                                self.mark_items_dirty();
+                                if let Some(win) = &self.window {
+                                    win.request_redraw();
+                                }
+                            }
+                        } else if self.active_page < 2 {
+                            self.active_page += 1;
+                            self.scroll_y = 0.0;
+                            self.target_scroll_y = 0.0;
+                            self.scroll_vel_y = 0.0;
+                            self.mark_items_dirty();
+                            if let Some(win) = &self.window {
+                                win.request_redraw();
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let scale = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);
+                let scale = self
+                    .window
+                    .as_ref()
+                    .map(|w| w.scale_factor() as f32)
+                    .unwrap_or(1.0);
                 let new_pos = (position.x as f32 / scale, position.y as f32 / scale);
                 let mouse_moved = (new_pos.0 - self.last_hover_mouse_pos.0).abs() > 0.5
                     || (new_pos.1 - self.last_hover_mouse_pos.1).abs() > 0.5;
@@ -2011,8 +2015,7 @@ impl ApplicationHandler for SettingsApp {
                             let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
                             if my >= row_y
                                 && my <= row_y + SIDEBAR_ROW_H
-                                && mx >= SIDEBAR_PAD
-                                && mx <= SIDEBAR_W - SIDEBAR_PAD
+                                && (SIDEBAR_PAD..=SIDEBAR_W - SIDEBAR_PAD).contains(&mx)
                             {
                                 new_hover = i;
                             }
@@ -2032,13 +2035,16 @@ impl ApplicationHandler for SettingsApp {
                         }
                     }
 
-                    let scale = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);
+                    let scale = self
+                        .window
+                        .as_ref()
+                        .map(|w| w.scale_factor() as f32)
+                        .unwrap_or(1.0);
                     let content_w = self.win_w / scale - SIDEBAR_W;
 
                     if self.active_page == 0
                         && mx >= SIDEBAR_W
-                        && my >= SUB_TAB_START_Y
-                        && my <= SUB_TAB_START_Y + SUB_TAB_H
+                        && (SUB_TAB_START_Y..=SUB_TAB_START_Y + SUB_TAB_H).contains(&my)
                     {
                         let tab_count = 3i32;
                         let tab_w = content_w / tab_count as f32;
@@ -2244,11 +2250,11 @@ pub fn bring_settings_to_front() {
     // SetForegroundWindow operate on the found valid hwnd with standard parameters.
     unsafe {
         let hwnd = FindWindowW(None, w!("Settings"));
-        if let Ok(hwnd) = hwnd {
-            if !hwnd.is_invalid() {
-                let _ = ShowWindow(hwnd, SW_RESTORE);
-                let _ = SetForegroundWindow(hwnd);
-            }
+        if let Ok(hwnd) = hwnd
+            && !hwnd.is_invalid()
+        {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            let _ = SetForegroundWindow(hwnd);
         }
     }
 }

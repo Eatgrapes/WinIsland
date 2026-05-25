@@ -66,7 +66,8 @@ impl MediaInfo {
         }
 
         let raw_pos = if self.is_playing {
-            self.position_ms.saturating_add(self.last_update.elapsed().as_millis() as u64)
+            self.position_ms
+                .saturating_add(self.last_update.elapsed().as_millis() as u64)
         } else {
             self.position_ms
         };

@@ -4,8 +4,8 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Dwm::{DWMWINDOWATTRIBUTE, DwmSetWindowAttribute};
 
 thread_local! {
-    static DYNAMIC_BG_CACHE: RefCell<Option<(String, Color)>> = RefCell::new(None);
-    static LAST_VALID_COLOR: RefCell<Option<Color>> = RefCell::new(None);
+    static DYNAMIC_BG_CACHE: RefCell<Option<(String, Color)>> = const { RefCell::new(None) };
+    static LAST_VALID_COLOR: RefCell<Option<Color>> = const { RefCell::new(None) };
 }
 
 pub fn try_enable_mica(hwnd: HWND) -> bool {
@@ -36,10 +36,10 @@ pub fn try_enable_mica(hwnd: HWND) -> bool {
 pub fn get_dynamic_bg_color(img: &Image, cache_key: &str) -> Color {
     let cached = DYNAMIC_BG_CACHE.with(|cell| {
         let cache = cell.borrow();
-        if let Some((key, color)) = cache.as_ref() {
-            if key == cache_key {
-                return Some(*color);
-            }
+        if let Some((key, color)) = cache.as_ref()
+            && key == cache_key
+        {
+            return Some(*color);
         }
         None
     });

@@ -103,6 +103,7 @@ impl CurrentLineScrollState {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_widget_page(
     canvas: &Canvas,
     ox: f32,
@@ -232,8 +233,7 @@ pub fn draw_widget_page(
     let extra_lines = 3;
 
     for i in 0..(visible_count + extra_lines) {
-        let idx =
-            (current_idx as isize - half as isize - extra_lines as isize / 2 + i as isize) as isize;
+        let idx = current_idx as isize - half as isize - extra_lines as isize / 2 + i as isize;
         if idx < 0 || idx >= total_lines as isize {
             continue;
         }

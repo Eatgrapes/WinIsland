@@ -126,10 +126,11 @@ pub fn draw_island(
     let mut buffer = surface.buffer_mut().unwrap();
     let mut sk_surface = SK_SURFACE.with(|cell| {
         let mut opt = cell.borrow_mut();
-        if let Some(ref s) = *opt {
-            if s.width() == os_w as i32 && s.height() == os_h as i32 {
-                return s.clone();
-            }
+        if let Some(ref s) = *opt
+            && s.width() == os_w as i32
+            && s.height() == os_h as i32
+        {
+            return s.clone();
         }
         let new_surface =
             surfaces::raster_n32_premul(ISize::new(os_w as i32, os_h as i32)).unwrap();
@@ -607,13 +608,14 @@ pub fn draw_island(
         None,
     );
     let dst_row_bytes = (os_w * 4) as usize;
-    let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut *buffer);
+    let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut buffer);
     let _ = sk_surface.read_pixels(&info, u8_buffer, dst_row_bytes, (0, 0));
     buffer.present().unwrap();
 
     widget_animating
 }
 
+#[allow(clippy::type_complexity)]
 pub fn get_mini_control_rects(
     offset_x: f32,
     offset_y: f32,
