@@ -1640,6 +1640,7 @@ impl SettingsApp {
                     self.config.cover_rotate,
                     self.config.audio_gate,
                     self.config.auto_gate,
+                    self.config.mini_controls,
                     self.config.auto_start,
                     self.config.auto_hide,
                     self.config.check_for_updates,

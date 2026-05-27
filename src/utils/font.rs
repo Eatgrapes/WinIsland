@@ -218,7 +218,12 @@ impl FontManager {
     }
 
     pub fn measure_text_cached(&self, text: &str, size: f32, style: FontStyle) -> f32 {
-        let cache_key = format!("measure\0{}\0{:?}\0{}", text, style, (size * 100.0).round() as i32);
+        let cache_key = format!(
+            "measure\0{}\0{:?}\0{}",
+            text,
+            style,
+            (size * 100.0).round() as i32
+        );
         TEXT_CACHE.with(|cache| {
             let mut cache_mut = cache.borrow_mut();
             if cache_mut.len() > 500 {
