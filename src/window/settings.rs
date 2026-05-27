@@ -2240,6 +2240,18 @@ impl ApplicationHandler for SettingsApp {
     }
 }
 
+pub fn bring_settings_to_front() {
+    unsafe {
+        let hwnd = FindWindowW(None, w!("WinIsland Settings"));
+        if let Ok(hwnd) = hwnd
+            && !hwnd.is_invalid()
+        {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            let _ = SetForegroundWindow(hwnd);
+        }
+    }
+}
+
 pub fn run_settings(config: AppConfig) {
     let el = EventLoop::new().unwrap();
     let mut app = SettingsApp::new(config);

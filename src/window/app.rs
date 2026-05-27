@@ -21,6 +21,7 @@ use crate::utils::mouse::{
 use crate::utils::physics::Spring;
 use crate::window::tray::{TrayAction, TrayManager};
 use softbuffer::{Context, Surface};
+use std::cell::RefCell;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -90,6 +91,7 @@ pub struct App {
     touch_id: Option<u64>,
     touch_pos: PhysicalPosition<f64>,
     plugin_mgr: PluginManager,
+    settings_process: RefCell<Option<std::process::Child>>,
 }
 
 impl Default for App {
@@ -149,6 +151,7 @@ impl Default for App {
             touch_id: None,
             touch_pos: PhysicalPosition::new(0.0, 0.0),
             plugin_mgr: PluginManager::default(),
+            settings_process: RefCell::new(None),
         }
     }
 }
@@ -903,6 +906,9 @@ impl ApplicationHandler for App {
                         event_loop.exit();
                     }
                     Some(TrayAction::Exit) => {
+                        if let Some(mut settings) = self.settings_process.borrow_mut().take() {
+                            let _ = settings.kill();
+                        }
                         event_loop.exit();
                     }
                     None => (),
