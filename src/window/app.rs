@@ -23,6 +23,7 @@ use crate::utils::mouse::{
 use crate::utils::physics::Spring;
 use crate::window::tray::{TrayAction, TrayManager};
 use softbuffer::{Context, Surface};
+use std::cell::RefCell;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -91,6 +92,7 @@ pub struct App {
     touch_id: Option<u64>,
     touch_pos: PhysicalPosition<f64>,
     plugin_mgr: PluginManager,
+    settings_process: RefCell<Option<std::process::Child>>,
 }
 
 impl Default for App {
@@ -150,6 +152,7 @@ impl Default for App {
             touch_id: None,
             touch_pos: PhysicalPosition::new(0.0, 0.0),
             plugin_mgr: PluginManager::default(),
+            settings_process: RefCell::new(None),
         }
     }
 }
@@ -395,9 +398,7 @@ impl App {
                     let gear_y = island_y + h - 28.0 * scale;
                     let dist_sq = (rel_x as f64 - gear_x).powi(2) + (rel_y as f64 - gear_y).powi(2);
                     if dist_sq <= (20.0 * scale).powi(2) {
-                        let _ = std::process::Command::new(std::env::current_exe().unwrap())
-                            .arg("--settings")
-                            .spawn();
+                        self.open_settings();
                         return;
                     }
 
@@ -519,6 +520,30 @@ impl App {
 
         if let Err(e) = notifier.Show(&toast) {
             log::error!("Toast Show failed: {:?}", e);
+        }
+    }
+
+    fn open_settings(&self) {
+        let mut proc = self.settings_process.borrow_mut();
+        if let Some(ref mut child) = *proc {
+            match child.try_wait() {
+                Ok(Some(_)) => {
+                    *proc = None;
+                }
+                Ok(None) => {
+                    crate::window::settings::bring_settings_to_front();
+                    return;
+                }
+                Err(_) => {
+                    *proc = None;
+                }
+            }
+        }
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--settings")
+            .spawn();
+        if let Ok(child) = result {
+            *proc = Some(child);
         }
     }
 
@@ -769,11 +794,12 @@ impl ApplicationHandler for App {
                         tray.update_item_text(self.visible);
                     }
                     Some(TrayAction::OpenSettings) => {
-                        let _ = std::process::Command::new(std::env::current_exe().unwrap())
-                            .arg("--settings")
-                            .spawn();
+                        self.open_settings();
                     }
                     Some(TrayAction::Exit) => {
+                        if let Some(mut settings) = self.settings_process.borrow_mut().take() {
+                            let _ = settings.kill();
+                        }
                         event_loop.exit();
                     }
                     None => (),

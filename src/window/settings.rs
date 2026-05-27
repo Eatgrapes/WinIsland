@@ -13,6 +13,9 @@ use softbuffer::{Context, Surface};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use windows::Win32::System::Threading::{MUTEX_ALL_ACCESS, OpenMutexW};
+use windows::Win32::UI::WindowsAndMessaging::{
+    FindWindowW, SW_RESTORE, SetForegroundWindow, ShowWindow,
+};
 use windows::core::w;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -1352,7 +1355,7 @@ impl SettingsApp {
 impl ApplicationHandler for SettingsApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let attrs = Window::default_attributes()
-            .with_title("Settings")
+            .with_title("WinIsland Settings")
             .with_inner_size(LogicalSize::new(WIN_W as f64, WIN_H as f64))
             .with_resizable(false)
             .with_enabled_buttons(WindowButtons::CLOSE | WindowButtons::MINIMIZE)
@@ -1577,6 +1580,18 @@ impl ApplicationHandler for SettingsApp {
             if elapsed < target {
                 std::thread::sleep(target - elapsed);
             }
+        }
+    }
+}
+
+pub fn bring_settings_to_front() {
+    unsafe {
+        let hwnd = FindWindowW(None, w!("WinIsland Settings"));
+        if let Ok(hwnd) = hwnd
+            && !hwnd.is_invalid()
+        {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            let _ = SetForegroundWindow(hwnd);
         }
     }
 }
