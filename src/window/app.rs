@@ -264,7 +264,7 @@ impl App {
                 }
             }
         }
-        let target_name = win32_names.get(monitor_index as usize - 1);
+        let target_name = win32_names.get(monitor_index as usize);
         let monitors: Vec<_> = window.available_monitors().collect();
         if let Some(name) = target_name {
             for mon in &monitors {
@@ -277,8 +277,8 @@ impl App {
             }
         }
         let idx = monitor_index as usize;
-        if idx <= monitors.len() {
-            monitors.get(idx - 1).cloned()
+        if idx < monitors.len() {
+            monitors.get(idx).cloned()
         } else {
             window
                 .primary_monitor()
