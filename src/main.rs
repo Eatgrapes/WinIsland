@@ -20,6 +20,13 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
     if args.iter().any(|arg| arg == "--settings") {
+        unsafe {
+            let _ = CreateMutexW(None, true, w!("Local\\WinIsland_Settings_Mutex"));
+            if GetLastError() == ERROR_ALREADY_EXISTS {
+                crate::window::settings::bring_settings_to_front();
+                return;
+            }
+        }
         window::settings::run_settings(config);
     } else {
         unsafe {
