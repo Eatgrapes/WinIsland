@@ -81,9 +81,21 @@ pub fn set_progress_hover(active: bool) {
     });
 }
 
-pub fn get_pause_btn_rect(ox: f32, oy: f32, w: f32, _h: f32, scale: f32) -> (f32, f32, f32, f32) {
-    let img_size = 72.0 * scale;
-    let img_y = oy + 24.0 * scale;
+pub fn get_pause_btn_rect(
+    ox: f32,
+    oy: f32,
+    w: f32,
+    _h: f32,
+    scale: f32,
+    cover_shape: &str,
+) -> (f32, f32, f32, f32) {
+    let (img_size, img_y) = if cover_shape == "circle" {
+        let s = 72.0 * scale * 1.08;
+        let y = oy + 24.0 * scale - (s - 72.0 * scale) / 2.0;
+        (s, y)
+    } else {
+        (72.0 * scale, oy + 24.0 * scale)
+    };
     let bar_y = img_y + img_size + 18.0 * scale;
     let btn_cy = bar_y + 42.0 * scale;
     let hit = 40.0 * scale;
@@ -91,9 +103,21 @@ pub fn get_pause_btn_rect(ox: f32, oy: f32, w: f32, _h: f32, scale: f32) -> (f32
     (btn_cx - hit / 2.0, btn_cy - hit / 2.0, hit, hit)
 }
 
-pub fn get_prev_btn_rect(ox: f32, oy: f32, w: f32, _h: f32, scale: f32) -> (f32, f32, f32, f32) {
-    let img_size = 72.0 * scale;
-    let img_y = oy + 24.0 * scale;
+pub fn get_prev_btn_rect(
+    ox: f32,
+    oy: f32,
+    w: f32,
+    _h: f32,
+    scale: f32,
+    cover_shape: &str,
+) -> (f32, f32, f32, f32) {
+    let (img_size, img_y) = if cover_shape == "circle" {
+        let s = 72.0 * scale * 1.08;
+        let y = oy + 24.0 * scale - (s - 72.0 * scale) / 2.0;
+        (s, y)
+    } else {
+        (72.0 * scale, oy + 24.0 * scale)
+    };
     let bar_y = img_y + img_size + 18.0 * scale;
     let btn_cy = bar_y + 42.0 * scale;
     let hit = 36.0 * scale;
@@ -101,9 +125,21 @@ pub fn get_prev_btn_rect(ox: f32, oy: f32, w: f32, _h: f32, scale: f32) -> (f32,
     (btn_cx - hit / 2.0, btn_cy - hit / 2.0, hit, hit)
 }
 
-pub fn get_next_btn_rect(ox: f32, oy: f32, w: f32, _h: f32, scale: f32) -> (f32, f32, f32, f32) {
-    let img_size = 72.0 * scale;
-    let img_y = oy + 24.0 * scale;
+pub fn get_next_btn_rect(
+    ox: f32,
+    oy: f32,
+    w: f32,
+    _h: f32,
+    scale: f32,
+    cover_shape: &str,
+) -> (f32, f32, f32, f32) {
+    let (img_size, img_y) = if cover_shape == "circle" {
+        let s = 72.0 * scale * 1.08;
+        let y = oy + 24.0 * scale - (s - 72.0 * scale) / 2.0;
+        (s, y)
+    } else {
+        (72.0 * scale, oy + 24.0 * scale)
+    };
     let bar_y = img_y + img_size + 18.0 * scale;
     let btn_cy = bar_y + 42.0 * scale;
     let hit = 36.0 * scale;
@@ -118,13 +154,19 @@ pub fn get_progress_bar_rect(
     _media: &MediaInfo,
     music_active: bool,
     scale: f32,
+    cover_shape: &str,
 ) -> Option<(f32, f32, f32, f32)> {
     if !music_active {
         return None;
     }
-    let img_size = 72.0 * scale;
-    let img_x = ox + 28.0 * scale;
-    let img_y = oy + 24.0 * scale;
+    let (img_size, img_x, img_y) = if cover_shape == "circle" {
+        let s = 72.0 * scale * 1.08;
+        let x = ox + 28.0 * scale - (s - 72.0 * scale) / 2.0;
+        let y = oy + 24.0 * scale - (s - 72.0 * scale) / 2.0;
+        (s, x, y)
+    } else {
+        (72.0 * scale, ox + 28.0 * scale, oy + 24.0 * scale)
+    };
     let bar_y = img_y + img_size + 18.0 * scale;
     let time_w = 36.0 * scale;
     let bar_full_left = img_x;

@@ -61,7 +61,7 @@ impl CurrentLineScrollState {
         }
     }
 
-    fn update(&mut self, text: &str, overflow: f32, dt: f32) {
+    fn update(&mut self, text: &str, overflow: f32, dt: f32, scale: f32) {
         let hash = Self::hash_text(text);
         if hash != self.text_hash {
             self.text_hash = hash;
@@ -80,7 +80,7 @@ impl CurrentLineScrollState {
             return;
         }
 
-        let scroll_speed = 0.6 * dt;
+        let scroll_speed = 0.6 * scale * dt;
         self.offset += scroll_speed * self.direction as f32;
 
         if self.offset >= overflow {
@@ -220,7 +220,7 @@ pub fn draw_widget_page(
 
     let current_scroll_offset = CURRENT_LINE_SCROLL.with(|cell| {
         let mut state = cell.borrow_mut();
-        state.update(current_line_text, current_overflow, dt);
+        state.update(current_line_text, current_overflow, dt, scale);
         state.offset
     });
 

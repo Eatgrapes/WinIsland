@@ -434,6 +434,7 @@ impl App {
                         w as f32,
                         h as f32,
                         self.config.global_scale,
+                        &self.config.expanded_cover_shape,
                     );
                     let cx = rel_x as f32 - (page_shift as f32);
                     let cy = rel_y as f32;
@@ -449,6 +450,7 @@ impl App {
                         w as f32,
                         h as f32,
                         self.config.global_scale,
+                        &self.config.expanded_cover_shape,
                     );
                     if music_on && cx >= px && cx <= px + pw && cy >= py && cy <= py + ph {
                         trigger_cover_flip();
@@ -463,6 +465,7 @@ impl App {
                         w as f32,
                         h as f32,
                         self.config.global_scale,
+                        &self.config.expanded_cover_shape,
                     );
                     if music_on && cx >= nx && cx <= nx + nw && cy >= ny && cy <= ny + nh {
                         trigger_cover_flip();
@@ -478,6 +481,7 @@ impl App {
                         &media,
                         music_on,
                         self.config.global_scale,
+                        &self.config.expanded_cover_shape,
                     ) && cx >= bar_left
                         && cx <= bar_right
                         && cy >= bar_top
@@ -540,7 +544,7 @@ impl App {
                     let h = self.spring_h.value;
                     let (prev_rect, play_rect, next_rect) = get_mini_control_rects(
                         offset_x as f32,
-                        island_y as f32,
+                        current_island_y as f32,
                         w,
                         h,
                         self.config.global_scale,
@@ -1142,6 +1146,7 @@ impl ApplicationHandler for App {
                     &media,
                     music_active,
                     self.config.global_scale,
+                    &self.config.expanded_cover_shape,
                 ) {
                     let page_shift = self.spring_view.value * self.spring_w.value;
                     let cx = rel_x as f32 - page_shift;
