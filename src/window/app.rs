@@ -933,6 +933,17 @@ impl ApplicationHandler for App {
 
                     if old_style != self.config.island_style {
                         crate::utils::backdrop::clear_dynamic_bg_cache();
+                        if self.config.island_style == "mica"
+                            && let Some(window) = &self.window
+                            && let Ok(handle) = window.window_handle()
+                        {
+                            let raw = handle.as_raw();
+                            if let RawWindowHandle::Win32(win32_handle) = raw {
+                                // SAFETY: hwnd is valid from window_handle()
+                                let hwnd = HWND(win32_handle.hwnd.get() as _);
+                                try_enable_mica(hwnd);
+                            }
+                        }
                     }
 
                     if old_mini_shape != self.config.mini_cover_shape
