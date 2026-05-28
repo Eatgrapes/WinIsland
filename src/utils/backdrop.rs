@@ -11,13 +11,23 @@ thread_local! {
 }
 
 pub fn disable_mica(hwnd: HWND) {
-    // SAFETY: Resets DWM backdrop to NONE to clean up Mica effect when
+    // SAFETY: Resets both DWM backdrop attributes to clean up Mica effect when
     // switching to a non-mica island style. hwnd is valid from winit.
     unsafe {
         let value: i32 = 1; // DWMSBT_NONE = 1
         let _ = DwmSetWindowAttribute(
             hwnd,
             DWMWA_SYSTEMBACKDROP_TYPE,
+            &value as *const _ as *const _,
+            std::mem::size_of::<i32>() as u32,
+        );
+        // Also reset the fallback attribute 1029 (DWMWA_MICA) used by
+        // try_enable_mica on pre-22H2 Windows 11 builds.
+        let value: i32 = 0;
+        let attr = DWMWINDOWATTRIBUTE(1029);
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            attr,
             &value as *const _ as *const _,
             std::mem::size_of::<i32>() as u32,
         );
