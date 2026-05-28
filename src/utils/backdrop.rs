@@ -1,8 +1,9 @@
 use image::GenericImageView;
 use skia_safe::{
-    AlphaType, Color, ColorType, Data, ISize, Image, ImageInfo, Paint, image_filters, images,
-    surfaces,
+    AlphaType, Color, ColorType, Data, FilterMode, ISize, Image, ImageInfo, MipmapMode, Paint,
+    Rect, SamplingOptions, image_filters, images, surfaces,
 };
+use skia_safe::canvas::SrcRectConstraint;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -74,8 +75,13 @@ pub fn prewarm_mica_cache(monitor_x: i32, monitor_y: i32, monitor_w: u32, monito
 
     std::thread::spawn(move || {
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let blurred =
-                load_and_blur_wallpaper(&wallpaper_path, monitor_x, monitor_y, monitor_w, monitor_h);
+            let blurred = load_and_blur_wallpaper(
+                &wallpaper_path,
+                monitor_x,
+                monitor_y,
+                monitor_w,
+                monitor_h,
+            );
             if let Some(img) = blurred {
                 if let Ok(mut cache) = MICA_CACHE.lock() {
                     *cache = Some(MicaCache {
@@ -136,9 +142,29 @@ pub fn get_mica_background(
     let crop_x = (screen_x - monitor_x).max(0) as f32;
     let crop_y = (screen_y - monitor_y).max(0) as f32;
 
+    let bm_w = blurred.width() as f32;
+    let bm_h = blurred.height() as f32;
+
+    let src_x = (crop_x / monitor_w as f32 * bm_w).max(0.0);
+    let src_y = (crop_y / monitor_h as f32 * bm_h).max(0.0);
+    let src_w = (w as f32 / monitor_w as f32 * bm_w).max(1.0);
+    let src_h = (h as f32 / monitor_h as f32 * bm_h).max(1.0);
+
+    let src_rect = Rect::from_xywh(src_x, src_y, src_w, src_h);
+    let dst_rect = Rect::from_xywh(0.0, 0.0, w as f32, h as f32);
+
     let mut final_surface = surfaces::raster_n32_premul(ISize::new(w as i32, h as i32))?;
     let final_canvas = final_surface.canvas();
-    final_canvas.draw_image(&blurred, (-crop_x, -crop_y), None);
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
+    final_canvas.draw_image_rect_with_sampling_options(
+        &blurred,
+        Some((&src_rect, SrcRectConstraint::Fast)),
+        &dst_rect,
+        sampling,
+        &paint,
+    );
 
     Some(final_surface.image_snapshot())
 }
