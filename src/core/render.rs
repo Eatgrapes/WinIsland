@@ -6,12 +6,12 @@ use crate::ui::expanded::music_view::{
     get_cached_media_image, get_cached_media_image_with_key, get_media_palette,
 };
 use crate::ui::expanded::widget_view::draw_widget_page;
-use crate::utils::backdrop::{get_dynamic_bg_color, get_last_valid_color};
+use crate::utils::backdrop::{get_dynamic_bg_color, get_last_valid_color, get_mica_background};
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::glass::get_glass_background;
 use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
-    ClipOp, Color, FilterMode, ISize, MipmapMode, Paint, RRect, Rect, SamplingOptions,
+    BlendMode, ClipOp, Color, FilterMode, ISize, MipmapMode, Paint, RRect, Rect, SamplingOptions,
     Surface as SkSurface, image_filters, surfaces,
 };
 use softbuffer::Surface;
@@ -54,6 +54,10 @@ pub struct LyricsParams<'a> {
 pub struct WindowParams {
     pub win_x: i32,
     pub win_y: i32,
+    pub monitor_x: i32,
+    pub monitor_y: i32,
+    pub monitor_w: u32,
+    pub monitor_h: u32,
 }
 
 pub struct StyleParams<'a> {
@@ -112,7 +116,14 @@ pub fn draw_island(
         lyric_transition,
         lyric_scroll_offset,
     } = lyrics;
-    let WindowParams { win_x, win_y } = window;
+    let WindowParams {
+        win_x,
+        win_y,
+        monitor_x,
+        monitor_y,
+        monitor_w,
+        monitor_h,
+    } = window;
     let StyleParams {
         island_style,
         use_blur,
@@ -182,11 +193,12 @@ pub fn draw_island(
     let mut bg_color = Color::BLACK;
     let mut use_glass = false;
     let mut use_dynamic = false;
+    let mut use_mica = false;
 
     if island_style == "glass" {
         use_glass = true;
     } else if island_style == "mica" {
-        bg_color = Color::from_argb(200, 32, 32, 32);
+        use_mica = true;
     } else if island_style == "dynamic" {
         use_dynamic = true;
     } else {
@@ -212,6 +224,41 @@ pub fn draw_island(
         overlay.set_color(Color::from_argb(120, 0, 0, 0));
         overlay.set_anti_alias(true);
         canvas.draw_rrect(rrect, &overlay);
+    } else if use_mica {
+        let screen_x = win_x + offset_x as i32;
+        let screen_y = win_y + offset_y as i32;
+        if let Some(bg_img) = get_mica_background(
+            screen_x,
+            screen_y,
+            current_w as u32,
+            current_h as u32,
+            monitor_x,
+            monitor_y,
+            monitor_w,
+            monitor_h,
+        ) {
+            let mut paint = Paint::default();
+            paint.set_anti_alias(true);
+            let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
+            canvas.draw_image_rect_with_sampling_options(&bg_img, None, rect, sampling, &paint);
+
+            let mut tint_paint = Paint::default();
+            tint_paint.set_blend_mode(BlendMode::Luminosity);
+            tint_paint.set_alpha_f(0.8);
+            tint_paint.set_anti_alias(true);
+
+            canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&tint_paint));
+            let mut fill = Paint::default();
+            fill.set_color(Color::from_rgb(32, 32, 32));
+            fill.set_anti_alias(true);
+            canvas.draw_rrect(rrect, &fill);
+            canvas.restore();
+        } else {
+            let mut bg_paint = Paint::default();
+            bg_paint.set_color(Color::from_argb(205, 32, 32, 32));
+            bg_paint.set_anti_alias(true);
+            canvas.draw_rrect(rrect, &bg_paint);
+        }
     } else if use_dynamic {
         if let Some((img, cache_key)) = get_cached_media_image_with_key(media) {
             bg_color = get_dynamic_bg_color(&img, &cache_key);

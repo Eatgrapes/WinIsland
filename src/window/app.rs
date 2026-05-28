@@ -9,7 +9,7 @@ use crate::ui::expanded::music_view::{
     set_progress_dragging, set_progress_hover, trigger_cover_flip, trigger_next_click,
     trigger_pause_click, trigger_prev_click,
 };
-use crate::utils::backdrop::{disable_mica, try_enable_mica};
+use crate::utils::backdrop::{clear_mica_cache, disable_mica, prewarm_mica_cache};
 use crate::utils::blur::calculate_blur_sigmas;
 use crate::utils::color::get_island_border_weights;
 use crate::utils::glass::set_glass_hwnd;
@@ -668,9 +668,6 @@ impl ApplicationHandler for App {
                     );
                 }
                 set_glass_hwnd(win32_handle.hwnd.get());
-                if self.config.island_style == "mica" {
-                    try_enable_mica(hwnd);
-                }
             }
 
             self.window = Some(window.clone());
@@ -695,6 +692,9 @@ impl ApplicationHandler for App {
                 self.last_mon_pos = (mon_pos.x, mon_pos.y);
                 (self.win_x, self.win_y) = self.compute_window_position(mon_pos, mon_size);
                 window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+                if self.config.island_style == "mica" {
+                    prewarm_mica_cache(mon_pos.x, mon_pos.y, mon_size.width, mon_size.height);
+                }
             }
             let context = Context::new(window.clone()).unwrap();
             let mut surface = Surface::new(&context, window.clone()).unwrap();
@@ -845,6 +845,10 @@ impl ApplicationHandler for App {
                                 window: crate::core::render::WindowParams {
                                     win_x: self.win_x,
                                     win_y: self.win_y,
+                                    monitor_x: self.last_mon_pos.0,
+                                    monitor_y: self.last_mon_pos.1,
+                                    monitor_w: self.last_mon_size.0,
+                                    monitor_h: self.last_mon_size.1,
                                 },
                                 style: crate::core::render::StyleParams {
                                     island_style: &self.config.island_style,
@@ -940,17 +944,8 @@ impl ApplicationHandler for App {
 
                     if old_style != self.config.island_style {
                         crate::utils::backdrop::clear_dynamic_bg_cache();
-                        if self.config.island_style == "mica"
-                            && let Some(window) = &self.window
-                            && let Ok(handle) = window.window_handle()
-                        {
-                            let raw = handle.as_raw();
-                            if let RawWindowHandle::Win32(win32_handle) = raw {
-                                // SAFETY: hwnd is valid from window_handle()
-                                let hwnd = HWND(win32_handle.hwnd.get() as _);
-                                try_enable_mica(hwnd);
-                            }
-                        } else if old_style == "mica"
+                        clear_mica_cache();
+                        if old_style == "mica"
                             && let Some(window) = &self.window
                             && let Ok(handle) = window.window_handle()
                         {
