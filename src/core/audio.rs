@@ -54,9 +54,8 @@ impl AudioProcessor {
         let gate_clone = self.gate.clone();
         tokio::task::spawn_blocking(move || {
             // SAFETY: CoInitializeEx initializes COM for this thread. COINIT_MULTITHREADED
-            // is safe as we don't use single-threaded COM apartments. Return value ignored
-            // as S_FALSE (already initialized) is acceptable.
-            let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+            // is safe as we don't use single-threaded COM apartments.
+            let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
             // SAFETY: CoCreateInstance creates COM objects for audio enumeration.
             // All COM calls operate on locally created objects with no shared mutable state.
             let session_manager: Option<IAudioSessionManager2> = unsafe {
@@ -97,9 +96,13 @@ impl AudioProcessor {
                 gate_clone.store(gate_val.to_bits(), Ordering::Relaxed);
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
-            // SAFETY: Clean up COM before thread exits to avoid leaking COM apartment.
-            unsafe {
-                CoUninitialize();
+            // Drop COM objects while COM is still initialized, then clean up.
+            drop(session_manager);
+            if hr.is_ok() {
+                // SAFETY: COM was initialized above, and all COM objects are dropped.
+                unsafe {
+                    CoUninitialize();
+                }
             }
         });
     }
@@ -146,8 +149,8 @@ impl AudioProcessor {
             };
             if let Ok(s) = stream {
                 // SAFETY: CoInitializeEx initializes COM for this thread. COINIT_MULTITHREADED
-                // is safe as we don't use single-threaded COM apartments. Return value ignored.
-                let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+                // is safe as we don't use single-threaded COM apartments.
+                let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
                 // SAFETY: CoCreateInstance and subsequent COM calls create audio session objects.
                 // All objects are locally scoped and valid for the lifetime of this thread.
                 let _session = unsafe {
@@ -159,8 +162,10 @@ impl AudioProcessor {
                                 while !cancel.is_cancelled() {
                                     std::thread::sleep(std::time::Duration::from_millis(100));
                                 }
-                                // SAFETY: Clean up COM before thread exits.
-                                CoUninitialize();
+                                if hr.is_ok() {
+                                    // SAFETY: COM was initialized above, no COM objects to drop.
+                                    CoUninitialize();
+                                }
                                 return;
                             }
                         };
@@ -181,14 +186,15 @@ impl AudioProcessor {
                 while !cancel.is_cancelled() {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                 }
-                // SAFETY: Clean up COM before thread exits.
-                unsafe {
-                    CoUninitialize();
+                // Drop COM objects while COM is still initialized, then clean up.
+                drop(_session);
+                if hr.is_ok() {
+                    // SAFETY: COM was initialized above, and all COM objects are dropped.
+                    unsafe {
+                        CoUninitialize();
+                    }
                 }
                 // TODO: Re-enable auto-mute cleanup
-                // if let Some(ref ses) = session {
-                //     let _ = unsafe { ses.SetMute(false, std::ptr::null()) };
-                // }
             }
         });
     }
