@@ -9,7 +9,7 @@ use crate::ui::expanded::music_view::{
     set_progress_dragging, set_progress_hover, trigger_cover_flip, trigger_next_click,
     trigger_pause_click, trigger_prev_click,
 };
-use crate::utils::backdrop::try_enable_mica;
+use crate::utils::backdrop::{disable_mica, try_enable_mica};
 use crate::utils::blur::calculate_blur_sigmas;
 use crate::utils::color::get_island_border_weights;
 use crate::utils::glass::set_glass_hwnd;
@@ -63,7 +63,6 @@ pub struct App {
     frame_count: u64,
     last_media_title: String,
     last_media_playing: bool,
-    last_playing_time: Instant,
     current_lyric_text: String,
     old_lyric_text: String,
     lyric_transition: f32,
@@ -122,7 +121,6 @@ impl Default for App {
             frame_count: 0,
             last_media_title: String::new(),
             last_media_playing: false,
-            last_playing_time: Instant::now(),
             current_lyric_text: String::new(),
             old_lyric_text: String::new(),
             lyric_transition: 1.0,
@@ -952,6 +950,15 @@ impl ApplicationHandler for App {
                                 let hwnd = HWND(win32_handle.hwnd.get() as _);
                                 try_enable_mica(hwnd);
                             }
+                        } else if old_style == "mica"
+                            && let Some(window) = &self.window
+                            && let Ok(handle) = window.window_handle()
+                        {
+                            let raw = handle.as_raw();
+                            if let RawWindowHandle::Win32(win32_handle) = raw {
+                                let hwnd = HWND(win32_handle.hwnd.get() as _);
+                                disable_mica(hwnd);
+                            }
                         }
                     }
 
@@ -1079,9 +1086,6 @@ impl ApplicationHandler for App {
             let media = self.smtc.get_info();
             if self.config.smtc_enabled && !media.title.is_empty() {
                 self.last_media_playing = media.is_playing;
-                if self.last_media_playing {
-                    self.last_playing_time = Instant::now();
-                }
                 music_active = true;
                 if media.title != self.last_media_title {
                     self.last_media_title = media.title.clone();

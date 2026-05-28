@@ -16,6 +16,7 @@ use windows::core::w;
 use winit::event_loop::EventLoop;
 
 fn main() {
+    let _ = env_logger::try_init();
     let config = core::persistence::load_config();
     init_i18n(&config.language);
 

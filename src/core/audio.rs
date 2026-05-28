@@ -10,7 +10,7 @@ use windows::Win32::Media::Audio::{
     IMMDeviceEnumerator, MMDeviceEnumerator, eConsole, eRender,
 };
 use windows::Win32::System::Com::{
-    CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
+    CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
 };
 use windows::core::Interface;
 
@@ -97,6 +97,10 @@ impl AudioProcessor {
                 gate_clone.store(gate_val.to_bits(), Ordering::Relaxed);
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
+            // SAFETY: Clean up COM before thread exits to avoid leaking COM apartment.
+            unsafe {
+                CoUninitialize();
+            }
         });
     }
 
@@ -155,6 +159,8 @@ impl AudioProcessor {
                                 while !cancel.is_cancelled() {
                                     std::thread::sleep(std::time::Duration::from_millis(100));
                                 }
+                                // SAFETY: Clean up COM before thread exits.
+                                CoUninitialize();
                                 return;
                             }
                         };
@@ -174,6 +180,10 @@ impl AudioProcessor {
                 let _ = s.play();
                 while !cancel.is_cancelled() {
                     std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                // SAFETY: Clean up COM before thread exits.
+                unsafe {
+                    CoUninitialize();
                 }
                 // TODO: Re-enable auto-mute cleanup
                 // if let Some(ref ses) = session {
@@ -237,6 +247,11 @@ fn update_spectrum(
     let mut indata = pcm_buffer[..1024].to_vec();
     if let Err(e) = fft.process(&mut indata, output) {
         log::warn!("FFT processing failed: {:?}", e);
+        // Feed the floor value into adaptive_max to prevent slow baseline decay
+        // when FFT frames are intermittently dropped.
+        for v in adaptive_max.iter_mut() {
+            *v = *v * 0.995 + 0.01 * 0.005;
+        }
         pcm_buffer.clear();
         return;
     }

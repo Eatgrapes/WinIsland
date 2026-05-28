@@ -635,6 +635,8 @@ fn fetch_properties(
                     let fetched_title = props.Title()?.to_string();
                     let fetched_artist = props.Artist()?.to_string();
                     if fetched_title != title_clone || fetched_artist != artist_clone {
+                        // HRESULT(-2) is a sentinel value to signal stale media properties,
+                        // not a standard COM error code. The caller retries on this error.
                         return Err(windows::core::Error::new(
                             windows::core::HRESULT(-2),
                             "Stale properties",

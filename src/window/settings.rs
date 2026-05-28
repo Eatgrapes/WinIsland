@@ -180,7 +180,6 @@ pub struct SettingsApp {
     cached_row_tops: Vec<f32>,
     win_w: f32,
     win_h: f32,
-    max_scroll: f32,
 }
 
 impl SettingsApp {
@@ -229,7 +228,6 @@ impl SettingsApp {
             cached_row_tops: Vec::new(),
             win_w: WIN_W,
             win_h: WIN_H,
-            max_scroll: 0.0,
         }
     }
 
@@ -423,6 +421,7 @@ impl SettingsApp {
                     enabled: true,
                 });
                 items.push(SettingsItem::GroupEnd);
+                items.push(SettingsItem::GroupStart);
                 items.push(SettingsItem::RowSourceSelect {
                     label: tr("island_style"),
                     options: vec![
@@ -857,8 +856,7 @@ impl SettingsApp {
                 CONTENT_START_Y
             };
 
-            self.max_scroll = self.cached_max_scroll;
-            self.target_scroll_y = self.target_scroll_y.clamp(0.0, self.max_scroll);
+            self.target_scroll_y = self.target_scroll_y.clamp(0.0, self.cached_max_scroll);
 
             let clip_start_y = if self.active_page == 0 {
                 SUB_TAB_START_Y + SUB_TAB_H
@@ -1438,22 +1436,6 @@ impl SettingsApp {
                         l if l == tr("auto_hide") => self.config.auto_hide = !self.config.auto_hide,
                         l if l == tr("check_updates") => {
                             self.config.check_for_updates = !self.config.check_for_updates
-                        }
-                        l if l == tr("smtc_control") => {
-                            self.config.smtc_enabled = !self.config.smtc_enabled
-                        }
-                        l if l == tr("show_lyrics") => {
-                            self.config.show_lyrics = !self.config.show_lyrics
-                        }
-                        l if l == tr("lyrics_fallback") => {
-                            if self.config.show_lyrics {
-                                self.config.lyrics_fallback = !self.config.lyrics_fallback
-                            }
-                        }
-                        l if l == tr("lyrics_scroll") => {
-                            if self.config.show_lyrics {
-                                self.config.lyrics_scroll = !self.config.lyrics_scroll
-                            }
                         }
                         _ => {
                             log::warn!("WinIsland: unhandled switch label: {}", label);
@@ -2132,7 +2114,7 @@ impl ApplicationHandler for SettingsApp {
                         winit::event::MouseScrollDelta::PixelDelta(pos) => pos.y as f32,
                     };
                     self.target_scroll_y =
-                        (self.target_scroll_y - diff).clamp(0.0, self.max_scroll);
+                        (self.target_scroll_y - diff).clamp(0.0, self.cached_max_scroll);
                     if let Some(win) = &self.window {
                         win.request_redraw();
                     }

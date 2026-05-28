@@ -260,8 +260,12 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
             SettingsItem::GroupStart => {
                 in_group = true;
                 group_current_row = 0;
-                group_row_count = count_group_rows_from(items, i + 1);
-                let total_h = group_row_count as f32 * ROW_HEIGHT;
+                let total_h = group_height_from(items, i + 1);
+                group_row_count = items[i + 1..]
+                    .iter()
+                    .take_while(|item| !matches!(item, SettingsItem::GroupEnd))
+                    .filter(|item| item.is_row())
+                    .count();
                 if y + total_h >= visible_min_y && y <= visible_max_y {
                     let mut bg = Paint::default();
                     bg.set_anti_alias(true);
@@ -858,15 +862,13 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
     }
 }
 
-fn count_group_rows_from(items: &[SettingsItem], start: usize) -> usize {
-    let mut count = 0;
+fn group_height_from(items: &[SettingsItem], start: usize) -> f32 {
+    let mut h = 0.0;
     for item in &items[start..] {
         if matches!(item, SettingsItem::GroupEnd) {
             break;
         }
-        if item.is_row() {
-            count += 1;
-        }
+        h += item.height();
     }
-    count
+    h
 }

@@ -1,11 +1,27 @@
 use skia_safe::{AlphaType, Color, ColorType, ISize, Image, ImageInfo};
 use std::cell::RefCell;
 use windows::Win32::Foundation::HWND;
-use windows::Win32::Graphics::Dwm::{DWMWINDOWATTRIBUTE, DwmSetWindowAttribute};
+use windows::Win32::Graphics::Dwm::{
+    DWMWA_SYSTEMBACKDROP_TYPE, DWMWINDOWATTRIBUTE, DwmSetWindowAttribute,
+};
 
 thread_local! {
     static DYNAMIC_BG_CACHE: RefCell<Option<(String, Color)>> = const { RefCell::new(None) };
     static LAST_VALID_COLOR: RefCell<Option<Color>> = const { RefCell::new(None) };
+}
+
+pub fn disable_mica(hwnd: HWND) {
+    // SAFETY: Resets DWM backdrop to NONE to clean up Mica effect when
+    // switching to a non-mica island style. hwnd is valid from winit.
+    unsafe {
+        let value: i32 = 1; // DWMSBT_NONE = 1
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_SYSTEMBACKDROP_TYPE,
+            &value as *const _ as *const _,
+            std::mem::size_of::<i32>() as u32,
+        );
+    }
 }
 
 pub fn try_enable_mica(hwnd: HWND) -> bool {
@@ -14,7 +30,7 @@ pub fn try_enable_mica(hwnd: HWND) -> bool {
     // valid for the lifetime of the call. hwnd is obtained from winit's window handle.
     unsafe {
         let value: i32 = 2;
-        let attr = DWMWINDOWATTRIBUTE(38);
+        let attr = DWMWA_SYSTEMBACKDROP_TYPE;
         let result = DwmSetWindowAttribute(
             hwnd,
             attr,
@@ -24,6 +40,9 @@ pub fn try_enable_mica(hwnd: HWND) -> bool {
         if result.is_ok() {
             return true;
         }
+        // DWMWA_MICA (1029) is a newer DWM attribute for enabling Mica directly.
+        // It is not yet available in the windows crate 0.58, so we use the raw value.
+        // Falls back from DWMWA_SYSTEMBACKDROP_TYPE above if not supported.
         let value: i32 = 1;
         let attr = DWMWINDOWATTRIBUTE(1029);
         DwmSetWindowAttribute(
