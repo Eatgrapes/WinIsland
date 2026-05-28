@@ -421,6 +421,7 @@ impl SettingsApp {
                     enabled: true,
                 });
                 items.push(SettingsItem::GroupEnd);
+                items.push(SettingsItem::Spacer { height: 16.0 });
                 items.push(SettingsItem::GroupStart);
                 items.push(SettingsItem::RowSourceSelect {
                     label: tr("island_style"),
@@ -1013,27 +1014,40 @@ impl SettingsApp {
 
             if is_active {
                 paint.set_color(theme.text_pri);
-                let underline_x = tab_x + tab_w / 2.0 - 30.0;
-                let underline_y = SUB_TAB_START_Y + SUB_TAB_H - 2.0;
-                paint.set_style(skia_safe::paint::Style::Fill);
-                canvas.draw_rect(Rect::from_xywh(underline_x, underline_y, 60.0, 2.0), &paint);
             } else if is_hover {
                 paint.set_color(theme.text_pri);
             } else {
                 paint.set_color(theme.text_sec);
             }
 
-            let text_x = tab_x + tab_w / 2.0;
+            let label_w = FontManager::global().measure_text_cached(
+                label,
+                13.0,
+                skia_safe::FontStyle::normal(),
+            );
+            let text_x = tab_x + (tab_w - label_w) / 2.0;
             let text_y = SUB_TAB_START_Y + SUB_TAB_H / 2.0 + 5.0;
             fm.draw_text_cached(DrawTextCachedParams {
                 canvas,
                 text: label,
-                x: text_x - 30.0,
+                x: text_x,
                 y: text_y,
                 size: 13.0,
                 bold: false,
                 paint: &paint,
             });
+
+            if is_active {
+                let underline_pad = 4.0;
+                let underline_x = text_x - underline_pad;
+                let underline_w = label_w + underline_pad * 2.0;
+                let underline_y = SUB_TAB_START_Y + SUB_TAB_H - 2.0;
+                paint.set_style(skia_safe::paint::Style::Fill);
+                canvas.draw_rect(
+                    Rect::from_xywh(underline_x, underline_y, underline_w, 2.0),
+                    &paint,
+                );
+            }
         }
     }
 
