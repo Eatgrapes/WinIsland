@@ -27,8 +27,8 @@ thread_local! {
 }
 
 struct BgTransition {
-    target: Option<Color>, // raw extracted colour we are heading toward
-    from: Option<Color>,   // colour we started transitioning from
+    target: Option<Color>,  // raw extracted colour we are heading toward
+    from: Option<Color>,    // colour we started transitioning from
     display: Option<Color>, // current interpolated display colour
     start: Option<Instant>, // when the last transition began
 }
@@ -274,9 +274,7 @@ pub fn get_dynamic_bg_color(img: &Image, cache_key: &str) -> Color {
         }
 
         // Interpolate with smoothstep over 400ms.
-        if let (Some(target), Some(from), Some(start)) =
-            (t.target, t.from, t.start)
-        {
+        if let (Some(target), Some(from), Some(start)) = (t.target, t.from, t.start) {
             let elapsed = start.elapsed().as_secs_f32();
             const DURATION: f32 = 0.4;
             let progress = (elapsed / DURATION).min(1.0);
@@ -311,7 +309,7 @@ pub fn clear_dynamic_bg_cache() {
 
 fn lerp_color(a: Color, b: Color, t: f32) -> Color {
     Color::from_argb(
-        255,
+        (a.a() as f32 + (b.a() as f32 - a.a() as f32) * t) as u8,
         (a.r() as f32 + (b.r() as f32 - a.r() as f32) * t) as u8,
         (a.g() as f32 + (b.g() as f32 - a.g() as f32) * t) as u8,
         (a.b() as f32 + (b.b() as f32 - a.b() as f32) * t) as u8,
@@ -337,9 +335,6 @@ const MIN_VALUE: f32 = 0.15; // too dark to be useful
 const MAX_WHITISH_VALUE: f32 = 0.95;
 const MAX_WHITISH_SAT: f32 = 0.4; // near-white with low sat → skip
 const SAMPLE_GRID: usize = 16; // 16×16 = 256 samples
-const FALLBACK_R: u8 = 42;
-const FALLBACK_G: u8 = 42;
-const FALLBACK_B: u8 = 58; // slightly cool dark, avoids pure grey
 
 fn extract_dominant_color(img: &Image) -> Color {
     let w = img.width();
@@ -368,8 +363,13 @@ fn extract_dominant_color(img: &Image) -> Color {
     }
 
     // Build 12 (H) × 4 (S) × 4 (V) histogram, storing summed RGB per bucket.
-    let mut buckets: HsvHistogram =
-        [[[(0, 0, 0, 0); V_BUCKETS]; S_BUCKETS]; H_BUCKETS];
+    let mut buckets: HsvHistogram = [[[(0, 0, 0, 0); V_BUCKETS]; S_BUCKETS]; H_BUCKETS];
+    // Also track a simple all-pixel average (including grey/black/white) so
+    // that genuinely monochrome covers don't fall through to the blue default.
+    let mut gray_r: u64 = 0;
+    let mut gray_g: u64 = 0;
+    let mut gray_b: u64 = 0;
+    let mut gray_n: u64 = 0;
 
     let step_x = (w as usize / SAMPLE_GRID).max(1);
     let step_y = (h as usize / SAMPLE_GRID).max(1);
@@ -390,9 +390,15 @@ fn extract_dominant_color(img: &Image) -> Color {
             let g = (pixels[idx + 1] as f64 * unmult).min(255.0) as u8;
             let b = (pixels[idx] as f64 * unmult).min(255.0) as u8;
 
+            // All-pixel average (for monochrome-fallback).
+            gray_r += r as u64;
+            gray_g += g as u64;
+            gray_b += b as u64;
+            gray_n += 1;
+
             let (hue, sat, val) = rgb_to_hsv(r, g, b);
 
-            // Apple HIG: discard grey, black, white.
+            // Apple HIG: discard grey, black, white from chromatic histogram.
             if sat < MIN_SATURATION {
                 continue;
             }
@@ -426,17 +432,33 @@ fn extract_dominant_color(img: &Image) -> Color {
         return normalize_for_background(r, g, b);
     }
 
-    // ── 4. Fallback ───────────────────────────────────────────────────
-    // Entire image is grey/black/white or no bucket won →
-    // use last valid colour or the cool-dark default.
+    // ── 4. Monochrome fallback ─────────────────────────────────────────
+    // No chromatic bucket won → the image is genuinely grey/black/white
+    // (or near-monochrome like sepia photos). Use the all-pixel average,
+    // darkened to the safe luma band, keeping whatever tiny saturation
+    // exists so warm/cool tints aren't lost.
+    if gray_n > 0 {
+        let r = (gray_r / gray_n).min(255) as u8;
+        let g = (gray_g / gray_n).min(255) as u8;
+        let b = (gray_b / gray_n).min(255) as u8;
+        let (h, _s, _l) = rgb_to_hsl(r, g, b);
+        // Clamp saturation to at most 0.12 — a sepia photo might have
+        // ~0.08 which is worth preserving; pure B&W will be ≈0.0.
+        let s_in = saturation_01(r, g, b);
+        let s_out = s_in.clamp(0.0, 0.12);
+        let l_out = 0.20;
+        let (nr, ng, nb) = hsl_to_rgb(h, s_out, l_out);
+        return Color::from_argb(200, nr, ng, nb);
+    }
+
+    // ── 5. Ultimate fallback ───────────────────────────────────────────
+    // No valid pixels at all → last valid colour or cool-dark default.
     fallback_color()
 }
 
 /// Find the bucket with the highest weighted score.
 /// Score favours more saturated buckets; ties are broken by count.
-fn find_best_bucket(
-    buckets: &HsvHistogram,
-) -> Option<HsvBucket> {
+fn find_best_bucket(buckets: &HsvHistogram) -> Option<HsvBucket> {
     let mut best: Option<(u64, u64, u64, u32, u64)> = None; // (r,g,b,count,score)
 
     #[allow(clippy::needless_range_loop)]
@@ -465,25 +487,25 @@ fn find_best_bucket(
 fn normalize_for_background(r: u8, g: u8, b: u8) -> Color {
     let (h, _s, l) = rgb_to_hsl(r, g, b);
 
-    // Saturate enough to feel "colourful" but not garish.
+    // Saturate: keep perceptible hue but avoid garish vibrance.
+    // Upper bound 0.42 keeps the colour subtle against a dark base.
     let s_out = {
         let s = saturation_01(r, g, b);
-        s.clamp(0.35, 0.70)
+        s.clamp(0.25, 0.42)
     };
 
     // Lock lightness to a band where white text meets 4.5:1 contrast.
     let l_out = l.clamp(0.18, 0.28);
 
     let (nr, ng, nb) = hsl_to_rgb(h, s_out, l_out);
-    // Fully opaque — Apple uses solid dark backgrounds with shadow for depth,
-    // not alpha blending.
-    Color::from_argb(255, nr, ng, nb)
+    // Semi-transparent dark base — lets the island's shadow and glass/mica
+    // underlay bleed through for depth.
+    Color::from_argb(200, nr, ng, nb)
 }
 
 /// Fallback colour chain: last valid → cool-dark default.
 fn fallback_color() -> Color {
-    get_last_valid_color()
-        .unwrap_or(Color::from_argb(255, FALLBACK_R, FALLBACK_G, FALLBACK_B))
+    get_last_valid_color().unwrap_or(Color::from_argb(200, 24, 24, 28))
 }
 
 // ─── Colour-space helpers ─────────────────────────────────────────────
@@ -546,11 +568,7 @@ fn rgb_to_hsl(r: u8, g: u8, b: u8) -> (f32, f32, f32) {
 fn saturation_01(r: u8, g: u8, b: u8) -> f32 {
     let max = r.max(g).max(b) as f32 / 255.0;
     let min = r.min(g).min(b) as f32 / 255.0;
-    if max < 0.0001 {
-        0.0
-    } else {
-        (max - min) / max
-    }
+    if max < 0.0001 { 0.0 } else { (max - min) / max }
 }
 
 fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
