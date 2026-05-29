@@ -15,9 +15,6 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Dwm::{DWMWINDOWATTRIBUTE, DwmSetWindowAttribute};
 use windows::Win32::System::Threading::{MUTEX_ALL_ACCESS, OpenMutexW};
-use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, SW_RESTORE, SetForegroundWindow, ShowWindow,
-};
 use windows::core::w;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize};
@@ -2282,17 +2279,7 @@ pub fn run_settings(config: AppConfig) {
 }
 
 pub fn bring_settings_to_front() {
-    // SAFETY: FindWindowW searches for a top-level window by name. ShowWindow and
-    // SetForegroundWindow operate on the found valid hwnd with standard parameters.
-    unsafe {
-        let hwnd = FindWindowW(None, w!("WinIsland Settings"));
-        if let Ok(hwnd) = hwnd
-            && !hwnd.is_invalid()
-        {
-            let _ = ShowWindow(hwnd, SW_RESTORE);
-            let _ = SetForegroundWindow(hwnd);
-        }
-    }
+    crate::utils::win32::bring_window_to_front("WinIsland Settings");
 }
 
 fn resize_surface(surface: &mut Surface<Arc<Window>, Arc<Window>>, width: u32, height: u32) {

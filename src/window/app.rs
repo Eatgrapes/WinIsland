@@ -28,12 +28,9 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, PostMessageW,
-    SWP_NOACTIVATE, SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos,
-    WDA_EXCLUDEFROMCAPTURE, WM_CLOSE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX,
-    WS_THICKFRAME,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
 };
-use windows::core::{PCWSTR, w};
+use windows::core::PCWSTR;
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton, TouchPhase, WindowEvent};
@@ -293,19 +290,7 @@ impl App {
             && let RawWindowHandle::Win32(raw) = handle.as_raw()
         {
             let hwnd = HWND(raw.hwnd.get() as *mut core::ffi::c_void);
-            // SAFETY: SetWindowPos repositions the window. hwnd is valid from window_handle().
-            // SWP_NOACTIVATE prevents focus steal. Coordinates and sizes are within bounds.
-            unsafe {
-                let _ = SetWindowPos(
-                    hwnd,
-                    HWND_TOPMOST,
-                    win_x,
-                    win_y,
-                    os_w as i32,
-                    os_h as i32,
-                    SWP_NOACTIVATE,
-                );
-            }
+            crate::utils::win32::set_window_topmost(hwnd, win_x, win_y, os_w as i32, os_h as i32);
         }
     }
 
@@ -649,14 +634,7 @@ impl App {
     }
 
     fn close_settings_window() {
-        unsafe {
-            let hwnd = FindWindowW(None, w!("WinIsland Settings"));
-            if let Ok(hwnd) = hwnd
-                && !hwnd.is_invalid()
-            {
-                let _ = PostMessageW(hwnd, WM_CLOSE, None, None);
-            }
-        }
+        crate::utils::win32::close_window("WinIsland Settings");
     }
 
     fn handle_tray_events(&mut self, window: &Window, event_loop: &ActiveEventLoop) {
@@ -888,32 +866,18 @@ impl ApplicationHandler for App {
                 && let RawWindowHandle::Win32(win32_handle) = handle.as_raw()
             {
                 let hwnd = HWND(win32_handle.hwnd.get() as _);
-                // SAFETY: GetWindowLongPtrW/SetWindowLongPtrW modify window style bits.
-                // hwnd is valid from window_handle(). We only add WS_EX_TOOLWINDOW and
-                // WS_EX_NOACTIVATE to hide from taskbar, and remove maximize/thickframe.
-                unsafe {
-                    let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-                    SetWindowLongPtrW(
-                        hwnd,
-                        GWL_EXSTYLE,
-                        ex_style | WS_EX_TOOLWINDOW.0 as isize | WS_EX_NOACTIVATE.0 as isize,
-                    );
-                    let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
-                    SetWindowLongPtrW(
-                        hwnd,
-                        GWL_STYLE,
-                        style & !(WS_MAXIMIZEBOX.0 as isize | WS_THICKFRAME.0 as isize),
-                    );
-                }
+                crate::utils::win32::modify_window_ex_style(
+                    hwnd,
+                    WS_EX_TOOLWINDOW.0 as isize | WS_EX_NOACTIVATE.0 as isize,
+                    0,
+                );
+                crate::utils::win32::modify_window_style(
+                    hwnd,
+                    0,
+                    WS_MAXIMIZEBOX.0 as isize | WS_THICKFRAME.0 as isize,
+                );
                 set_glass_hwnd(win32_handle.hwnd.get());
-
-                // SAFETY: SetWindowDisplayAffinity hides this window from GDI
-                // screen captures (BitBlt/StretchBlt). hwnd is valid from
-                // window_handle(). WDA_EXCLUDEFROMCAPTURE prevents self-capture
-                // artifacts in glass, mica, and liquid-glass backdrop modes.
-                unsafe {
-                    let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
-                }
+                crate::utils::win32::set_window_exclude_from_capture(hwnd);
             }
 
             self.window = Some(window.clone());

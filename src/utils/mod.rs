@@ -12,3 +12,4 @@ pub mod physics;
 pub mod scroll;
 pub mod settings_ui;
 pub mod updater;
+pub mod win32;
