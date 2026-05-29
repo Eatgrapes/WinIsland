@@ -442,11 +442,10 @@ fn extract_dominant_color(img: &Image) -> Color {
         let r = gray_r.checked_div(gray_n).unwrap_or(0).min(255) as u8;
         let g = gray_g.checked_div(gray_n).unwrap_or(0).min(255) as u8;
         let b = gray_b.checked_div(gray_n).unwrap_or(0).min(255) as u8;
-        let (h, _s, _l) = rgb_to_hsl(r, g, b);
-        // Clamp saturation to at most 0.12 — a sepia photo might have
+        let (h, s_hsl, _l) = rgb_to_hsl(r, g, b);
+        // Clamp HSL saturation to at most 0.12 — a sepia photo might have
         // ~0.08 which is worth preserving; pure B&W will be ≈0.0.
-        let s_in = saturation_01(r, g, b);
-        let s_out = s_in.clamp(0.0, 0.12);
+        let s_out = s_hsl.clamp(0.0, 0.12);
         let l_out = 0.20;
         let (nr, ng, nb) = hsl_to_rgb(h, s_out, l_out);
         return Color::from_argb(200, nr, ng, nb);
@@ -486,14 +485,10 @@ fn find_best_bucket(buckets: &HsvHistogram) -> Option<HsvBucket> {
 /// Apple HIG: saturation ∈ [0.35, 0.70], lightness ∈ [0.18, 0.28].
 /// This guarantees 4.5:1 contrast with white text while keeping the hue.
 fn normalize_for_background(r: u8, g: u8, b: u8) -> Color {
-    let (h, _s, l) = rgb_to_hsl(r, g, b);
+    let (h, s_hsl, l) = rgb_to_hsl(r, g, b);
 
-    // Saturate: keep perceptible hue but avoid garish vibrance.
-    // Upper bound 0.42 keeps the colour subtle against a dark base.
-    let s_out = {
-        let s = saturation_01(r, g, b);
-        s.clamp(0.25, 0.42)
-    };
+    // Clamp HSL saturation (not HSV) to keep colour perceptible but subtle.
+    let s_out = s_hsl.clamp(0.25, 0.42);
 
     // Lock lightness to a band where white text meets 4.5:1 contrast.
     let l_out = l.clamp(0.18, 0.28);
@@ -564,12 +559,6 @@ fn rgb_to_hsl(r: u8, g: u8, b: u8) -> (f32, f32, f32) {
     let h = if h < 0.0 { h + 360.0 } else { h };
 
     (h, s, l)
-}
-
-fn saturation_01(r: u8, g: u8, b: u8) -> f32 {
-    let max = r.max(g).max(b) as f32 / 255.0;
-    let min = r.min(g).min(b) as f32 / 255.0;
-    if max < 0.0001 { 0.0 } else { (max - min) / max }
 }
 
 fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
