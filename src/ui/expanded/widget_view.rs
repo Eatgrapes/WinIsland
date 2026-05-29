@@ -14,6 +14,7 @@ struct LyricScrollState {
     current_idx: usize,
     old_idx: usize,
     scroll_progress: f32,
+    title_hash: u64,
 }
 
 impl LyricScrollState {
@@ -22,10 +23,18 @@ impl LyricScrollState {
             current_idx: 0,
             old_idx: 0,
             scroll_progress: 1.0,
+            title_hash: 0,
         }
     }
 
-    fn update(&mut self, new_idx: usize, dt: f32) {
+    fn update(&mut self, new_idx: usize, dt: f32, song_title: &str) {
+        let hash = Self::hash_text(song_title);
+        if hash != self.title_hash {
+            self.title_hash = hash;
+            self.current_idx = 0;
+            self.old_idx = 0;
+            self.scroll_progress = 1.0;
+        }
         if self.current_idx != new_idx {
             self.old_idx = self.current_idx;
             self.current_idx = new_idx;
@@ -37,6 +46,14 @@ impl LyricScrollState {
                 self.scroll_progress = 1.0;
             }
         }
+    }
+
+    fn hash_text(text: &str) -> u64 {
+        let mut hash: u64 = 5381;
+        for byte in text.bytes() {
+            hash = hash.wrapping_mul(33).wrapping_add(byte as u64);
+        }
+        hash
     }
 
     fn is_animating(&self) -> bool {
@@ -198,7 +215,7 @@ pub fn draw_widget_page(
 
     let (old_idx, scroll_progress, is_animating) = LYRIC_SCROLL_STATE.with(|cell| {
         let mut state = cell.borrow_mut();
-        state.update(current_idx, dt);
+        state.update(current_idx, dt, &media.title);
         (state.old_idx, state.scroll_progress, state.is_animating())
     });
 

@@ -1,5 +1,6 @@
 use skia_safe::{
-    AlphaType, ColorType, Data, ISize, Image, ImageInfo, Paint, image_filters, images, surfaces,
+    AlphaType, Color, ColorType, Data, ISize, Image, ImageInfo, Paint, image_filters, images,
+    surfaces,
 };
 use std::cell::RefCell;
 use std::time::Instant;
@@ -14,6 +15,12 @@ thread_local! {
 
 pub fn set_glass_hwnd(_hwnd_raw: isize) {}
 
+/// Frosted dark glass backdrop: captures the island region + margin from the
+/// desktop, then applies a heavy blur (sigma ~40). WDA_EXCLUDEFROMCAPTURE
+/// naturally blacks out the island window in the capture, producing a dark
+/// base. A strong darkening blend is applied as a fallback in case WDA does
+/// not fully work on the current system (e.g. certain GPU drivers or Win10
+/// configurations that don't honour the display affinity flag).
 pub fn get_glass_background(
     screen_x: i32,
     screen_y: i32,
@@ -28,7 +35,7 @@ pub fn get_glass_background(
     let cached = GLASS_CACHE.with(|cell| {
         let cache = cell.borrow();
         if let Some((img, time, cx, cy, cw, ch)) = cache.as_ref()
-            && time.elapsed().as_millis() < 100
+            && time.elapsed().as_millis() < 500
             && *cx == screen_x
             && *cy == screen_y
             && *cw == w
@@ -53,11 +60,15 @@ pub fn get_glass_background(
     result
 }
 
+/// Captures the island region + margin from the desktop, heavily blurs,
+/// crops to the island area, then blends with a dark base colour to
+/// guarantee the signature dark frosted-glass look.
 unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) -> Option<Image> {
     let downscale = 4u32;
+    // Margin is wide enough that after heavy blur the blacked-out island
+    // centre gets diluted by surrounding desktop content, producing a dark
+    // tint instead of solid black.
     let margin = (w.max(h) / downscale) as i32;
-    let cap_x = sx;
-    let cap_y = sy;
     let cap_full_w = (w as i32 + 2 * margin).max(1);
     let cap_full_h = (h as i32 + 2 * margin).max(1);
     let cap_w = (cap_full_w / downscale as i32).max(1);
@@ -81,8 +92,8 @@ unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) ->
             cap_w,
             cap_h,
             hdc_screen,
-            cap_x - margin,
-            cap_y - margin,
+            sx - margin,
+            sy - margin,
             cap_full_w,
             cap_full_h,
             SRCCOPY,
@@ -126,6 +137,7 @@ unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) ->
         let data = Data::new_copy(&pixels);
         let src_img = images::raster_from_data(&info, data, (cap_w * 4) as usize)?;
 
+        // Frosted glass: heavy blur (sigma ~40, stronger than Mica's ~6).
         let scaled_sigma = blur_sigma / downscale as f32;
         let mut blur_surface = surfaces::raster_n32_premul(ISize::new(cap_w, cap_h))?;
         let blur_canvas = blur_surface.canvas();
@@ -136,14 +148,23 @@ unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) ->
         blur_canvas.draw_image(&src_img, (0, 0), Some(&paint));
         let blurred = blur_surface.image_snapshot();
 
-        let crop_x_in_cap = (margin / downscale as i32) as f32;
-        let crop_y_in_cap = (margin / downscale as i32) as f32;
+        let crop_x = (margin / downscale as i32) as f32;
+        let crop_y = (margin / downscale as i32) as f32;
         let crop_w = (w / downscale).max(1) as i32;
         let crop_h = (h / downscale).max(1) as i32;
 
         let mut final_surface = surfaces::raster_n32_premul(ISize::new(crop_w, crop_h))?;
         let final_canvas = final_surface.canvas();
-        final_canvas.draw_image(&blurred, (-crop_x_in_cap, -crop_y_in_cap), None);
+        final_canvas.draw_image(&blurred, (-crop_x, -crop_y), None);
+
+        // Blend with a very dark base to guarantee the signature black glass
+        // look even when WDA_EXCLUDEFROMCAPTURE doesn't fully black out the
+        // island area on the current system.
+        let mut darken = Paint::default();
+        darken.set_color(Color::from_argb(195, 8, 8, 12));
+        darken.set_anti_alias(true);
+        darken.set_blend_mode(skia_safe::BlendMode::Multiply);
+        final_canvas.draw_paint(&darken);
 
         Some(final_surface.image_snapshot())
     }

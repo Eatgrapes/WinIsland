@@ -1302,7 +1302,12 @@ impl SettingsApp {
         let content_w = self.win_w / scale - SIDEBAR_W;
 
         if self.active_page == 0 && (SUB_TAB_START_Y..=SUB_TAB_START_Y + SUB_TAB_H).contains(&my) {
-            let tab_count = 3usize;
+            let tabs = [
+                tr("section_appearance"),
+                tr("section_effects"),
+                tr("section_behavior"),
+            ];
+            let tab_count = tabs.len();
             let tab_w = content_w / tab_count as f32;
             let rel_x = mx - SIDEBAR_W;
             let tab_idx = (rel_x / tab_w) as usize;
@@ -2072,7 +2077,12 @@ impl ApplicationHandler for SettingsApp {
                         && mx >= SIDEBAR_W
                         && (SUB_TAB_START_Y..=SUB_TAB_START_Y + SUB_TAB_H).contains(&my)
                     {
-                        let tab_count = 3i32;
+                        let tabs = [
+                            tr("section_appearance"),
+                            tr("section_effects"),
+                            tr("section_behavior"),
+                        ];
+                        let tab_count = tabs.len() as i32;
                         let tab_w = content_w / tab_count as f32;
                         let rel_x = mx - SIDEBAR_W;
                         let tab_idx = (rel_x / tab_w) as i32;

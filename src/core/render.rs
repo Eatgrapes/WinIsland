@@ -237,13 +237,9 @@ pub fn draw_island(
         let screen_y = win_y + offset_y as i32;
         canvas.save();
         canvas.clip_rrect(rrect, ClipOp::Intersect, true);
-        if let Some(bg_img) = get_glass_background(
-            screen_x,
-            screen_y,
-            current_w as u32,
-            current_h as u32,
-            40.0,
-        ) {
+        if let Some(bg_img) =
+            get_glass_background(screen_x, screen_y, current_w as u32, current_h as u32, 40.0)
+        {
             let mut paint = Paint::default();
             paint.set_anti_alias(true);
             let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);

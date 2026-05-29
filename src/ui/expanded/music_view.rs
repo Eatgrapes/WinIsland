@@ -211,7 +211,10 @@ pub fn get_cached_media_image_with_key(media: &MediaInfo) -> Option<(Image, Stri
     if result.is_none() {
         COVER_FLIP_OLD_IMG.with(|cell| {
             if let Some(old_img) = cell.borrow().as_ref() {
-                result = Some((old_img.clone(), "old_cover".to_string()));
+                result = Some((
+                    old_img.clone(),
+                    format!("old_cover-{}-{}", media.title, media.album),
+                ));
             }
         });
     }

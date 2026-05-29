@@ -223,8 +223,11 @@ fn smtc_poll_loop(
         current_allowed_apps = apps;
     }
 
-    // Initial update with retries for SMTC timeline readiness
-    for attempt in 0..5 {
+    // Initial update with retries for SMTC timeline readiness.
+    // Some music apps (Spotify, Netease) take 1-2s to populate
+    // TimelineProperties after session creation, so we retry up
+    // to 2 seconds (10 × 200ms).
+    for attempt in 0..10 {
         update_media_info(
             &manager,
             &info_tx,
@@ -233,14 +236,17 @@ fn smtc_poll_loop(
             &mut current_allowed_apps,
         );
         let info = info_tx.borrow();
-        let timeline_ready = info.duration_ms > 0 || info.position_ms > 0 || !info.is_playing;
-        if timeline_ready || info.title.is_empty() {
+        let timeline_ready = info.duration_ms > 0
+            || info.position_ms > 0
+            || !info.is_playing
+            || info.title.is_empty();
+        if timeline_ready {
             drop(info);
             break;
         }
         drop(info);
-        if attempt < 4 {
-            std::thread::sleep(Duration::from_millis(100));
+        if attempt < 9 {
+            std::thread::sleep(Duration::from_millis(200));
         }
     }
 
@@ -577,7 +583,13 @@ fn fetch_properties(
             info.lyrics = None;
             info.thumbnail = None;
             info.thumbnail_hash = 0;
-            info.position_ms = smtc_pos;
+            // Only accept smtc_pos if SMTC has a real timeline.
+            // If smtc_pos is 0 (not yet populated), leave position_ms
+            // as-is so the should_sync check below can pick it up when
+            // SMTC eventually reports a non-zero position.
+            if smtc_pos > 0 {
+                info.position_ms = smtc_pos;
+            }
             info.last_smtc_pos = smtc_pos;
             info.last_update = Instant::now();
             info.last_thumbnail_fetch = Instant::now();

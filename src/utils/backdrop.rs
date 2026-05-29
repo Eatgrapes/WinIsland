@@ -294,9 +294,12 @@ fn extract_dominant_color(img: &Image) -> Color {
                 let r = pixels[idx + 2] as u64;
                 let a = pixels[idx + 3] as u64;
                 if a > 128 {
-                    r_sum += r;
-                    g_sum += g;
-                    b_sum += b;
+                    // Un-premultiply: Skia Premul stores (R*A, G*A, B*A).
+                    // For alpha > 0, we need to divide to get the true color.
+                    let unmult = 255.0 / a as f64;
+                    r_sum += (r as f64 * unmult).min(255.0) as u64;
+                    g_sum += (g as f64 * unmult).min(255.0) as u64;
+                    b_sum += (b as f64 * unmult).min(255.0) as u64;
                     count += 1;
                 }
             }
