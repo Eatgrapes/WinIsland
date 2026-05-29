@@ -52,6 +52,8 @@ pub fn get_glass_background(
         return Some(img);
     }
 
+    // SAFETY: capture_and_blur has been validated by the caller: w and h
+    // are non-zero. The function internally checks GDI handle validity.
     let result = unsafe { capture_and_blur(screen_x, screen_y, w, h, blur_sigma) };
 
     if let Some(ref img) = result {
@@ -77,6 +79,10 @@ unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) ->
     let cap_w = (cap_full_w / downscale as i32).max(1);
     let cap_h = (cap_full_h / downscale as i32).max(1);
 
+    // SAFETY: GDI screen capture for frosted glass backdrop. All Win32 API
+    // calls operate on valid handles obtained within this block. Resources
+    // are released in reverse order. GetDC with default HWND retrieves the
+    // desktop DC. StretchBlt with HALFTONE mode provides quality downscaling.
     unsafe {
         let hdc_screen = GetDC(HWND::default());
         if hdc_screen.is_invalid() {
@@ -84,7 +90,16 @@ unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) ->
         }
 
         let hdc_mem = CreateCompatibleDC(hdc_screen);
+        if hdc_mem.is_invalid() {
+            ReleaseDC(HWND::default(), hdc_screen);
+            return None;
+        }
         let hbm = CreateCompatibleBitmap(hdc_screen, cap_w, cap_h);
+        if hbm.is_invalid() {
+            let _ = DeleteDC(hdc_mem);
+            ReleaseDC(HWND::default(), hdc_screen);
+            return None;
+        }
         let old = SelectObject(hdc_mem, hbm);
 
         let _ = SetStretchBltMode(hdc_mem, STRETCH_BLT_MODE(HALFTONE.0));

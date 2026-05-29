@@ -159,6 +159,10 @@ fn render_liquid_glass(
     let cap_w = w as i32 + 2 * margin;
     let cap_h = h as i32 + 2 * margin;
 
+    // SAFETY: GDI screen capture for liquid glass backdrop. All Win32 API
+    // calls operate on valid handles obtained within this block. Resources
+    // are released in reverse order: SelectObject restore, DeleteObject,
+    // DeleteDC, ReleaseDC. GetDC with default HWND retrieves the desktop DC.
     let result = unsafe {
         let hdc_screen = GetDC(windows::Win32::Foundation::HWND::default());
         if hdc_screen.is_invalid() {
@@ -166,7 +170,16 @@ fn render_liquid_glass(
         }
 
         let hdc_mem = CreateCompatibleDC(hdc_screen);
+        if hdc_mem.is_invalid() {
+            ReleaseDC(windows::Win32::Foundation::HWND::default(), hdc_screen);
+            return None;
+        }
         let hbm = CreateCompatibleBitmap(hdc_screen, cap_w, cap_h);
+        if hbm.is_invalid() {
+            let _ = DeleteDC(hdc_mem);
+            ReleaseDC(windows::Win32::Foundation::HWND::default(), hdc_screen);
+            return None;
+        }
         let old = SelectObject(hdc_mem, hbm);
 
         let _ = BitBlt(

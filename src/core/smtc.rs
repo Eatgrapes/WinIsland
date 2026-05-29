@@ -190,16 +190,20 @@ fn smtc_poll_loop(
     mut allowed_apps_rx: mpsc::UnboundedReceiver<Vec<String>>,
     cancel: CancellationToken,
 ) {
-    unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-    }
+    // SAFETY: CoInitializeEx initializes COM for this thread. We use
+    // COINIT_MULTITHREADED because tokio's spawn_blocking pool is MTA.
+    // If it fails (e.g. already initialized with a different mode), we
+    // skip creating the guard so CoUninitialize is not called unbalanced.
+    let com_initialized = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
     struct ComGuard;
     impl Drop for ComGuard {
         fn drop(&mut self) {
+            // SAFETY: CoUninitialize balances the successful CoInitializeEx
+            // that triggered the creation of this guard.
             unsafe { CoUninitialize() };
         }
     }
-    let _com_guard = ComGuard;
+    let _com_guard = com_initialized.then_some(ComGuard);
 
     let manager = match GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
         Ok(op) => match op.get() {

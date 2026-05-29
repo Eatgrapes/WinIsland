@@ -43,6 +43,11 @@ struct MicaCache {
 }
 
 pub fn disable_mica(hwnd: HWND) {
+    // SAFETY: DwmSetWindowAttribute sets window backdrop properties.
+    // hwnd is valid (from window_handle()). The value pointers reference
+    // stack i32s with correct size. Attribute 1029 is an undocumented
+    // DWM attribute that disables Mica on older Windows 11 builds.
+    // Return values are ignored as failure is non-critical (visual only).
     unsafe {
         let value: i32 = 1;
         let _ = DwmSetWindowAttribute(
@@ -160,6 +165,9 @@ fn capture_and_blur_mica(
     let cap_w = (monitor_w / downscale).max(1) as i32;
     let cap_h = (monitor_h / downscale).max(1) as i32;
 
+    // SAFETY: GDI screen capture for mica backdrop. All Win32 API calls
+    // operate on valid handles obtained within this block. Resources are
+    // released in reverse order. monitor_w/h are verified non-zero by caller.
     unsafe {
         let hdc_screen = GetDC(HWND::default());
         if hdc_screen.is_invalid() {
@@ -167,7 +175,16 @@ fn capture_and_blur_mica(
         }
 
         let hdc_mem = CreateCompatibleDC(hdc_screen);
+        if hdc_mem.is_invalid() {
+            ReleaseDC(HWND::default(), hdc_screen);
+            return None;
+        }
         let hbm = CreateCompatibleBitmap(hdc_screen, cap_w, cap_h);
+        if hbm.is_invalid() {
+            let _ = DeleteDC(hdc_mem);
+            ReleaseDC(HWND::default(), hdc_screen);
+            return None;
+        }
         let old = SelectObject(hdc_mem, hbm);
 
         let _ = SetStretchBltMode(hdc_mem, STRETCH_BLT_MODE(HALFTONE.0));

@@ -673,9 +673,10 @@ impl ApplicationHandler for App {
                 }
                 set_glass_hwnd(win32_handle.hwnd.get());
 
-                // WDA_EXCLUDEFROMCAPTURE makes the window invisible to GDI screen
-                // captures (BitBlt/StretchBlt), preventing self-capture artifacts
-                // in glass, mica, and liquid-glass backdrop modes.
+                // SAFETY: SetWindowDisplayAffinity hides this window from GDI
+                // screen captures (BitBlt/StretchBlt). hwnd is valid from
+                // window_handle(). WDA_EXCLUDEFROMCAPTURE prevents self-capture
+                // artifacts in glass, mica, and liquid-glass backdrop modes.
                 unsafe {
                     let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
                 }

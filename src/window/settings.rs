@@ -1391,14 +1391,16 @@ impl SettingsApp {
                         changed = true;
                     } else if l == tr("expanded_width") {
                         if is_dec {
-                            self.config.expanded_width = (self.config.expanded_width - 10.0).max(200.0);
+                            self.config.expanded_width =
+                                (self.config.expanded_width - 10.0).max(200.0);
                         } else {
                             self.config.expanded_width += 10.0;
                         }
                         changed = true;
                     } else if l == tr("expanded_height") {
                         if is_dec {
-                            self.config.expanded_height = (self.config.expanded_height - 10.0).max(100.0);
+                            self.config.expanded_height =
+                                (self.config.expanded_height - 10.0).max(100.0);
                         } else {
                             self.config.expanded_height += 10.0;
                         }
