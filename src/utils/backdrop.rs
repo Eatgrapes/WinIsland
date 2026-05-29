@@ -62,6 +62,7 @@ pub fn disable_mica(hwnd: HWND) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn get_mica_background(
     screen_x: i32,
     screen_y: i32,
@@ -90,19 +91,19 @@ pub fn get_mica_background(
         }
     });
 
-    if needs_capture {
-        if let Some(blurred) = capture_and_blur_mica(monitor_x, monitor_y, monitor_w, monitor_h) {
-            MICA_CACHE.with(|cell| {
-                *cell.borrow_mut() = Some(MicaCache {
-                    monitor_x,
-                    monitor_y,
-                    monitor_w,
-                    monitor_h,
-                    blurred_image: blurred,
-                    timestamp: Instant::now(),
-                });
+    if needs_capture
+        && let Some(blurred) = capture_and_blur_mica(monitor_x, monitor_y, monitor_w, monitor_h)
+    {
+        MICA_CACHE.with(|cell| {
+            *cell.borrow_mut() = Some(MicaCache {
+                monitor_x,
+                monitor_y,
+                monitor_w,
+                monitor_h,
+                blurred_image: blurred,
+                timestamp: Instant::now(),
             });
-        }
+        });
     }
 
     let blurred = MICA_CACHE.with(|cell| {
@@ -132,7 +133,7 @@ pub fn get_mica_background(
     final_canvas.draw_image_rect_with_sampling_options(
         &blurred,
         Some((&src_rect, SrcRectConstraint::Fast)),
-        &dst_rect,
+        dst_rect,
         sampling,
         &paint,
     );
@@ -438,9 +439,9 @@ fn extract_dominant_color(img: &Image) -> Color {
     // darkened to the safe luma band, keeping whatever tiny saturation
     // exists so warm/cool tints aren't lost.
     if gray_n > 0 {
-        let r = (gray_r / gray_n).min(255) as u8;
-        let g = (gray_g / gray_n).min(255) as u8;
-        let b = (gray_b / gray_n).min(255) as u8;
+        let r = gray_r.checked_div(gray_n).unwrap_or(0).min(255) as u8;
+        let g = gray_g.checked_div(gray_n).unwrap_or(0).min(255) as u8;
+        let b = gray_b.checked_div(gray_n).unwrap_or(0).min(255) as u8;
         let (h, _s, _l) = rgb_to_hsl(r, g, b);
         // Clamp saturation to at most 0.12 — a sepia photo might have
         // ~0.08 which is worth preserving; pure B&W will be ≈0.0.

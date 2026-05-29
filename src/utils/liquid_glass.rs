@@ -1,8 +1,8 @@
+use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
     AlphaType, Color, ColorType, Data, FilterMode, ISize, Image, ImageInfo, MipmapMode, Paint,
-    Rect, RRect, SamplingOptions, TileMode, image_filters, images, surfaces,
+    RRect, Rect, SamplingOptions, TileMode, image_filters, images, surfaces,
 };
-use skia_safe::canvas::SrcRectConstraint;
 use std::cell::RefCell;
 use std::time::Instant;
 use windows::Win32::Graphics::Gdi::*;
@@ -182,10 +182,16 @@ fn render_liquid_glass(
 
         let _ = SetStretchBltMode(hdc_mem, STRETCH_BLT_MODE(HALFTONE.0));
         let _ = StretchBlt(
-            hdc_mem, 0, 0, cap_w, cap_h,
+            hdc_mem,
+            0,
+            0,
+            cap_w,
+            cap_h,
             hdc_screen,
-            screen_x - margin, screen_y - margin,
-            cap_full_w, cap_full_h,
+            screen_x - margin,
+            screen_y - margin,
+            cap_full_w,
+            cap_full_h,
             SRCCOPY,
         );
 
@@ -200,9 +206,13 @@ fn render_liquid_glass(
         let pixel_count = (cap_w * cap_h * 4) as usize;
         let mut pixels = vec![0u8; pixel_count];
         GetDIBits(
-            hdc_mem, hbm, 0, cap_h as u32,
+            hdc_mem,
+            hbm,
+            0,
+            cap_h as u32,
             Some(pixels.as_mut_ptr() as *mut _),
-            &mut bmi, DIB_RGB_COLORS,
+            &mut bmi,
+            DIB_RGB_COLORS,
         );
 
         SelectObject(hdc_mem, old);
@@ -242,11 +252,7 @@ fn render_liquid_glass(
         let scaled_radius = corner_radius / downscale as f32;
 
         let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
-        let bg_shader = blurred.to_shader(
-            (TileMode::Clamp, TileMode::Clamp),
-            sampling,
-            None,
-        )?;
+        let bg_shader = blurred.to_shader((TileMode::Clamp, TileMode::Clamp), sampling, None)?;
 
         let mut uniform_data = Vec::with_capacity(20);
         uniform_data.extend_from_slice(&shape_x.to_le_bytes());

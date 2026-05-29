@@ -1037,13 +1037,11 @@ impl SettingsApp {
             let is_active = self.active_sub_page == i;
             let is_hover = self.sub_tab_hover == i as i32;
 
-            if is_active {
-                paint.set_color(theme.text_pri);
-            } else if is_hover {
-                paint.set_color(theme.text_pri);
+            paint.set_color(if is_active || is_hover {
+                theme.text_pri
             } else {
-                paint.set_color(theme.text_sec);
-            }
+                theme.text_sec
+            });
 
             let label_w = FontManager::global().measure_text_cached(
                 label,

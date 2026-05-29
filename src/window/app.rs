@@ -13,8 +13,8 @@ use crate::utils::backdrop::{clear_mica_cache, disable_mica};
 use crate::utils::blur::calculate_blur_sigmas;
 use crate::utils::color::get_island_border_weights;
 use crate::utils::glass::set_glass_hwnd;
-use crate::utils::liquid_glass::clear_liquid_glass_cache;
 use crate::utils::icon::get_app_icon;
+use crate::utils::liquid_glass::clear_liquid_glass_cache;
 use crate::utils::mouse::{
     get_global_cursor_pos, is_cursor_hidden, is_foreground_fullscreen, is_left_button_pressed,
     is_point_in_rect,
