@@ -64,6 +64,23 @@ fn main() {
                     }
                 }
                 if !is_restart || start.elapsed() > std::time::Duration::from_secs(10) {
+                    if is_restart {
+                        let own_pid = std::process::id();
+                        if let Ok(output) = std::process::Command::new("powershell")
+                            .args([
+                                "-NoProfile",
+                                "-Command",
+                                &format!(
+                                    "Get-Process WinIsland -ErrorAction SilentlyContinue | Where-Object {{$_.Id -ne {own_pid}}} | Stop-Process -Force"
+                                ),
+                            ])
+                            .output()
+                            && output.status.success()
+                        {
+                            std::thread::sleep(std::time::Duration::from_millis(500));
+                            continue;
+                        }
+                    }
                     return;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(200));

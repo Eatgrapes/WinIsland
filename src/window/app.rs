@@ -812,14 +812,17 @@ impl ApplicationHandler for App {
                             media_info.position_ms = self.seeking_preview_ms;
                             media_info.last_update = Instant::now();
                         }
-                        media_info.spectrum = self.audio.get_spectrum();
                         if !self.config.audio_gate {
-                            media_info.spectrum = [0.0; 6];
+                            self.audio.set_gate_override(false);
                         } else if self.config.auto_gate {
                             let is_hidden = self.auto_hidden || self.manually_hidden;
                             self.audio.set_gate_override(!is_hidden);
                         } else {
                             self.audio.set_gate_override(true);
+                        }
+                        media_info.spectrum = self.audio.get_spectrum();
+                        if !self.config.audio_gate {
+                            media_info.spectrum = [0.0; 6];
                         }
                         let mut music_active = false;
                         if self.config.smtc_enabled && !media_info.title.is_empty() {
