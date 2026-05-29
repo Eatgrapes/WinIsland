@@ -725,7 +725,9 @@ pub fn draw_island(
     let dst_row_bytes = (os_w * 4) as usize;
     let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut buffer);
     let _ = sk_surface.read_pixels(&info, u8_buffer, dst_row_bytes, (0, 0));
-    buffer.present().unwrap();
+    if let Err(e) = buffer.present() {
+        log::error!("Present failed: {:?}", e);
+    }
 
     widget_animating
 }

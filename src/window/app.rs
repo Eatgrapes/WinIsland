@@ -44,6 +44,7 @@ use winit::window::{Window, WindowButtons, WindowId, WindowLevel};
 
 pub struct App {
     window: Option<Arc<Window>>,
+    context: Option<Context<Arc<Window>>>,
     surface: Option<Surface<Arc<Window>, Arc<Window>>>,
     tray: Option<TrayManager>,
     smtc: SmtcListener,
@@ -98,6 +99,7 @@ impl Default for App {
         let config = load_config();
         Self {
             window: None,
+            context: None,
             surface: None,
             tray: None,
             config: config.clone(),
@@ -713,13 +715,13 @@ impl ApplicationHandler for App {
                     std::num::NonZeroU32::new(self.os_h.max(1)).unwrap(),
                 )
                 .unwrap();
-            // Paint an initial transparent frame to prevent white flash
             if let Ok(mut buf) = surface.buffer_mut() {
                 for p in buf.iter_mut() {
                     *p = 0;
                 }
                 let _ = buf.present();
             }
+            self.context = Some(context);
             self.surface = Some(surface);
             let is_light = window.theme() == Some(winit::window::Theme::Light);
             self.tray = Some(TrayManager::new(is_light));
@@ -1135,9 +1137,12 @@ impl ApplicationHandler for App {
             if self.seeking_progress && (is_left_button_pressed() || self.touch_id.is_some()) {
                 let page_shift = self.spring_view.value * self.spring_w.value;
                 let click_x = rel_x as f32 - page_shift;
-                let ratio = ((click_x - self.seeking_bar_left)
-                    / (self.seeking_bar_right - self.seeking_bar_left))
-                    .clamp(0.0, 1.0);
+                let bar_width = self.seeking_bar_right - self.seeking_bar_left;
+                let ratio = if bar_width > 0.0 {
+                    ((click_x - self.seeking_bar_left) / bar_width).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
                 let seek_ms = (ratio as f64 * self.seeking_duration_ms as f64) as u64;
                 self.seeking_preview_ms = seek_ms;
                 window.request_redraw();

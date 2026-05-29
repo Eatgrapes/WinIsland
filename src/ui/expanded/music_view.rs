@@ -995,8 +995,10 @@ pub fn draw_visualizer(params: DrawVisualizerParams<'_>) {
 fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color> {
     COLOR_CACHE.with(|cache| {
         let mut cache_mut = cache.borrow_mut();
-        if cache_mut.len() > 50 {
-            cache_mut.clear();
+        if cache_mut.len() > 50
+            && let Some(oldest_key) = cache_mut.keys().next().cloned()
+        {
+            cache_mut.remove(&oldest_key);
         }
         if let Some(palette) = cache_mut.get(cache_key) {
             return palette.clone();
@@ -1004,7 +1006,7 @@ fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color> {
         let mut palette = Vec::new();
         let info = skia_safe::ImageInfo::new(
             skia_safe::ISize::new(img.width(), img.height()),
-            skia_safe::ColorType::RGBA8888,
+            skia_safe::ColorType::BGRA8888,
             skia_safe::AlphaType::Premul,
             None,
         );
@@ -1026,9 +1028,9 @@ fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color> {
                 for x in 1..8 {
                     let idx = ((y * step_y * img.width() + x * step_x) * 4) as usize;
                     if idx + 2 < pixels.len() {
-                        r_total += pixels[idx] as u32;
+                        b_total += pixels[idx] as u32;
                         g_total += pixels[idx + 1] as u32;
-                        b_total += pixels[idx + 2] as u32;
+                        r_total += pixels[idx + 2] as u32;
                         count += 1;
                     }
                 }

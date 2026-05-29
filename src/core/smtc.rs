@@ -8,6 +8,7 @@ use windows::Foundation::TypedEventHandler;
 use windows::Media::Control::{
     GlobalSystemMediaTransportControlsSession, GlobalSystemMediaTransportControlsSessionManager,
 };
+use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 
 #[derive(Clone, Debug)]
 pub struct MediaInfo {
@@ -189,6 +190,17 @@ fn smtc_poll_loop(
     mut allowed_apps_rx: mpsc::UnboundedReceiver<Vec<String>>,
     cancel: CancellationToken,
 ) {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    }
+    struct ComGuard;
+    impl Drop for ComGuard {
+        fn drop(&mut self) {
+            unsafe { CoUninitialize() };
+        }
+    }
+    let _com_guard = ComGuard;
+
     let manager = match GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
         Ok(op) => match op.get() {
             Ok(m) => m,
@@ -583,10 +595,6 @@ fn fetch_properties(
             info.lyrics = None;
             info.thumbnail = None;
             info.thumbnail_hash = 0;
-            // Only accept smtc_pos if SMTC has a real timeline.
-            // If smtc_pos is 0 (not yet populated), leave position_ms
-            // as-is so the should_sync check below can pick it up when
-            // SMTC eventually reports a non-zero position.
             if smtc_pos > 0 {
                 info.position_ms = smtc_pos;
             }
@@ -620,7 +628,9 @@ fn fetch_properties(
             || (smtc_changed && (diff_with_extrapolated > 2000 || !is_playing));
 
         if should_sync {
-            info.position_ms = smtc_pos;
+            if smtc_pos > 0 || !song_changed {
+                info.position_ms = smtc_pos;
+            }
             info.last_update = Instant::now();
         }
 

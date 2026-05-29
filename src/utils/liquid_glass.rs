@@ -230,12 +230,26 @@ fn render_liquid_glass(
         let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
         let bg_shader = blurred.to_shader((TileMode::Clamp, TileMode::Clamp), sampling, None)?;
 
-        let mut uniform_data = Vec::with_capacity(20);
-        uniform_data.extend_from_slice(&shape_x.to_le_bytes());
-        uniform_data.extend_from_slice(&shape_y.to_le_bytes());
-        uniform_data.extend_from_slice(&shape_w.to_le_bytes());
-        uniform_data.extend_from_slice(&shape_h.to_le_bytes());
-        uniform_data.extend_from_slice(&corner_radius.to_le_bytes());
+        let uniform_size = effect.uniform_size();
+        let mut uniform_data = vec![0u8; uniform_size];
+        let write_f32 = |data: &mut [u8], offset: usize, val: f32| {
+            data[offset..offset + 4].copy_from_slice(&val.to_le_bytes());
+        };
+        for u in effect.uniforms() {
+            match u.name() {
+                "uShape" => {
+                    let off = u.offset();
+                    write_f32(&mut uniform_data, off, shape_x);
+                    write_f32(&mut uniform_data, off + 4, shape_y);
+                    write_f32(&mut uniform_data, off + 8, shape_w);
+                    write_f32(&mut uniform_data, off + 12, shape_h);
+                }
+                "uRadius" => {
+                    write_f32(&mut uniform_data, u.offset(), corner_radius);
+                }
+                _ => {}
+            }
+        }
 
         let uniform_data_obj = skia_safe::Data::new_copy(&uniform_data);
         let children = [skia_safe::runtime_effect::ChildPtr::from(bg_shader)];

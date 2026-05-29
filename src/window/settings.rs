@@ -1377,28 +1377,28 @@ impl SettingsApp {
                         changed = true;
                     } else if l == tr("base_width") {
                         if is_dec {
-                            self.config.base_width -= 5.0;
+                            self.config.base_width = (self.config.base_width - 5.0).max(40.0);
                         } else {
                             self.config.base_width += 5.0;
                         }
                         changed = true;
                     } else if l == tr("base_height") {
                         if is_dec {
-                            self.config.base_height -= 2.0;
+                            self.config.base_height = (self.config.base_height - 2.0).max(15.0);
                         } else {
                             self.config.base_height += 2.0;
                         }
                         changed = true;
                     } else if l == tr("expanded_width") {
                         if is_dec {
-                            self.config.expanded_width -= 10.0;
+                            self.config.expanded_width = (self.config.expanded_width - 10.0).max(200.0);
                         } else {
                             self.config.expanded_width += 10.0;
                         }
                         changed = true;
                     } else if l == tr("expanded_height") {
                         if is_dec {
-                            self.config.expanded_height -= 10.0;
+                            self.config.expanded_height = (self.config.expanded_height - 10.0).max(100.0);
                         } else {
                             self.config.expanded_height += 10.0;
                         }

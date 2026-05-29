@@ -294,7 +294,7 @@ fn url_encode(input: &str) -> String {
                 output.push(b as char);
             }
             b' ' => {
-                output.push('+');
+                output.push_str("%20");
             }
             _ => {
                 output.push_str(&format!("%{:02X}", b));

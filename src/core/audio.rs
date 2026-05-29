@@ -250,7 +250,9 @@ fn update_spectrum(
     gate_clone: &Arc<AtomicU32>,
     gate_override_clone: &Arc<AtomicU32>,
 ) {
-    let mut indata = pcm_buffer[..1024].to_vec();
+    let fft_len = 1024;
+    let mut indata = pcm_buffer[..fft_len].to_vec();
+    pcm_buffer.drain(..fft_len);
     if let Err(e) = fft.process(&mut indata, output) {
         log::warn!("FFT processing failed: {:?}", e);
         // Feed the floor value into adaptive_max to prevent slow baseline decay
@@ -258,7 +260,6 @@ fn update_spectrum(
         for v in adaptive_max.iter_mut() {
             *v = *v * 0.995 + 0.01 * 0.005;
         }
-        pcm_buffer.clear();
         return;
     }
     let gate = f32::from_bits(gate_clone.load(Ordering::Relaxed));
@@ -283,7 +284,6 @@ fn update_spectrum(
     if let Ok(mut s) = spectrum_arc.try_lock() {
         *s = final_bins;
     }
-    pcm_buffer.clear();
 }
 
 impl Drop for AudioProcessor {

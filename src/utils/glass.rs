@@ -11,9 +11,12 @@ type GlassCacheEntry = (Image, Instant, i32, i32, u32, u32);
 
 thread_local! {
     static GLASS_CACHE: RefCell<Option<GlassCacheEntry>> = const { RefCell::new(None) };
+    static GLASS_HWND: RefCell<isize> = const { RefCell::new(0) };
 }
 
-pub fn set_glass_hwnd(_hwnd_raw: isize) {}
+pub fn set_glass_hwnd(hwnd_raw: isize) {
+    GLASS_HWND.with(|cell| *cell.borrow_mut() = hwnd_raw);
+}
 
 /// Frosted dark glass backdrop: captures the island region + margin from the
 /// desktop, then applies a heavy blur (sigma ~40). WDA_EXCLUDEFROMCAPTURE

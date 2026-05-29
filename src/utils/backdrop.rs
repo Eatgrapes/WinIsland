@@ -153,6 +153,9 @@ fn capture_and_blur_mica(
     monitor_w: u32,
     monitor_h: u32,
 ) -> Option<Image> {
+    if monitor_w == 0 || monitor_h == 0 {
+        return None;
+    }
     let downscale = 8u32;
     let cap_w = (monitor_w / downscale).max(1) as i32;
     let cap_h = (monitor_h / downscale).max(1) as i32;
@@ -562,6 +565,7 @@ fn rgb_to_hsl(r: u8, g: u8, b: u8) -> (f32, f32, f32) {
 }
 
 fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
+    let h = h % 360.0;
     let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
     let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
     let m = l - c / 2.0;
