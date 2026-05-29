@@ -1,9 +1,9 @@
 use skia_safe::{Canvas, Color, Paint, Path};
 
 #[allow(dead_code)]
-pub fn draw_settings_icon(canvas: &Canvas, cx: f32, cy: f32, alpha: u8, scale: f32) {
+pub fn draw_settings_icon(canvas: &Canvas, cx: f32, cy: f32, alpha: u8, scale: f32, color: Color) {
     let mut paint = Paint::default();
-    paint.set_color(Color::from_argb(alpha, 255, 255, 255));
+    paint.set_color(Color::from_argb(alpha, color.r(), color.g(), color.b()));
     paint.set_anti_alias(true);
     paint.set_style(skia_safe::paint::Style::Fill);
 

@@ -259,6 +259,8 @@ pub struct DrawMusicPageParams<'a> {
     pub cover_shape: &'a str,
     pub cover_rotate: bool,
     pub dt: f32,
+    pub text_color: Color,
+    pub text_color_sec: Color,
 }
 
 pub struct DrawVisualizerParams<'a> {
@@ -293,6 +295,8 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         cover_shape,
         cover_rotate,
         dt,
+        text_color,
+        text_color_sec,
     } = params;
 
     let arrow_alpha = (alpha as f32 * (1.0 - view_offset * 5.0).clamp(0.0, 1.0)) as u8;
@@ -303,6 +307,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             oy + h / 2.0,
             arrow_alpha,
             scale,
+            text_color,
         );
     }
     let base_img_size = 72.0 * scale;
@@ -358,7 +363,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
     });
 
     let cover_scale = 0.85 + 0.15 * pause_t;
-    let cover_brightness = 0.65 + 0.35 * pause_t;
+    let cover_brightness = 0.75 + 0.25 * pause_t;
 
     let (flip_scale_x, flip_blur_sigma, flip_use_old) = COVER_FLIP_ANIM.with(|cell| {
         let start = *cell.borrow();
@@ -477,7 +482,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             &img_paint,
         );
     } else {
-        draw_placeholder(canvas, img_x, img_y, img_size, alpha, scale);
+        draw_placeholder(canvas, img_x, img_y, img_size, alpha, scale, text_color);
     }
     if flip_blur_sigma > 0.1 && use_blur {
         canvas.restore();
@@ -499,7 +504,12 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         &media.artist
     };
 
-    text_paint.set_color(Color::from_argb(alpha, 255, 255, 255));
+    text_paint.set_color(Color::from_argb(
+        alpha,
+        text_color.r(),
+        text_color.g(),
+        text_color.b(),
+    ));
     let title_font_size = if font_size > 0.0 {
         font_size * scale
     } else {
@@ -522,7 +532,12 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         });
     });
 
-    text_paint.set_color(Color::from_argb((alpha as f32 * 0.6) as u8, 255, 255, 255));
+    text_paint.set_color(Color::from_argb(
+        (alpha as f32 * 0.6) as u8,
+        text_color_sec.r(),
+        text_color_sec.g(),
+        text_color_sec.b(),
+    ));
     let artist_y = title_y + 22.0 * scale;
     let artist_font_size = if font_size > 0.0 {
         font_size * scale
@@ -627,9 +642,9 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         time_paint.set_anti_alias(true);
         time_paint.set_color(Color::from_argb(
             (alpha as f32 * time_alpha_factor) as u8,
-            255,
-            255,
-            255,
+            text_color.r(),
+            text_color.g(),
+            text_color.b(),
         ));
 
         let elapsed_w = FontManager::global().measure_text_cached(
@@ -659,14 +674,24 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
 
         let mut track_paint = Paint::default();
         track_paint.set_anti_alias(true);
-        track_paint.set_color(Color::from_argb((alpha as f32 * 0.25) as u8, 255, 255, 255));
+        track_paint.set_color(Color::from_argb(
+            (alpha as f32 * 0.25) as u8,
+            text_color.r(),
+            text_color.g(),
+            text_color.b(),
+        ));
         let track_rect = Rect::from_xywh(bar_left, bar_center_y - bar_h / 2.0, bar_total_w, bar_h);
         canvas.draw_round_rect(track_rect, bar_radius, bar_radius, &track_paint);
 
         let filled_w = (bar_total_w * progress).max(bar_h);
         let mut fill_paint = Paint::default();
         fill_paint.set_anti_alias(true);
-        fill_paint.set_color(Color::from_argb(alpha, 255, 255, 255));
+        fill_paint.set_color(Color::from_argb(
+            alpha,
+            text_color.r(),
+            text_color.g(),
+            text_color.b(),
+        ));
         let fill_rect = Rect::from_xywh(bar_left, bar_center_y - bar_h / 2.0, filled_w, bar_h);
         let fill_rrect = RRect::new_rect_radii(
             fill_rect,
@@ -718,28 +743,28 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             let shoot_x = 10.92 * scale + 22.0 * scale * shoot_t;
             let shoot_alpha = ((alpha as f32) * (1.0 - shoot_t)) as u8;
             if shoot_alpha > 0 {
-                draw_control_triangle(canvas, shoot_x, 0.0, shoot_alpha, 0.055, scale);
+                draw_control_triangle(canvas, shoot_x, 0.0, shoot_alpha, 0.055, scale, text_color);
             }
 
             let move_t = (t / 0.55).min(1.0);
             let mid_x = -10.92 * scale + (10.92 * 2.0) * scale * move_t;
             let mid_s = 0.050 + (0.055 - 0.050) * move_t;
-            draw_control_triangle(canvas, mid_x, 0.0, alpha, mid_s, scale);
+            draw_control_triangle(canvas, mid_x, 0.0, alpha, mid_s, scale, text_color);
 
             let fade_raw = ((t - 0.15) / 0.85).clamp(0.0, 1.0);
             let fade_eased = ease_out_back(fade_raw);
             let new_x = -25.0 * scale + (25.0 - 10.92) * scale * fade_eased;
             let new_alpha = ((alpha as f32) * fade_raw) as u8;
             if new_alpha > 0 {
-                draw_control_triangle(canvas, new_x, 0.0, new_alpha, 0.050, scale);
+                draw_control_triangle(canvas, new_x, 0.0, new_alpha, 0.050, scale, text_color);
             }
 
             if skip_blur > 0.1 && use_blur {
                 canvas.restore();
             }
         } else {
-            draw_control_triangle(canvas, -10.92 * scale, 0.0, alpha, 0.050, scale);
-            draw_control_triangle(canvas, 10.92 * scale, 0.0, alpha, 0.055, scale);
+            draw_control_triangle(canvas, -10.92 * scale, 0.0, alpha, 0.050, scale, text_color);
+            draw_control_triangle(canvas, 10.92 * scale, 0.0, alpha, 0.055, scale, text_color);
         }
         canvas.restore();
 
@@ -798,19 +823,19 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         canvas.translate((btn_cx, btn_cy));
         canvas.scale((pause_s, pause_s));
         if pause_t > 0.99 {
-            draw_pause_button(canvas, 0.0, 0.0, alpha, scale);
+            draw_pause_button(canvas, 0.0, 0.0, alpha, scale, text_color);
         } else if pause_t < 0.01 {
-            draw_play_button(canvas, 0.0, 0.0, alpha, scale);
+            draw_play_button(canvas, 0.0, 0.0, alpha, scale, text_color);
         } else {
             let pause_alpha = (alpha as f32 * pause_t) as u8;
             let play_alpha = (alpha as f32 * (1.0 - pause_t)) as u8;
 
             if pause_alpha > 0 {
-                draw_pause_button(canvas, 0.0, 0.0, pause_alpha, scale);
+                draw_pause_button(canvas, 0.0, 0.0, pause_alpha, scale, text_color);
             }
 
             if play_alpha > 0 {
-                draw_play_button(canvas, 0.0, 0.0, play_alpha, scale);
+                draw_play_button(canvas, 0.0, 0.0, play_alpha, scale, text_color);
             }
         }
         if pause_blur > 0.1 && use_blur {
@@ -852,28 +877,28 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             let shoot_x = 10.92 * scale + 22.0 * scale * shoot_t;
             let shoot_alpha = ((alpha as f32) * (1.0 - shoot_t)) as u8;
             if shoot_alpha > 0 {
-                draw_control_triangle(canvas, shoot_x, 0.0, shoot_alpha, 0.055, scale);
+                draw_control_triangle(canvas, shoot_x, 0.0, shoot_alpha, 0.055, scale, text_color);
             }
 
             let move_t = (t / 0.55).min(1.0);
             let mid_x = -10.92 * scale + (10.92 * 2.0) * scale * move_t;
             let mid_s = 0.050 + (0.055 - 0.050) * move_t;
-            draw_control_triangle(canvas, mid_x, 0.0, alpha, mid_s, scale);
+            draw_control_triangle(canvas, mid_x, 0.0, alpha, mid_s, scale, text_color);
 
             let fade_raw = ((t - 0.15) / 0.85).clamp(0.0, 1.0);
             let fade_eased = ease_out_back(fade_raw);
             let new_x = -25.0 * scale + (25.0 - 10.92) * scale * fade_eased;
             let new_alpha = ((alpha as f32) * fade_raw) as u8;
             if new_alpha > 0 {
-                draw_control_triangle(canvas, new_x, 0.0, new_alpha, 0.050, scale);
+                draw_control_triangle(canvas, new_x, 0.0, new_alpha, 0.050, scale, text_color);
             }
 
             if skip_blur > 0.1 && use_blur {
                 canvas.restore();
             }
         } else {
-            draw_control_triangle(canvas, -10.92 * scale, 0.0, alpha, 0.050, scale);
-            draw_control_triangle(canvas, 10.92 * scale, 0.0, alpha, 0.055, scale);
+            draw_control_triangle(canvas, -10.92 * scale, 0.0, alpha, 0.050, scale, text_color);
+            draw_control_triangle(canvas, 10.92 * scale, 0.0, alpha, 0.055, scale, text_color);
         }
         canvas.restore();
     }
@@ -991,14 +1016,14 @@ fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color> {
             (0, 0),
             skia_safe::image::CachingHint::Allow,
         ) {
-            let step_x = img.width() / 4;
-            let step_y = img.height() / 4;
+            let step_x = img.width() / 8;
+            let step_y = img.height() / 8;
             let mut r_total = 0u32;
             let mut g_total = 0u32;
             let mut b_total = 0u32;
             let mut count = 0u32;
-            for y in 1..4 {
-                for x in 1..4 {
+            for y in 1..8 {
+                for x in 1..8 {
                     let idx = ((y * step_y * img.width() + x * step_x) * 4) as usize;
                     if idx + 2 < pixels.len() {
                         r_total += pixels[idx] as u32;
@@ -1030,7 +1055,7 @@ fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color> {
                 };
 
                 let primary = brighten(r_avg, g_avg, b_avg, 1.3);
-                let secondary = brighten(r_avg, g_avg, b_avg, 1.8);
+                let secondary = brighten(r_avg, g_avg, b_avg, 1.5);
 
                 palette.push(primary);
                 palette.push(secondary);
@@ -1045,10 +1070,23 @@ fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color> {
     })
 }
 
-fn draw_placeholder(canvas: &Canvas, x: f32, y: f32, size: f32, alpha: u8, scale: f32) {
+fn draw_placeholder(
+    canvas: &Canvas,
+    x: f32,
+    y: f32,
+    size: f32,
+    alpha: u8,
+    scale: f32,
+    text_color: Color,
+) {
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
-    paint.set_color(Color::from_argb((alpha as f32 * 0.1) as u8, 255, 255, 255));
+    paint.set_color(Color::from_argb(
+        (alpha as f32 * 0.15) as u8,
+        text_color.r(),
+        text_color.g(),
+        text_color.b(),
+    ));
     canvas.draw_round_rect(
         Rect::from_xywh(x, y, size, size),
         14.0 * scale,
@@ -1058,5 +1096,5 @@ fn draw_placeholder(canvas: &Canvas, x: f32, y: f32, size: f32, alpha: u8, scale
 
     let cx = x + size / 2.0;
     let cy = y + size / 2.0;
-    crate::icons::music::draw_music_icon(canvas, cx, cy, alpha, scale * 1.8);
+    crate::icons::music::draw_music_icon(canvas, cx, cy, alpha, scale * 1.8, text_color);
 }

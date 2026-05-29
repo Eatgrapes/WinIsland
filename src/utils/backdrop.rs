@@ -86,7 +86,7 @@ pub fn get_mica_background(
                     || c.monitor_y != monitor_y
                     || c.monitor_w != monitor_w
                     || c.monitor_h != monitor_h
-                    || c.timestamp.elapsed().as_millis() >= 2000
+                    || c.timestamp.elapsed().as_millis() >= 1000
             }
         }
     });
@@ -482,7 +482,7 @@ fn find_best_bucket(buckets: &HsvHistogram) -> Option<HsvBucket> {
 }
 
 /// Normalise a raw dominant colour into a background-safe range.
-/// Apple HIG: saturation ∈ [0.35, 0.70], lightness ∈ [0.18, 0.28].
+/// Apple HIG: saturation ∈ [0.25, 0.42], lightness ∈ [0.18, 0.28].
 /// This guarantees 4.5:1 contrast with white text while keeping the hue.
 fn normalize_for_background(r: u8, g: u8, b: u8) -> Color {
     let (h, s_hsl, l) = rgb_to_hsl(r, g, b);
@@ -501,7 +501,7 @@ fn normalize_for_background(r: u8, g: u8, b: u8) -> Color {
 
 /// Fallback colour chain: last valid → cool-dark default.
 fn fallback_color() -> Color {
-    get_last_valid_color().unwrap_or(Color::from_argb(200, 24, 24, 28))
+    get_last_valid_color().unwrap_or(Color::from_argb(200, 32, 32, 36))
 }
 
 // ─── Colour-space helpers ─────────────────────────────────────────────

@@ -133,10 +133,18 @@ pub fn draw_widget_page(
     _font_size: f32,
     lyrics_delay: f64,
     dt: f32,
+    text_color: Color,
 ) -> bool {
     let arrow_alpha = alpha;
     if arrow_alpha > 0 {
-        draw_arrow_left(canvas, ox + 12.0 * scale, oy + h / 2.0, arrow_alpha, scale);
+        draw_arrow_left(
+            canvas,
+            ox + 12.0 * scale,
+            oy + h / 2.0,
+            arrow_alpha,
+            scale,
+            text_color,
+        );
     }
 
     if alpha > 30 {
@@ -145,7 +153,12 @@ pub fn draw_widget_page(
         let gear_y = oy + h - 28.0 * scale;
         let mut gear_paint = Paint::default();
         gear_paint.set_anti_alias(true);
-        gear_paint.set_color(Color::from_argb((alpha as f32 * 0.5) as u8, 255, 255, 255));
+        gear_paint.set_color(Color::from_argb(
+            (alpha as f32 * 0.5) as u8,
+            text_color.r(),
+            text_color.g(),
+            text_color.b(),
+        ));
         gear_paint.set_style(skia_safe::paint::Style::Stroke);
         gear_paint.set_stroke_width(1.5 * scale);
         canvas.draw_circle((gear_x, gear_y), gear_size * 0.5, &gear_paint);
@@ -287,7 +300,7 @@ pub fn draw_widget_page(
         } else {
             let dist = (idx as f32 - current_idx as f32).abs();
             let scale_factor = 0.96_f32.powf(dist);
-            let opacity_factor = 0.7_f32.powf(dist);
+            let opacity_factor = 0.82_f32.powf(dist);
             (
                 font_size * scale_factor,
                 (alpha as f32 / 255.0) * opacity_factor,
@@ -303,9 +316,9 @@ pub fn draw_widget_page(
         text_paint.set_anti_alias(true);
         text_paint.set_color(Color::from_argb(
             (text_alpha * 255.0).min(255.0) as u8,
-            255,
-            255,
-            255,
+            text_color.r(),
+            text_color.g(),
+            text_color.b(),
         ));
 
         if should_scroll {

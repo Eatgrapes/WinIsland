@@ -9,7 +9,7 @@ use crate::ui::expanded::widget_view::draw_widget_page;
 use crate::utils::backdrop::{get_dynamic_bg_color, get_last_valid_color, get_mica_background};
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::glass::get_glass_background;
-use crate::utils::liquid_glass::get_liquid_glass_background;
+use crate::utils::liquid_glass::{get_liquid_glass_background, should_use_dark_text};
 use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
     ClipOp, Color, FilterMode, ISize, MipmapMode, Paint, RRect, Rect, SamplingOptions,
@@ -191,6 +191,18 @@ pub fn draw_island(
 
     let mut bg_color = Color::BLACK;
 
+    let use_dark_text = island_style == "liquid_glass" && should_use_dark_text();
+    let text_color = if use_dark_text {
+        Color::from_argb(255, 20, 20, 20)
+    } else {
+        Color::WHITE
+    };
+    let text_color_sec = if use_dark_text {
+        Color::from_argb(255, 60, 60, 60)
+    } else {
+        Color::WHITE
+    };
+
     if island_style == "liquid_glass" {
         let screen_x = win_x + offset_x as i32;
         let screen_y = win_y + offset_y as i32;
@@ -228,7 +240,7 @@ pub fn draw_island(
             canvas.draw_image_rect_with_sampling_options(&bg_img, None, rect, sampling, &paint);
         } else {
             let mut bg_paint = Paint::default();
-            bg_paint.set_color(Color::from_argb(180, 40, 40, 45));
+            bg_paint.set_color(Color::from_argb(180, 32, 32, 36));
             bg_paint.set_anti_alias(true);
             canvas.draw_rrect(rrect, &bg_paint);
         }
@@ -250,7 +262,7 @@ pub fn draw_island(
             canvas.draw_image_rect_with_sampling_options(&bg_img, None, rect, sampling, &paint);
         } else {
             let mut bg_paint = Paint::default();
-            bg_paint.set_color(Color::from_argb(205, 32, 32, 32));
+            bg_paint.set_color(Color::from_argb(205, 32, 32, 36));
             bg_paint.set_anti_alias(true);
             canvas.draw_rrect(rrect, &bg_paint);
         }
@@ -275,12 +287,12 @@ pub fn draw_island(
             canvas.draw_image_rect_with_sampling_options(&bg_img, None, rect, sampling, &paint);
 
             let mut overlay = Paint::default();
-            overlay.set_color(Color::from_argb(160, 32, 32, 32));
+            overlay.set_color(Color::from_argb(110, 32, 32, 32));
             overlay.set_anti_alias(true);
             canvas.draw_rrect(rrect, &overlay);
         } else {
             let mut bg_paint = Paint::default();
-            bg_paint.set_color(Color::from_argb(205, 32, 32, 32));
+            bg_paint.set_color(Color::from_argb(205, 32, 32, 36));
             bg_paint.set_anti_alias(true);
             canvas.draw_rrect(rrect, &bg_paint);
         }
@@ -342,6 +354,8 @@ pub fn draw_island(
             cover_shape: expanded_cover_shape,
             cover_rotate,
             dt,
+            text_color,
+            text_color_sec,
         });
         canvas.restore();
 
@@ -359,6 +373,7 @@ pub fn draw_island(
             font_size,
             lyrics_delay,
             dt,
+            text_color,
         );
         canvas.restore();
 
@@ -490,7 +505,7 @@ pub fn draw_island(
 
                 canvas.save();
                 canvas.translate((center_x, center_y));
-                draw_play_button(canvas, 0.0, 0.0, ctrl_alpha, btn_scale);
+                draw_play_button(canvas, 0.0, 0.0, ctrl_alpha, btn_scale, text_color);
                 canvas.restore();
             }
         } else if !current_lyric.is_empty() || !old_lyric.is_empty() {
@@ -523,7 +538,12 @@ pub fn draw_island(
                         let mut text_paint = Paint::default();
                         text_paint.set_anti_alias(true);
                         let fade_alpha = (alpha as f32 * (1.0 - lyric_transition)) as u8;
-                        text_paint.set_color(Color::from_argb(fade_alpha, 255, 255, 255));
+                        text_paint.set_color(Color::from_argb(
+                            fade_alpha,
+                            text_color.r(),
+                            text_color.g(),
+                            text_color.b(),
+                        ));
 
                         let blur_sigma = lyric_transition * 12.0 * global_scale;
                         if blur_sigma > 0.1 {
@@ -562,7 +582,12 @@ pub fn draw_island(
                         let mut text_paint = Paint::default();
                         text_paint.set_anti_alias(true);
                         let fade_alpha = (alpha as f32 * lyric_transition) as u8;
-                        text_paint.set_color(Color::from_argb(fade_alpha, 255, 255, 255));
+                        text_paint.set_color(Color::from_argb(
+                            fade_alpha,
+                            text_color.r(),
+                            text_color.g(),
+                            text_color.b(),
+                        ));
 
                         let blur_sigma = (1.0 - lyric_transition) * 12.0 * global_scale;
                         if blur_sigma > 0.1 {
@@ -605,7 +630,12 @@ pub fn draw_island(
                         text_paint.set_anti_alias(true);
                         let progress = lyric_transition * 2.0;
                         let fade_alpha = (alpha as f32 * (1.0 - progress)) as u8;
-                        text_paint.set_color(Color::from_argb(fade_alpha, 255, 255, 255));
+                        text_paint.set_color(Color::from_argb(
+                            fade_alpha,
+                            text_color.r(),
+                            text_color.g(),
+                            text_color.b(),
+                        ));
                         let old_lx2 = if text_centered {
                             let w = FontManager::global().measure_text_cached(
                                 old_lyric,
@@ -630,7 +660,12 @@ pub fn draw_island(
                         text_paint.set_anti_alias(true);
                         let progress = (lyric_transition - 0.5) * 2.0;
                         let fade_alpha = (alpha as f32 * progress) as u8;
-                        text_paint.set_color(Color::from_argb(fade_alpha, 255, 255, 255));
+                        text_paint.set_color(Color::from_argb(
+                            fade_alpha,
+                            text_color.r(),
+                            text_color.g(),
+                            text_color.b(),
+                        ));
                         let cur_lx2 = if text_centered {
                             let w = FontManager::global().measure_text_cached(
                                 current_lyric,
@@ -657,6 +692,30 @@ pub fn draw_island(
         }
     }
     canvas.restore();
+
+    if island_style != "liquid_glass" {
+        let mut border_paint = Paint::default();
+        border_paint.set_anti_alias(true);
+        border_paint.set_style(skia_safe::PaintStyle::Stroke);
+        border_paint.set_stroke_width(1.0);
+        if island_style == "default" {
+            border_paint.set_color(Color::from_argb(30, 255, 255, 255));
+        } else {
+            border_paint.set_color(Color::from_argb(40, 255, 255, 255));
+        }
+        let border_rrect = RRect::new_rect_xy(
+            Rect::from_xywh(
+                offset_x + 0.5,
+                offset_y + 0.5,
+                current_w - 1.0,
+                current_h - 1.0,
+            ),
+            current_r,
+            current_r,
+        );
+        canvas.draw_rrect(border_rrect, &border_paint);
+    }
+
     let info = skia_safe::ImageInfo::new(
         skia_safe::ISize::new(os_w as i32, os_h as i32),
         skia_safe::ColorType::BGRA8888,

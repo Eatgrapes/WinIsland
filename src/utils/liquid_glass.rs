@@ -36,7 +36,7 @@ half4 main(float2 coord) {
     float2 sourceUV = float2(ix * scaled + 0.5, iy * scaled + 0.5);
     float2 sourceCoord = sourceUV * uShape.zw + uShape.xy;
 
-    float blurAmt = 2.0;
+    float blurAmt = 6.0;
     half4 color = uBackground.eval(sourceCoord) * 0.4;
     color += uBackground.eval(sourceCoord + float2(blurAmt, 0)) * 0.15;
     color += uBackground.eval(sourceCoord - float2(blurAmt, 0)) * 0.15;
@@ -56,6 +56,8 @@ half4 main(float2 coord) {
     color.rgb += specular * 0.15;
 
     color.rgb += smoothstep(0.3, 0.0, uv.y) * 0.03;
+
+    color.rgb = clamp(color.rgb, 0.0, 1.0);
 
     return color;
 }
@@ -98,7 +100,7 @@ pub fn get_liquid_glass_background(
     let cached = GLASS_CACHE.with(|cell| {
         let cache = cell.borrow();
         if let Some((img, time, cx, cy, cw, ch)) = cache.as_ref()
-            && time.elapsed().as_millis() < 150
+            && time.elapsed().as_millis() < 200
             && *cx == screen_x
             && *cy == screen_y
             && *cw == w
@@ -129,6 +131,19 @@ pub fn clear_liquid_glass_cache() {
     });
 }
 
+thread_local! {
+    static BG_BRIGHTNESS: RefCell<Option<f32>> = const { RefCell::new(None) };
+}
+
+#[allow(dead_code)]
+pub fn get_background_brightness() -> Option<f32> {
+    BG_BRIGHTNESS.with(|cell| *cell.borrow())
+}
+
+pub fn should_use_dark_text() -> bool {
+    BG_BRIGHTNESS.with(|cell| cell.borrow().is_some_and(|b| b > 0.55))
+}
+
 fn render_liquid_glass(
     screen_x: i32,
     screen_y: i32,
@@ -144,7 +159,7 @@ fn render_liquid_glass(
     let cap_w = w as i32 + 2 * margin;
     let cap_h = h as i32 + 2 * margin;
 
-    unsafe {
+    let result = unsafe {
         let hdc_screen = GetDC(windows::Win32::Foundation::HWND::default());
         if hdc_screen.is_invalid() {
             return None;
@@ -155,15 +170,7 @@ fn render_liquid_glass(
         let old = SelectObject(hdc_mem, hbm);
 
         let _ = BitBlt(
-            hdc_mem,
-            0,
-            0,
-            cap_w,
-            cap_h,
-            hdc_screen,
-            cap_x,
-            cap_y,
-            SRCCOPY,
+            hdc_mem, 0, 0, cap_w, cap_h, hdc_screen, cap_x, cap_y, SRCCOPY,
         );
 
         let mut bmi: BITMAPINFO = std::mem::zeroed();
@@ -258,7 +265,7 @@ fn render_liquid_glass(
 
         let mut outer_border = Paint::default();
         outer_border.set_anti_alias(true);
-        outer_border.set_color(Color::from_argb(80, 255, 255, 255));
+        outer_border.set_color(Color::from_argb(110, 255, 255, 255));
         outer_border.set_style(skia_safe::PaintStyle::Stroke);
         outer_border.set_stroke_width(1.0);
         let outer_rrect = RRect::new_rect_xy(
@@ -276,11 +283,52 @@ fn render_liquid_glass(
         );
         let mut inner_border = Paint::default();
         inner_border.set_anti_alias(true);
-        inner_border.set_color(Color::from_argb(35, 255, 255, 255));
+        inner_border.set_color(Color::from_argb(55, 255, 255, 255));
         inner_border.set_style(skia_safe::PaintStyle::Stroke);
         inner_border.set_stroke_width(0.5);
         border_canvas.draw_rrect(inner_rrect, &inner_border);
 
         Some(border_surface.image_snapshot())
+    };
+
+    result.as_ref()?;
+
+    if let Some(ref img) = result {
+        let info = ImageInfo::new(
+            ISize::new(img.width(), img.height()),
+            ColorType::BGRA8888,
+            AlphaType::Premul,
+            None,
+        );
+        let mut pixels = vec![0u8; (img.width() * img.height() * 4) as usize];
+        if img.read_pixels(
+            &info,
+            &mut pixels,
+            (img.width() * 4) as usize,
+            (0, 0),
+            skia_safe::image::CachingHint::Allow,
+        ) {
+            let mut lum_sum = 0.0f32;
+            let mut count = 0u32;
+            let step = (img.width() as usize / 8).max(1);
+            for y in (0..img.height() as usize).step_by(step) {
+                for x in (0..img.width() as usize).step_by(step) {
+                    let idx = (y * img.width() as usize + x) * 4;
+                    if idx + 2 < pixels.len() {
+                        let b = pixels[idx] as f32 / 255.0;
+                        let g = pixels[idx + 1] as f32 / 255.0;
+                        let r = pixels[idx + 2] as f32 / 255.0;
+                        lum_sum += 0.299 * r + 0.587 * g + 0.114 * b;
+                        count += 1;
+                    }
+                }
+            }
+            if count > 0 {
+                let avg_lum = lum_sum / count as f32;
+                BG_BRIGHTNESS.with(|cell| *cell.borrow_mut() = Some(avg_lum));
+            }
+        }
     }
+
+    result
 }
