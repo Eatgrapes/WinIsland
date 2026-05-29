@@ -13,6 +13,7 @@ use crate::utils::backdrop::{clear_mica_cache, disable_mica};
 use crate::utils::blur::calculate_blur_sigmas;
 use crate::utils::color::get_island_border_weights;
 use crate::utils::glass::set_glass_hwnd;
+use crate::utils::liquid_glass::clear_liquid_glass_cache;
 use crate::utils::icon::get_app_icon;
 use crate::utils::mouse::{
     get_global_cursor_pos, is_cursor_hidden, is_foreground_fullscreen, is_left_button_pressed,
@@ -737,6 +738,7 @@ impl ApplicationHandler for App {
                     if let Some(tray) = self.tray.as_mut() {
                         tray.update_theme(is_light);
                     }
+                    clear_liquid_glass_cache();
                 }
                 WindowEvent::Resized(_) if win.is_maximized() => {
                     win.set_maximized(false);
@@ -953,6 +955,7 @@ impl ApplicationHandler for App {
                     if old_style != self.config.island_style {
                         crate::utils::backdrop::clear_dynamic_bg_cache();
                         clear_mica_cache();
+                        clear_liquid_glass_cache();
                         if old_style == "mica"
                             && let Some(window) = &self.window
                             && let Ok(handle) = window.window_handle()

@@ -12,6 +12,8 @@ use skia_safe::{Color, Paint, Rect, surfaces};
 use softbuffer::{Context, Surface};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use windows::Win32::Foundation::HWND;
+use windows::Win32::Graphics::Dwm::{DWMWINDOWATTRIBUTE, DwmSetWindowAttribute};
 use windows::Win32::System::Threading::{MUTEX_ALL_ACCESS, OpenMutexW};
 use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowW, SW_RESTORE, SetForegroundWindow, ShowWindow,
@@ -22,6 +24,7 @@ use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, NamedKey};
+use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowButtons, WindowId};
 
 const WIN_W: f32 = 666.0;
@@ -252,7 +255,25 @@ impl SettingsApp {
             }
         };
         if let Some(win) = &self.window {
+            Self::apply_titlebar_theme(win, self.is_light);
             win.request_redraw();
+        }
+    }
+
+    fn apply_titlebar_theme(window: &Window, is_light: bool) {
+        if let Ok(handle) = window.window_handle()
+            && let RawWindowHandle::Win32(raw) = handle.as_raw()
+        {
+            let hwnd = HWND(raw.hwnd.get() as _);
+            let use_dark: i32 = if is_light { 0 } else { 1 };
+            unsafe {
+                let _ = DwmSetWindowAttribute(
+                    hwnd,
+                    DWMWINDOWATTRIBUTE(20), // DWMWA_USE_IMMERSIVE_DARK_MODE
+                    &use_dark as *const _ as *const _,
+                    std::mem::size_of::<i32>() as u32,
+                );
+            }
         }
     }
 
@@ -1915,6 +1936,7 @@ impl ApplicationHandler for SettingsApp {
             WindowEvent::ThemeChanged(theme) if self.config.settings_theme == "system" => {
                 self.is_light = theme == winit::window::Theme::Light;
                 if let Some(win) = &self.window {
+                    Self::apply_titlebar_theme(win, self.is_light);
                     win.request_redraw();
                 }
             }

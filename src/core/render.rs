@@ -188,59 +188,77 @@ pub fn draw_island(
     } else {
         None
     };
-    canvas.save();
-    canvas.clip_rrect(rrect, ClipOp::Intersect, true);
 
     let mut bg_color = Color::BLACK;
-    let mut use_glass = false;
-    let mut use_dynamic = false;
-    let mut use_mica = false;
 
-    if island_style == "glass" {
-        use_glass = true;
-    } else if island_style == "mica" {
-        use_mica = true;
-    } else if island_style == "dynamic" {
-        use_dynamic = true;
-    } else if island_style == "liquid_glass" {
-        use_glass = true;
-    } else {
-        bg_color = Color::BLACK;
-    }
-
-    if use_glass {
+    if island_style == "liquid_glass" {
         let screen_x = win_x + offset_x as i32;
         let screen_y = win_y + offset_y as i32;
-        let bg_img = if island_style == "liquid_glass" {
-            get_liquid_glass_background(
-                screen_x,
-                screen_y,
-                current_w as u32,
-                current_h as u32,
-                40.0 * global_scale,
-            )
-        } else {
-            get_glass_background(
-                screen_x,
-                screen_y,
-                current_w as u32,
-                current_h as u32,
-                40.0 * global_scale,
-            )
-        };
-        if let Some(bg_img) = bg_img {
+
+        let mut shadow_paint = Paint::default();
+        shadow_paint.set_anti_alias(true);
+        shadow_paint.set_color(Color::from_argb(35, 0, 0, 0));
+        if let Some(filter) = image_filters::blur((3.0, 3.0), None, None, None) {
+            shadow_paint.set_image_filter(filter);
+        }
+        let shadow_rrect = RRect::new_rect_xy(
+            Rect::from_xywh(offset_x, offset_y + 1.5, current_w, current_h),
+            current_r,
+            current_r,
+        );
+        canvas.draw_rrect(shadow_rrect, &shadow_paint);
+
+        canvas.save();
+        canvas.clip_rrect(rrect, ClipOp::Intersect, true);
+
+        if let Some(bg_img) = get_liquid_glass_background(
+            screen_x,
+            screen_y,
+            current_w as u32,
+            current_h as u32,
+            current_r,
+            monitor_x,
+            monitor_y,
+            monitor_w,
+            monitor_h,
+        ) {
             let mut paint = Paint::default();
             paint.set_anti_alias(true);
             let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
             canvas.draw_image_rect_with_sampling_options(&bg_img, None, rect, sampling, &paint);
+        } else {
+            let mut bg_paint = Paint::default();
+            bg_paint.set_color(Color::from_argb(205, 32, 32, 32));
+            bg_paint.set_anti_alias(true);
+            canvas.draw_rrect(rrect, &bg_paint);
         }
-        let mut overlay = Paint::default();
-        overlay.set_color(Color::from_argb(120, 0, 0, 0));
-        overlay.set_anti_alias(true);
-        canvas.draw_rrect(rrect, &overlay);
-    } else if use_mica {
+    } else if island_style == "glass" {
         let screen_x = win_x + offset_x as i32;
         let screen_y = win_y + offset_y as i32;
+        canvas.save();
+        canvas.clip_rrect(rrect, ClipOp::Intersect, true);
+        if let Some(bg_img) = get_glass_background(
+            screen_x,
+            screen_y,
+            current_w as u32,
+            current_h as u32,
+            40.0,
+        ) {
+            let mut paint = Paint::default();
+            paint.set_anti_alias(true);
+            let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
+            canvas.draw_image_rect_with_sampling_options(&bg_img, None, rect, sampling, &paint);
+        } else {
+            let mut bg_paint = Paint::default();
+            bg_paint.set_color(Color::from_argb(205, 32, 32, 32));
+            bg_paint.set_anti_alias(true);
+            canvas.draw_rrect(rrect, &bg_paint);
+        }
+    } else if island_style == "mica" {
+        let screen_x = win_x + offset_x as i32;
+        let screen_y = win_y + offset_y as i32;
+        canvas.save();
+        canvas.clip_rrect(rrect, ClipOp::Intersect, true);
         if let Some(bg_img) = get_mica_background(
             screen_x,
             screen_y,
@@ -266,7 +284,9 @@ pub fn draw_island(
             bg_paint.set_anti_alias(true);
             canvas.draw_rrect(rrect, &bg_paint);
         }
-    } else if use_dynamic {
+    } else if island_style == "dynamic" {
+        canvas.save();
+        canvas.clip_rrect(rrect, ClipOp::Intersect, true);
         if let Some((img, cache_key)) = get_cached_media_image_with_key(media) {
             bg_color = get_dynamic_bg_color(&img, &cache_key);
         } else if let Some(last_color) = get_last_valid_color() {
@@ -277,6 +297,8 @@ pub fn draw_island(
         bg_paint.set_anti_alias(true);
         canvas.draw_rrect(rrect, &bg_paint);
     } else {
+        canvas.save();
+        canvas.clip_rrect(rrect, ClipOp::Intersect, true);
         let mut bg_paint = Paint::default();
         bg_paint.set_color(bg_color);
         bg_paint.set_anti_alias(true);
