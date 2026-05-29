@@ -430,6 +430,10 @@ impl SettingsApp {
                         (tr("style_glass"), self.config.island_style == "glass"),
                         (tr("style_mica"), self.config.island_style == "mica"),
                         (tr("style_dynamic"), self.config.island_style == "dynamic"),
+                        (
+                            tr("style_liquid_glass"),
+                            self.config.island_style == "liquid_glass",
+                        ),
                     ],
                     enabled: true,
                 });
@@ -1505,6 +1509,7 @@ impl SettingsApp {
                             "glass" => 1,
                             "mica" => 2,
                             "dynamic" => 3,
+                            "liquid_glass" => 4,
                             _ => 0,
                         };
                         self.popup = Some(PopupState::new(
@@ -1515,12 +1520,14 @@ impl SettingsApp {
                                 tr("style_glass"),
                                 tr("style_mica"),
                                 tr("style_dynamic"),
+                                tr("style_liquid_glass"),
                             ],
                             vec![
                                 "default".to_string(),
                                 "glass".to_string(),
                                 "mica".to_string(),
                                 "dynamic".to_string(),
+                                "liquid_glass".to_string(),
                             ],
                             selected_idx,
                             self.win_w / scale,

@@ -9,6 +9,7 @@ use crate::ui::expanded::widget_view::draw_widget_page;
 use crate::utils::backdrop::{get_dynamic_bg_color, get_last_valid_color, get_mica_background};
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::glass::get_glass_background;
+use crate::utils::liquid_glass::get_liquid_glass_background;
 use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
     ClipOp, Color, FilterMode, ISize, MipmapMode, Paint, RRect, Rect, SamplingOptions,
@@ -201,6 +202,8 @@ pub fn draw_island(
         use_mica = true;
     } else if island_style == "dynamic" {
         use_dynamic = true;
+    } else if island_style == "liquid_glass" {
+        use_glass = true;
     } else {
         bg_color = Color::BLACK;
     }
@@ -208,13 +211,24 @@ pub fn draw_island(
     if use_glass {
         let screen_x = win_x + offset_x as i32;
         let screen_y = win_y + offset_y as i32;
-        if let Some(bg_img) = get_glass_background(
-            screen_x,
-            screen_y,
-            current_w as u32,
-            current_h as u32,
-            40.0 * global_scale,
-        ) {
+        let bg_img = if island_style == "liquid_glass" {
+            get_liquid_glass_background(
+                screen_x,
+                screen_y,
+                current_w as u32,
+                current_h as u32,
+                40.0 * global_scale,
+            )
+        } else {
+            get_glass_background(
+                screen_x,
+                screen_y,
+                current_w as u32,
+                current_h as u32,
+                40.0 * global_scale,
+            )
+        };
+        if let Some(bg_img) = bg_img {
             let mut paint = Paint::default();
             paint.set_anti_alias(true);
             let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);

@@ -4,24 +4,18 @@ use skia_safe::{
     Rect, SamplingOptions, image_filters, images, surfaces,
 };
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicIsize, Ordering};
 use std::time::Instant;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Dwm::{
     DWMWA_SYSTEMBACKDROP_TYPE, DWMWINDOWATTRIBUTE, DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::*;
-use windows::Win32::UI::WindowsAndMessaging::{
-    SWP_HIDEWINDOW, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE, SWP_SHOWWINDOW, SetWindowPos,
-};
 
 thread_local! {
     static DYNAMIC_BG_CACHE: RefCell<Option<(String, Color)>> = const { RefCell::new(None) };
     static LAST_VALID_COLOR: RefCell<Option<Color>> = const { RefCell::new(None) };
     static MICA_CACHE: RefCell<Option<MicaCache>> = const { RefCell::new(None) };
 }
-
-static MICA_HWND: AtomicIsize = AtomicIsize::new(0);
 
 struct MicaCache {
     monitor_x: i32,
@@ -30,10 +24,6 @@ struct MicaCache {
     monitor_h: u32,
     blurred_image: Image,
     timestamp: Instant,
-}
-
-pub fn set_mica_hwnd(hwnd_raw: isize) {
-    MICA_HWND.store(hwnd_raw, Ordering::Release);
 }
 
 pub fn disable_mica(hwnd: HWND) {
@@ -150,40 +140,9 @@ fn capture_and_blur_mica(
     let cap_w = (monitor_w / downscale).max(1) as i32;
     let cap_h = (monitor_h / downscale).max(1) as i32;
 
-    let hwnd_raw = MICA_HWND.load(Ordering::Acquire);
-    let hwnd = if hwnd_raw != 0 {
-        Some(HWND(hwnd_raw as *mut _))
-    } else {
-        None
-    };
-
     unsafe {
-        if let Some(h) = hwnd {
-            let _ = SetWindowPos(
-                h,
-                HWND::default(),
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_HIDEWINDOW,
-            );
-            std::thread::yield_now();
-        }
-
         let hdc_screen = GetDC(HWND::default());
         if hdc_screen.is_invalid() {
-            if let Some(h) = hwnd {
-                let _ = SetWindowPos(
-                    h,
-                    HWND::default(),
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                );
-            }
             return None;
         }
 
@@ -230,18 +189,6 @@ fn capture_and_blur_mica(
         let _ = DeleteObject(hbm);
         let _ = DeleteDC(hdc_mem);
         ReleaseDC(HWND::default(), hdc_screen);
-
-        if let Some(h) = hwnd {
-            let _ = SetWindowPos(
-                h,
-                HWND::default(),
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            );
-        }
 
         for pixel in pixels.chunks_exact_mut(4) {
             pixel[3] = 255;

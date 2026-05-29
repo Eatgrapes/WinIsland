@@ -44,6 +44,7 @@ style_default=Default
 style_glass=Frosted Glass
 style_mica=Mica (Win11)
 style_dynamic=Dynamic Color
+style_liquid_glass=Liquid Glass
 custom_font=Custom Font
 font_select=Select
 font_reset=Reset

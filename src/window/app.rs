@@ -9,7 +9,7 @@ use crate::ui::expanded::music_view::{
     set_progress_dragging, set_progress_hover, trigger_cover_flip, trigger_next_click,
     trigger_pause_click, trigger_prev_click,
 };
-use crate::utils::backdrop::{clear_mica_cache, disable_mica, set_mica_hwnd};
+use crate::utils::backdrop::{clear_mica_cache, disable_mica};
 use crate::utils::blur::calculate_blur_sigmas;
 use crate::utils::color::get_island_border_weights;
 use crate::utils::glass::set_glass_hwnd;
@@ -28,8 +28,9 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowW, GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, PostMessageW,
-    SWP_NOACTIVATE, SetWindowLongPtrW, SetWindowPos, WM_CLOSE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_MAXIMIZEBOX, WS_THICKFRAME,
+    SWP_NOACTIVATE, SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos,
+    WDA_EXCLUDEFROMCAPTURE, WM_CLOSE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX,
+    WS_THICKFRAME,
 };
 use windows::core::{PCWSTR, w};
 use winit::application::ApplicationHandler;
@@ -668,7 +669,13 @@ impl ApplicationHandler for App {
                     );
                 }
                 set_glass_hwnd(win32_handle.hwnd.get());
-                set_mica_hwnd(win32_handle.hwnd.get() as isize);
+
+                // WDA_EXCLUDEFROMCAPTURE makes the window invisible to GDI screen
+                // captures (BitBlt/StretchBlt), preventing self-capture artifacts
+                // in glass, mica, and liquid-glass backdrop modes.
+                unsafe {
+                    let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+                }
             }
 
             self.window = Some(window.clone());
@@ -954,7 +961,6 @@ impl ApplicationHandler for App {
                             if let RawWindowHandle::Win32(win32_handle) = raw {
                                 let hwnd = HWND(win32_handle.hwnd.get() as _);
                                 disable_mica(hwnd);
-                                set_mica_hwnd(win32_handle.hwnd.get() as isize);
                             }
                         }
                     }
