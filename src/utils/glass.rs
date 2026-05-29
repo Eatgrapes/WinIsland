@@ -53,21 +53,17 @@ pub fn get_glass_background(
     result
 }
 
-/// SAFETY: Caller must ensure the screen coordinates (sx, sy) and dimensions (w, h)
-/// are within valid desktop bounds. This function uses GDI screen capture (GetDC/BitBlt)
-/// which requires the calling thread to have a message pump or be in STA.
 unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) -> Option<Image> {
-    // SAFETY: All GDI operations use valid handles obtained from GetDC/CreateCompatibleDC.
-    // GetDC(HWND::default()) captures the entire desktop. BitBlt copies from screen DC
-    // to memory DC. GetDIBits reads pixels into a pre-allocated Vec<u8>. All handles
-    // are properly released via DeleteObject/DeleteDC/ReleaseDC.
-    unsafe {
-        let margin = w.max(h) as i32;
-        let cap_x = (sx - margin).max(0);
-        let cap_y = (sy - margin).max(0);
-        let cap_w = w as i32 + 2 * margin;
-        let cap_h = h as i32 + 2 * margin;
+    let downscale = 4u32;
+    let margin = (w.max(h) / downscale) as i32;
+    let cap_x = sx;
+    let cap_y = sy;
+    let cap_full_w = (w as i32 + 2 * margin).max(1);
+    let cap_full_h = (h as i32 + 2 * margin).max(1);
+    let cap_w = (cap_full_w / downscale as i32).max(1);
+    let cap_h = (cap_full_h / downscale as i32).max(1);
 
+    unsafe {
         let hdc_screen = GetDC(HWND::default());
         if hdc_screen.is_invalid() {
             return None;
@@ -77,8 +73,19 @@ unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) ->
         let hbm = CreateCompatibleBitmap(hdc_screen, cap_w, cap_h);
         let old = SelectObject(hdc_mem, hbm);
 
-        let _ = BitBlt(
-            hdc_mem, 0, 0, cap_w, cap_h, hdc_screen, cap_x, cap_y, SRCCOPY,
+        let _ = SetStretchBltMode(hdc_mem, STRETCH_BLT_MODE(HALFTONE.0));
+        let _ = StretchBlt(
+            hdc_mem,
+            0,
+            0,
+            cap_w,
+            cap_h,
+            hdc_screen,
+            cap_x - margin,
+            cap_y - margin,
+            cap_full_w,
+            cap_full_h,
+            SRCCOPY,
         );
 
         let mut bmi: BITMAPINFO = std::mem::zeroed();
@@ -106,29 +113,37 @@ unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) ->
         let _ = DeleteDC(hdc_mem);
         ReleaseDC(HWND::default(), hdc_screen);
 
+        for pixel in pixels.chunks_exact_mut(4) {
+            pixel[3] = 255;
+        }
+
         let info = ImageInfo::new(
             ISize::new(cap_w, cap_h),
             ColorType::BGRA8888,
-            AlphaType::Premul,
+            AlphaType::Opaque,
             None,
         );
         let data = Data::new_copy(&pixels);
         let src_img = images::raster_from_data(&info, data, (cap_w * 4) as usize)?;
 
+        let scaled_sigma = blur_sigma / downscale as f32;
         let mut blur_surface = surfaces::raster_n32_premul(ISize::new(cap_w, cap_h))?;
         let blur_canvas = blur_surface.canvas();
         let mut paint = Paint::default();
-        if let Some(filter) = image_filters::blur((blur_sigma, blur_sigma), None, None, None) {
+        if let Some(filter) = image_filters::blur((scaled_sigma, scaled_sigma), None, None, None) {
             paint.set_image_filter(filter);
         }
         blur_canvas.draw_image(&src_img, (0, 0), Some(&paint));
         let blurred = blur_surface.image_snapshot();
 
-        let crop_x = (sx - cap_x) as f32;
-        let crop_y = (sy - cap_y) as f32;
-        let mut final_surface = surfaces::raster_n32_premul(ISize::new(w as i32, h as i32))?;
+        let crop_x_in_cap = (margin / downscale as i32) as f32;
+        let crop_y_in_cap = (margin / downscale as i32) as f32;
+        let crop_w = (w / downscale).max(1) as i32;
+        let crop_h = (h / downscale).max(1) as i32;
+
+        let mut final_surface = surfaces::raster_n32_premul(ISize::new(crop_w, crop_h))?;
         let final_canvas = final_surface.canvas();
-        final_canvas.draw_image(&blurred, (-crop_x, -crop_y), None);
+        final_canvas.draw_image(&blurred, (-crop_x_in_cap, -crop_y_in_cap), None);
 
         Some(final_surface.image_snapshot())
     }

@@ -1,33 +1,39 @@
-use image::GenericImageView;
+use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
     AlphaType, Color, ColorType, Data, FilterMode, ISize, Image, ImageInfo, MipmapMode, Paint,
     Rect, SamplingOptions, image_filters, images, surfaces,
 };
-use skia_safe::canvas::SrcRectConstraint;
 use std::cell::RefCell;
-use std::path::PathBuf;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicIsize, Ordering};
 use std::time::Instant;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Dwm::{
     DWMWA_SYSTEMBACKDROP_TYPE, DWMWINDOWATTRIBUTE, DwmSetWindowAttribute,
 };
-use windows::Win32::UI::WindowsAndMessaging::SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS;
-use windows::Win32::UI::WindowsAndMessaging::SystemParametersInfoW;
+use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::UI::WindowsAndMessaging::{
+    SWP_HIDEWINDOW, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE, SWP_SHOWWINDOW, SetWindowPos,
+};
 
 thread_local! {
     static DYNAMIC_BG_CACHE: RefCell<Option<(String, Color)>> = const { RefCell::new(None) };
     static LAST_VALID_COLOR: RefCell<Option<Color>> = const { RefCell::new(None) };
+    static MICA_CACHE: RefCell<Option<MicaCache>> = const { RefCell::new(None) };
 }
 
-static MICA_CACHE: Mutex<Option<MicaCache>> = Mutex::new(None);
-static MICA_PREWARMING: AtomicBool = AtomicBool::new(false);
+static MICA_HWND: AtomicIsize = AtomicIsize::new(0);
 
 struct MicaCache {
-    wallpaper_path: String,
+    monitor_x: i32,
+    monitor_y: i32,
+    monitor_w: u32,
+    monitor_h: u32,
     blurred_image: Image,
     timestamp: Instant,
+}
+
+pub fn set_mica_hwnd(hwnd_raw: isize) {
+    MICA_HWND.store(hwnd_raw, Ordering::Release);
 }
 
 pub fn disable_mica(hwnd: HWND) {
@@ -50,52 +56,6 @@ pub fn disable_mica(hwnd: HWND) {
     }
 }
 
-pub fn prewarm_mica_cache(monitor_x: i32, monitor_y: i32, monitor_w: u32, monitor_h: u32) {
-    let wallpaper_path = match get_wallpaper_path() {
-        Some(p) => p,
-        None => return,
-    };
-
-    let cache_key = format!(
-        "{}_{}_{}_{}_{}",
-        wallpaper_path, monitor_x, monitor_y, monitor_w, monitor_h
-    );
-
-    if let Ok(cache) = MICA_CACHE.lock()
-        && cache
-            .as_ref()
-            .is_some_and(|c| c.wallpaper_path == cache_key)
-    {
-        return;
-    }
-
-    if MICA_PREWARMING.swap(true, Ordering::AcqRel) {
-        return;
-    }
-
-    std::thread::spawn(move || {
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let blurred = load_and_blur_wallpaper(
-                &wallpaper_path,
-                monitor_x,
-                monitor_y,
-                monitor_w,
-                monitor_h,
-            );
-            if let Some(img) = blurred {
-                if let Ok(mut cache) = MICA_CACHE.lock() {
-                    *cache = Some(MicaCache {
-                        wallpaper_path: cache_key,
-                        blurred_image: img,
-                        timestamp: Instant::now(),
-                    });
-                }
-            }
-        }));
-        MICA_PREWARMING.store(false, Ordering::Release);
-    });
-}
-
 pub fn get_mica_background(
     screen_x: i32,
     screen_y: i32,
@@ -110,34 +70,39 @@ pub fn get_mica_background(
         return None;
     }
 
-    let current_wallpaper = get_wallpaper_path()?;
-    let cache_key = format!(
-        "{}_{}_{}_{}_{}",
-        current_wallpaper, monitor_x, monitor_y, monitor_w, monitor_h
-    );
+    let needs_capture = MICA_CACHE.with(|cell| {
+        let cache = cell.borrow();
+        match cache.as_ref() {
+            None => true,
+            Some(c) => {
+                c.monitor_x != monitor_x
+                    || c.monitor_y != monitor_y
+                    || c.monitor_w != monitor_w
+                    || c.monitor_h != monitor_h
+                    || c.timestamp.elapsed().as_millis() >= 2000
+            }
+        }
+    });
 
-    let needs_update = {
-        let Ok(cache) = MICA_CACHE.lock() else {
-            return None;
-        };
-        let Some(ref c) = *cache else {
-            drop(cache);
-            prewarm_mica_cache(monitor_x, monitor_y, monitor_w, monitor_h);
-            return None;
-        };
-        c.wallpaper_path != cache_key || c.timestamp.elapsed().as_secs() >= 30
-    };
-
-    if needs_update {
-        prewarm_mica_cache(monitor_x, monitor_y, monitor_w, monitor_h);
+    if needs_capture {
+        if let Some(blurred) = capture_and_blur_mica(monitor_x, monitor_y, monitor_w, monitor_h) {
+            MICA_CACHE.with(|cell| {
+                *cell.borrow_mut() = Some(MicaCache {
+                    monitor_x,
+                    monitor_y,
+                    monitor_w,
+                    monitor_h,
+                    blurred_image: blurred,
+                    timestamp: Instant::now(),
+                });
+            });
+        }
     }
 
-    let blurred = {
-        let Ok(cache) = MICA_CACHE.lock() else {
-            return None;
-        };
-        cache.as_ref()?.blurred_image.clone()
-    };
+    let blurred = MICA_CACHE.with(|cell| {
+        let cache = cell.borrow();
+        cache.as_ref().map(|c| c.blurred_image.clone())
+    })?;
 
     let crop_x = (screen_x - monitor_x).max(0) as f32;
     let crop_y = (screen_y - monitor_y).max(0) as f32;
@@ -170,114 +135,137 @@ pub fn get_mica_background(
 }
 
 pub fn clear_mica_cache() {
-    if let Ok(mut cache) = MICA_CACHE.lock() {
-        *cache = None;
-    }
+    MICA_CACHE.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
 }
 
-fn get_wallpaper_path() -> Option<String> {
-    unsafe {
-        let mut buffer = [0u16; 260];
-        let result = SystemParametersInfoW(
-            windows::Win32::UI::WindowsAndMessaging::SPI_GETDESKWALLPAPER,
-            buffer.len() as u32,
-            Some(buffer.as_mut_ptr() as *mut _),
-            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-        );
-        if result.is_ok() {
-            let len = buffer.iter().position(|&c| c == 0).unwrap_or(0);
-            if len > 0 {
-                return Some(String::from_utf16_lossy(&buffer[..len]));
-            }
-        }
-        None
-    }
-}
-
-fn load_and_blur_wallpaper(
-    path: &str,
+fn capture_and_blur_mica(
     monitor_x: i32,
     monitor_y: i32,
     monitor_w: u32,
     monitor_h: u32,
 ) -> Option<Image> {
-    let img_data = std::fs::read(PathBuf::from(path)).ok()?;
-    let dyn_img = image::ImageReader::new(std::io::Cursor::new(&img_data))
-        .with_guessed_format()
-        .ok()?
-        .decode()
-        .ok()?;
+    let downscale = 8u32;
+    let cap_w = (monitor_w / downscale).max(1) as i32;
+    let cap_h = (monitor_h / downscale).max(1) as i32;
 
-    let (virtual_x, virtual_y, virtual_w, virtual_h) = get_virtual_screen_rect();
-
-    let thumb_max = 256u32;
-    let (orig_w, orig_h) = dyn_img.dimensions();
-    let scale = if orig_w > orig_h {
-        thumb_max as f32 / orig_w as f32
+    let hwnd_raw = MICA_HWND.load(Ordering::Acquire);
+    let hwnd = if hwnd_raw != 0 {
+        Some(HWND(hwnd_raw as *mut _))
     } else {
-        thumb_max as f32 / orig_h as f32
+        None
     };
-    let thumb_w = ((orig_w as f32 * scale).round() as u32).max(1);
-    let thumb_h = ((orig_h as f32 * scale).round() as u32).max(1);
-    let thumb = dyn_img.thumbnail(thumb_w, thumb_h);
-    let rgba = thumb.to_rgba8();
-    let (tw, th) = rgba.dimensions();
 
-    let info = ImageInfo::new(
-        ISize::new(tw as i32, th as i32),
-        ColorType::BGRA8888,
-        AlphaType::Unpremul,
-        None,
-    );
-
-    let mut bgra_pixels = vec![0u8; (tw * th * 4) as usize];
-    for (i, pixel) in rgba.pixels().enumerate() {
-        let dst = i * 4;
-        bgra_pixels[dst] = pixel[2];
-        bgra_pixels[dst + 1] = pixel[1];
-        bgra_pixels[dst + 2] = pixel[0];
-        bgra_pixels[dst + 3] = pixel[3];
-    }
-
-    let data = Data::new_copy(&bgra_pixels);
-    let src_img = images::raster_from_data(&info, data, (tw * 4) as usize)?;
-
-    let scale_x = tw as f32 / virtual_w as f32;
-    let scale_y = th as f32 / virtual_h as f32;
-
-    let crop_x = ((monitor_x - virtual_x) as f32 * scale_x).round() as i32;
-    let crop_y = ((monitor_y - virtual_y) as f32 * scale_y).round() as i32;
-    let crop_w = ((monitor_w as f32 * scale_x).round() as i32).max(1);
-    let crop_h = ((monitor_h as f32 * scale_y).round() as i32).max(1);
-
-    let mut crop_surface = surfaces::raster_n32_premul(ISize::new(crop_w, crop_h))?;
-    let crop_canvas = crop_surface.canvas();
-    crop_canvas.draw_image(&src_img, (-crop_x as f32, -crop_y as f32), None);
-    let cropped = crop_surface.image_snapshot();
-
-    let blur_sigma = 30.0f32;
-    let mut blur_surface = surfaces::raster_n32_premul(ISize::new(crop_w, crop_h))?;
-    let blur_canvas = blur_surface.canvas();
-    let mut paint = Paint::default();
-    if let Some(filter) = image_filters::blur((blur_sigma, blur_sigma), None, None, None) {
-        paint.set_image_filter(filter);
-    }
-    blur_canvas.draw_image(&cropped, (0, 0), Some(&paint));
-
-    Some(blur_surface.image_snapshot())
-}
-
-fn get_virtual_screen_rect() -> (i32, i32, i32, i32) {
     unsafe {
-        use windows::Win32::UI::WindowsAndMessaging::{
-            GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-            SM_YVIRTUALSCREEN,
-        };
-        let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-        let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-        let w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-        let h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-        (x, y, w, h)
+        if let Some(h) = hwnd {
+            let _ = SetWindowPos(
+                h,
+                HWND::default(),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_HIDEWINDOW,
+            );
+            std::thread::yield_now();
+        }
+
+        let hdc_screen = GetDC(HWND::default());
+        if hdc_screen.is_invalid() {
+            if let Some(h) = hwnd {
+                let _ = SetWindowPos(
+                    h,
+                    HWND::default(),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                );
+            }
+            return None;
+        }
+
+        let hdc_mem = CreateCompatibleDC(hdc_screen);
+        let hbm = CreateCompatibleBitmap(hdc_screen, cap_w, cap_h);
+        let old = SelectObject(hdc_mem, hbm);
+
+        let _ = SetStretchBltMode(hdc_mem, STRETCH_BLT_MODE(HALFTONE.0));
+        let _ = StretchBlt(
+            hdc_mem,
+            0,
+            0,
+            cap_w,
+            cap_h,
+            hdc_screen,
+            monitor_x,
+            monitor_y,
+            monitor_w as i32,
+            monitor_h as i32,
+            SRCCOPY,
+        );
+
+        let mut bmi: BITMAPINFO = std::mem::zeroed();
+        bmi.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
+        bmi.bmiHeader.biWidth = cap_w;
+        bmi.bmiHeader.biHeight = -cap_h;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB.0;
+
+        let pixel_count = (cap_w * cap_h * 4) as usize;
+        let mut pixels = vec![0u8; pixel_count];
+        GetDIBits(
+            hdc_mem,
+            hbm,
+            0,
+            cap_h as u32,
+            Some(pixels.as_mut_ptr() as *mut _),
+            &mut bmi,
+            DIB_RGB_COLORS,
+        );
+
+        SelectObject(hdc_mem, old);
+        let _ = DeleteObject(hbm);
+        let _ = DeleteDC(hdc_mem);
+        ReleaseDC(HWND::default(), hdc_screen);
+
+        if let Some(h) = hwnd {
+            let _ = SetWindowPos(
+                h,
+                HWND::default(),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+        }
+
+        for pixel in pixels.chunks_exact_mut(4) {
+            pixel[3] = 255;
+        }
+
+        let info = ImageInfo::new(
+            ISize::new(cap_w, cap_h),
+            ColorType::BGRA8888,
+            AlphaType::Opaque,
+            None,
+        );
+        let data = Data::new_copy(&pixels);
+        let src_img = images::raster_from_data(&info, data, (cap_w * 4) as usize)?;
+
+        let blur_sigma = 6.0f32;
+        let mut blur_surface = surfaces::raster_n32_premul(ISize::new(cap_w, cap_h))?;
+        let blur_canvas = blur_surface.canvas();
+        let mut paint = Paint::default();
+        if let Some(filter) = image_filters::blur((blur_sigma, blur_sigma), None, None, None) {
+            paint.set_image_filter(filter);
+        }
+        blur_canvas.draw_image(&src_img, (0, 0), Some(&paint));
+
+        Some(blur_surface.image_snapshot())
     }
 }
 

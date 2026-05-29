@@ -11,7 +11,7 @@ use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::glass::get_glass_background;
 use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
-    BlendMode, ClipOp, Color, FilterMode, ISize, MipmapMode, Paint, RRect, Rect, SamplingOptions,
+    ClipOp, Color, FilterMode, ISize, MipmapMode, Paint, RRect, Rect, SamplingOptions,
     Surface as SkSurface, image_filters, surfaces,
 };
 use softbuffer::Surface;
@@ -242,17 +242,10 @@ pub fn draw_island(
             let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
             canvas.draw_image_rect_with_sampling_options(&bg_img, None, rect, sampling, &paint);
 
-            let mut tint_paint = Paint::default();
-            tint_paint.set_blend_mode(BlendMode::Luminosity);
-            tint_paint.set_alpha_f(0.8);
-            tint_paint.set_anti_alias(true);
-
-            canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&tint_paint));
-            let mut fill = Paint::default();
-            fill.set_color(Color::from_rgb(32, 32, 32));
-            fill.set_anti_alias(true);
-            canvas.draw_rrect(rrect, &fill);
-            canvas.restore();
+            let mut overlay = Paint::default();
+            overlay.set_color(Color::from_argb(160, 32, 32, 32));
+            overlay.set_anti_alias(true);
+            canvas.draw_rrect(rrect, &overlay);
         } else {
             let mut bg_paint = Paint::default();
             bg_paint.set_color(Color::from_argb(205, 32, 32, 32));

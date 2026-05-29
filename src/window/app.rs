@@ -9,7 +9,7 @@ use crate::ui::expanded::music_view::{
     set_progress_dragging, set_progress_hover, trigger_cover_flip, trigger_next_click,
     trigger_pause_click, trigger_prev_click,
 };
-use crate::utils::backdrop::{clear_mica_cache, disable_mica, prewarm_mica_cache};
+use crate::utils::backdrop::{clear_mica_cache, disable_mica, set_mica_hwnd};
 use crate::utils::blur::calculate_blur_sigmas;
 use crate::utils::color::get_island_border_weights;
 use crate::utils::glass::set_glass_hwnd;
@@ -668,6 +668,7 @@ impl ApplicationHandler for App {
                     );
                 }
                 set_glass_hwnd(win32_handle.hwnd.get());
+                set_mica_hwnd(win32_handle.hwnd.get() as isize);
             }
 
             self.window = Some(window.clone());
@@ -693,7 +694,7 @@ impl ApplicationHandler for App {
                 (self.win_x, self.win_y) = self.compute_window_position(mon_pos, mon_size);
                 window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
                 if self.config.island_style == "mica" {
-                    prewarm_mica_cache(mon_pos.x, mon_pos.y, mon_size.width, mon_size.height);
+                    clear_mica_cache();
                 }
             }
             let context = Context::new(window.clone()).unwrap();
@@ -953,6 +954,7 @@ impl ApplicationHandler for App {
                             if let RawWindowHandle::Win32(win32_handle) = raw {
                                 let hwnd = HWND(win32_handle.hwnd.get() as _);
                                 disable_mica(hwnd);
+                                set_mica_hwnd(win32_handle.hwnd.get() as isize);
                             }
                         }
                     }
