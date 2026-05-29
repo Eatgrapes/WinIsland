@@ -197,12 +197,12 @@ pub fn draw_island(
 
         let mut shadow_paint = Paint::default();
         shadow_paint.set_anti_alias(true);
-        shadow_paint.set_color(Color::from_argb(35, 0, 0, 0));
-        if let Some(filter) = image_filters::blur((3.0, 3.0), None, None, None) {
+        shadow_paint.set_color(Color::from_argb(50, 0, 0, 0));
+        if let Some(filter) = image_filters::blur((5.0, 5.0), None, None, None) {
             shadow_paint.set_image_filter(filter);
         }
         let shadow_rrect = RRect::new_rect_xy(
-            Rect::from_xywh(offset_x, offset_y + 1.5, current_w, current_h),
+            Rect::from_xywh(offset_x, offset_y + 2.0, current_w, current_h),
             current_r,
             current_r,
         );
@@ -228,7 +228,7 @@ pub fn draw_island(
             canvas.draw_image_rect_with_sampling_options(&bg_img, None, rect, sampling, &paint);
         } else {
             let mut bg_paint = Paint::default();
-            bg_paint.set_color(Color::from_argb(205, 32, 32, 32));
+            bg_paint.set_color(Color::from_argb(180, 40, 40, 45));
             bg_paint.set_anti_alias(true);
             canvas.draw_rrect(rrect, &bg_paint);
         }
@@ -237,9 +237,13 @@ pub fn draw_island(
         let screen_y = win_y + offset_y as i32;
         canvas.save();
         canvas.clip_rrect(rrect, ClipOp::Intersect, true);
-        if let Some(bg_img) =
-            get_glass_background(screen_x, screen_y, current_w as u32, current_h as u32, 40.0)
-        {
+        if let Some(bg_img) = get_glass_background(
+            screen_x,
+            screen_y,
+            current_w as u32,
+            current_h as u32,
+            40.0 * global_scale,
+        ) {
             let mut paint = Paint::default();
             paint.set_anti_alias(true);
             let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
