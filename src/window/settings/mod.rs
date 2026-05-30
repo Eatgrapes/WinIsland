@@ -1517,7 +1517,10 @@ impl ApplicationHandler for SettingsApp {
         let frame_start = Instant::now();
         self.frame_count += 1;
         if self.frame_count.is_multiple_of(30) {
+            // SAFETY: OpenMutexW opens an existing named mutex. The mutex name is a static
+            // string literal. CloseHandle is called on the valid handle returned by OpenMutexW.
             unsafe {
+
                 let h = OpenMutexW(
                     MUTEX_ALL_ACCESS,
                     false,
