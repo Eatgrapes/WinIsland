@@ -9,7 +9,7 @@ use crate::ui::expanded::widget_view::draw_widget_page;
 use crate::utils::backdrop::{get_dynamic_bg_color, get_last_valid_color, get_mica_background};
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::glass::get_glass_background;
-use crate::utils::liquid_glass::{get_liquid_glass_background, should_use_dark_text};
+use crate::utils::liquid_glass::get_liquid_glass_background;
 use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
     ClipOp, Color, FilterMode, ISize, MipmapMode, Paint, RRect, Rect, SamplingOptions,
@@ -191,17 +191,8 @@ pub fn draw_island(
 
     let mut bg_color = Color::BLACK;
 
-    let use_dark_text = island_style == "liquid_glass" && should_use_dark_text();
-    let text_color = if use_dark_text {
-        Color::from_argb(255, 20, 20, 20)
-    } else {
-        Color::WHITE
-    };
-    let text_color_sec = if use_dark_text {
-        Color::from_argb(255, 60, 60, 60)
-    } else {
-        Color::WHITE
-    };
+    let text_color = Color::WHITE;
+    let text_color_sec = Color::WHITE;
 
     if island_style == "liquid_glass" {
         let screen_x = win_x + offset_x as i32;

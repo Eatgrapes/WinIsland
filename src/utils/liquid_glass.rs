@@ -131,19 +131,6 @@ pub fn clear_liquid_glass_cache() {
     });
 }
 
-thread_local! {
-    static BG_BRIGHTNESS: RefCell<Option<f32>> = const { RefCell::new(None) };
-}
-
-#[allow(dead_code)]
-pub fn get_background_brightness() -> Option<f32> {
-    BG_BRIGHTNESS.with(|cell| *cell.borrow())
-}
-
-pub fn should_use_dark_text() -> bool {
-    BG_BRIGHTNESS.with(|cell| cell.borrow().is_some_and(|b| b > 0.55))
-}
-
 fn render_liquid_glass(
     screen_x: i32,
     screen_y: i32,
@@ -151,19 +138,21 @@ fn render_liquid_glass(
     h: u32,
     corner_radius: f32,
 ) -> Option<Image> {
-    let blur_sigma = 20.0f32;
-    let margin = (blur_sigma * 3.0).max(20.0) as i32;
-
-    let cap_x = (screen_x - margin).max(0);
-    let cap_y = (screen_y - margin).max(0);
-    let cap_w = w as i32 + 2 * margin;
-    let cap_h = h as i32 + 2 * margin;
+    // PERFORMANCE: downscale 4x like glass.rs to reduce pixel count 16x.
+    // The SKSL shader does 5 texture lookups per pixel, so this dramatically
+    // reduces GPU work. The result is scaled back up at the end.
+    let downscale = 4u32;
+    let margin = ((w.max(h) / downscale) as i32).max(20);
+    let cap_full_w = (w as i32 + 2 * margin).max(1);
+    let cap_full_h = (h as i32 + 2 * margin).max(1);
+    let cap_w = (cap_full_w / downscale as i32).max(1);
+    let cap_h = (cap_full_h / downscale as i32).max(1);
 
     // SAFETY: GDI screen capture for liquid glass backdrop. All Win32 API
     // calls operate on valid handles obtained within this block. Resources
     // are released in reverse order: SelectObject restore, DeleteObject,
     // DeleteDC, ReleaseDC. GetDC with default HWND retrieves the desktop DC.
-    let result = unsafe {
+    unsafe {
         let hdc_screen = GetDC(windows::Win32::Foundation::HWND::default());
         if hdc_screen.is_invalid() {
             return None;
@@ -182,8 +171,19 @@ fn render_liquid_glass(
         }
         let old = SelectObject(hdc_mem, hbm);
 
-        let _ = BitBlt(
-            hdc_mem, 0, 0, cap_w, cap_h, hdc_screen, cap_x, cap_y, SRCCOPY,
+        let _ = SetStretchBltMode(hdc_mem, STRETCH_BLT_MODE(HALFTONE.0));
+        let _ = StretchBlt(
+            hdc_mem,
+            0,
+            0,
+            cap_w,
+            cap_h,
+            hdc_screen,
+            screen_x - margin,
+            screen_y - margin,
+            cap_full_w,
+            cap_full_h,
+            SRCCOPY,
         );
 
         let mut bmi: BITMAPINFO = std::mem::zeroed();
@@ -224,6 +224,8 @@ fn render_liquid_glass(
         let data = Data::new_copy(&pixels);
         let src_img = images::raster_from_data(&info, data, (cap_w * 4) as usize)?;
 
+        // Blur at the downscaled resolution (cheap)
+        let blur_sigma = 20.0 / downscale as f32;
         let mut blur_surface = surfaces::raster_n32_premul(ISize::new(cap_w, cap_h))?;
         let blur_canvas = blur_surface.canvas();
         let mut blur_paint = Paint::default();
@@ -235,10 +237,14 @@ fn render_liquid_glass(
 
         let effect = get_or_init_effect()?;
 
-        let shape_x = (screen_x - cap_x) as f32;
-        let shape_y = (screen_y - cap_y) as f32;
-        let shape_w = w as f32;
-        let shape_h = h as f32;
+        // The effect is applied at downscaled coords but the shader expects
+        // full-res shape dimensions. Scale uniforms accordingly.
+        let ds = downscale as f32;
+        let scaled_margin = margin as f32;
+        let shape_x = scaled_margin;
+        let shape_y = scaled_margin;
+        let shape_w = w as f32 / ds;
+        let shape_h = h as f32 / ds;
 
         let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
         let bg_shader = blurred.to_shader((TileMode::Clamp, TileMode::Clamp), sampling, None)?;
@@ -258,7 +264,12 @@ fn render_liquid_glass(
                     write_f32(&mut uniform_data, off + 12, shape_h);
                 }
                 "uRadius" => {
-                    write_f32(&mut uniform_data, u.offset(), corner_radius);
+                    let scaled = if corner_radius > 0.0 {
+                        (corner_radius / ds).max(1.0)
+                    } else {
+                        0.0
+                    };
+                    write_f32(&mut uniform_data, u.offset(), scaled);
                 }
                 _ => {}
             }
@@ -268,28 +279,38 @@ fn render_liquid_glass(
         let children = [skia_safe::runtime_effect::ChildPtr::from(bg_shader)];
         let liquid_shader = effect.make_shader(uniform_data_obj, &children, None)?;
 
-        let crop_x = (screen_x - cap_x) as f32;
-        let crop_y = (screen_y - cap_y) as f32;
+        // Render effect at downscaled size
+        let final_w = (w / downscale).max(1) as i32;
+        let final_h = (h / downscale).max(1) as i32;
 
-        let mut final_surface = surfaces::raster_n32_premul(ISize::new(w as i32, h as i32))?;
+        let mut final_surface = surfaces::raster_n32_premul(ISize::new(final_w, final_h))?;
         let final_canvas = final_surface.canvas();
 
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
         paint.set_shader(liquid_shader);
 
-        final_canvas.translate((-crop_x, -crop_y));
         final_canvas.draw_rect(
             Rect::from_xywh(0.0, 0.0, cap_w as f32, cap_h as f32),
             &paint,
         );
 
-        let final_img = final_surface.image_snapshot();
+        let rendered = final_surface.image_snapshot();
 
-        let mut border_surface = surfaces::raster_n32_premul(ISize::new(w as i32, h as i32))?;
-        let border_canvas = border_surface.canvas();
-        border_canvas.draw_image(&final_img, (0, 0), None);
+        // Scale back up to full resolution
+        let mut upscale_surface = surfaces::raster_n32_premul(ISize::new(w as i32, h as i32))?;
+        let up_canvas = upscale_surface.canvas();
+        let up_rect = Rect::from_xywh(0.0, 0.0, w as f32, h as f32);
+        let up_sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
+        up_canvas.draw_image_rect_with_sampling_options(
+            &rendered,
+            None,
+            up_rect,
+            up_sampling,
+            &Paint::default(),
+        );
 
+        // Border rendering at full res
         let mut outer_border = Paint::default();
         outer_border.set_anti_alias(true);
         outer_border.set_color(Color::from_argb(110, 255, 255, 255));
@@ -300,7 +321,7 @@ fn render_liquid_glass(
             corner_radius,
             corner_radius,
         );
-        border_canvas.draw_rrect(outer_rrect, &outer_border);
+        up_canvas.draw_rrect(outer_rrect, &outer_border);
 
         let inset = 1.0f32;
         let inner_rrect = RRect::new_rect_xy(
@@ -313,49 +334,8 @@ fn render_liquid_glass(
         inner_border.set_color(Color::from_argb(55, 255, 255, 255));
         inner_border.set_style(skia_safe::PaintStyle::Stroke);
         inner_border.set_stroke_width(0.5);
-        border_canvas.draw_rrect(inner_rrect, &inner_border);
+        up_canvas.draw_rrect(inner_rrect, &inner_border);
 
-        Some(border_surface.image_snapshot())
-    };
-
-    result.as_ref()?;
-
-    if let Some(ref img) = result {
-        let info = ImageInfo::new(
-            ISize::new(img.width(), img.height()),
-            ColorType::BGRA8888,
-            AlphaType::Premul,
-            None,
-        );
-        let mut pixels = vec![0u8; (img.width() * img.height() * 4) as usize];
-        if img.read_pixels(
-            &info,
-            &mut pixels,
-            (img.width() * 4) as usize,
-            (0, 0),
-            skia_safe::image::CachingHint::Allow,
-        ) {
-            let mut lum_sum = 0.0f32;
-            let mut count = 0u32;
-            let step = (img.width() as usize / 8).max(1);
-            for y in (0..img.height() as usize).step_by(step) {
-                for x in (0..img.width() as usize).step_by(step) {
-                    let idx = (y * img.width() as usize + x) * 4;
-                    if idx + 2 < pixels.len() {
-                        let b = pixels[idx] as f32 / 255.0;
-                        let g = pixels[idx + 1] as f32 / 255.0;
-                        let r = pixels[idx + 2] as f32 / 255.0;
-                        lum_sum += 0.299 * r + 0.587 * g + 0.114 * b;
-                        count += 1;
-                    }
-                }
-            }
-            if count > 0 {
-                let avg_lum = lum_sum / count as f32;
-                BG_BRIGHTNESS.with(|cell| *cell.borrow_mut() = Some(avg_lum));
-            }
-        }
+        Some(upscale_surface.image_snapshot())
     }
-
-    result
 }
