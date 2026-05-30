@@ -9,7 +9,7 @@ static GLOBAL_FONT_MANAGER: OnceLock<FontManager> = OnceLock::new();
 
 type TextGroup = (String, Typeface, bool);
 type TextGroups = Vec<TextGroup>;
-type TextCacheValue = (String, TextGroups);
+type TextCacheValue = (f32, TextGroups);
 type TextCacheMap = HashMap<u64, TextCacheValue>;
 
 pub struct DrawTextInRectParams<'a> {
@@ -140,6 +140,64 @@ fn get_typeface_for_char(c: char, style: FontStyle) -> (Typeface, bool) {
     })
 }
 
+fn is_ascii_text(text: &str) -> bool {
+    text.bytes().all(|b| b.is_ascii())
+}
+
+/// Compute text groups and total width.
+/// Falls back to a single typeface for ASCII-only text to skip per-char lookups.
+fn compute_text_groups(text: &str, size: f32, style: FontStyle) -> (f32, TextGroups) {
+    let mut current_w = 0.0;
+    let mut groups: TextGroups = Vec::new();
+
+    if is_ascii_text(text) {
+        let tf = FONT_MGR.with(|mgr| {
+            mgr.match_family_style("Microsoft YaHei", style)
+                .or_else(|| mgr.match_family_style("Segoe UI", style))
+                .unwrap_or_else(|| mgr.legacy_make_typeface(None, style).unwrap())
+        });
+        let embolden = needs_synthetic_bold(&tf, style);
+        let mut font = Font::from_typeface(tf.clone(), size);
+        if embolden {
+            font.set_embolden(true);
+        }
+        let (w, _) = font.measure_str(text, None);
+        current_w += w;
+        groups.push((text.to_string(), tf, embolden));
+        return (current_w, groups);
+    }
+
+    let mut current_group = String::new();
+    let mut last_tf: Option<Typeface> = None;
+    let mut last_embolden = false;
+    for c in text.chars() {
+        let (tf, embolden) = get_typeface_for_char(c, style);
+        if let Some(ref ltf) = last_tf
+            && (ltf.unique_id() != tf.unique_id() || last_embolden != embolden)
+        {
+            groups.push((current_group.clone(), ltf.clone(), last_embolden));
+            current_group.clear();
+        }
+        last_tf = Some(tf);
+        last_embolden = embolden;
+        current_group.push(c);
+    }
+    if let Some(ltf) = last_tf {
+        groups.push((current_group, ltf, last_embolden));
+    }
+
+    for (s, tf, embolden) in &groups {
+        let mut font = Font::from_typeface(tf.clone(), size);
+        if *embolden {
+            font.set_embolden(true);
+        }
+        let (w, _) = font.measure_str(s, None);
+        current_w += w;
+    }
+
+    (current_w, groups)
+}
+
 impl FontManager {
     pub fn global() -> &'static FontManager {
         GLOBAL_FONT_MANAGER.get_or_init(|| FontManager { _marker: () })
@@ -243,42 +301,12 @@ impl FontManager {
         TEXT_CACHE.with(|cache| {
             let mut cache_mut = cache.borrow_mut();
             evict_one_if_full(&mut cache_mut, TEXT_CACHE_LIMIT);
-            if !cache_mut.contains_key(&cache_key) {
-                let mut current_w = 0.0;
-                let mut groups: Vec<(String, Typeface, bool)> = Vec::new();
-                let mut current_group = String::new();
-                let mut last_tf: Option<Typeface> = None;
-                let mut last_embolden = false;
-                for c in text.chars() {
-                    let (tf, embolden) = get_typeface_for_char(c, style);
-                    if let Some(ref ltf) = last_tf
-                        && (ltf.unique_id() != tf.unique_id() || last_embolden != embolden)
-                    {
-                        groups.push((current_group.clone(), ltf.clone(), last_embolden));
-                        current_group.clear();
-                    }
-                    last_tf = Some(tf);
-                    last_embolden = embolden;
-                    current_group.push(c);
-                }
-                if let Some(ltf) = last_tf {
-                    groups.push((current_group, ltf, last_embolden));
-                }
-
-                for (s, tf, embolden) in &groups {
-                    let mut font = Font::from_typeface(tf.clone(), size);
-                    if *embolden {
-                        font.set_embolden(true);
-                    }
-                    let (w, _) = font.measure_str(s, None);
-                    current_w += w;
-                }
-
-                cache_mut.insert(cache_key, (current_w.to_string(), groups));
-                return current_w;
+            if let Some((width, _)) = cache_mut.get(&cache_key) {
+                return *width;
             }
-            let (w_str, _) = cache_mut.get(&cache_key).unwrap();
-            w_str.parse::<f32>().unwrap_or(0.0)
+            let (width, groups) = compute_text_groups(text, size, style);
+            cache_mut.insert(cache_key, (width, groups));
+            width
         })
     }
 
@@ -293,26 +321,8 @@ impl FontManager {
             let mut cache_mut = cache.borrow_mut();
             evict_one_if_full(&mut cache_mut, TEXT_CACHE_LIMIT);
             if !cache_mut.contains_key(&cache_key) {
-                let mut groups: TextGroups = Vec::new();
-                let mut current_group = String::new();
-                let mut last_tf: Option<Typeface> = None;
-                let mut last_embolden = false;
-                for c in params.text.chars() {
-                    let (tf, embolden) = get_typeface_for_char(c, style);
-                    if let Some(ref ltf) = last_tf
-                        && (ltf.unique_id() != tf.unique_id() || last_embolden != embolden)
-                    {
-                        groups.push((current_group.clone(), ltf.clone(), last_embolden));
-                        current_group.clear();
-                    }
-                    last_tf = Some(tf);
-                    last_embolden = embolden;
-                    current_group.push(c);
-                }
-                if let Some(ltf) = last_tf {
-                    groups.push((current_group, ltf, last_embolden));
-                }
-                cache_mut.insert(cache_key, (params.text.to_string(), groups));
+                let (_, groups) = compute_text_groups(params.text, params.size, style);
+                cache_mut.insert(cache_key, (0.0, groups));
             }
             let (_, groups) = cache_mut.get(&cache_key).unwrap();
             let mut x = params.x;

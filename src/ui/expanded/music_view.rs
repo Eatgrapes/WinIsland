@@ -775,32 +775,6 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             (s.value, (s.velocity.abs() * 40.0 * scale).clamp(0.0, 15.0))
         });
 
-        let mut effective_is_playing = media.is_playing;
-        LOCAL_PLAY_STATE.with(|cell| {
-            let mut opt = cell.borrow_mut();
-            if let Some((opt_val, time)) = *opt {
-                if media.is_playing == opt_val || time.elapsed().as_millis() > 2000 {
-                    *opt = None;
-                } else {
-                    effective_is_playing = opt_val;
-                }
-            }
-        });
-
-        let pause_t = PAUSE_ANIM.with(|cell| {
-            let mut v = cell.borrow_mut();
-            let target = if effective_is_playing { 1.0_f32 } else { 0.0 };
-            if pause_s < 0.15 {
-                *v = target;
-            } else {
-                *v += (target - *v) * 0.12;
-                if (*v - target).abs() < 0.005 {
-                    *v = target;
-                }
-            }
-            *v
-        });
-
         canvas.save();
         if pause_blur > 0.1 && use_blur {
             let mut blur_paint = Paint::default();
