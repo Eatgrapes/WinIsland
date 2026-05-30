@@ -1,6 +1,6 @@
 # What is WinIsland?
 
-WinIsland is a modern, dynamic island implementation for Windows desktops. Inspired by IOS, it provides a centralized hub for media controls, system status, and various tools, all with a sleek and non-intrusive design.
+WinIsland is a modern, dynamic island implementation for Windows desktops. Inspired by iOS, it provides a centralized hub for media controls, system status, and various tools, all with a sleek and non-intrusive design.
 
 ## Key Features
 

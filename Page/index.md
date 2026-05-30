@@ -20,7 +20,7 @@ features:
   - title: "Rust Powered"
     details: "Built with Rust and Skia for high performance and low resource usage."
   - title: "Dynamic Animations"
-    details: "Fluid spring-based animations for a smooth and modern feel ."
+    details: "Fluid spring-based animations for a smooth and modern feel."
   - title: "Media Integration"
     details: "Real-time media control and spectrum visualization at your fingertips."
   - title: "Customizable"

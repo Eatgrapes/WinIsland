@@ -120,6 +120,24 @@ impl PluginResultC {
     }
 }
 
+/// Fill a fixed-size byte buffer with a string, zeroing the rest.
+///
+/// Useful for initialising `#[repr(C)]` struct fields with a
+/// null-terminated string. The string is truncated if it doesn't fit.
+///
+/// ```rust
+/// use winisland_plugin_api::str_to_fixed;
+/// let buf: [u8; 64] = str_to_fixed("hello");
+/// assert_eq!(&buf[..6], b"hello\0");
+/// assert_eq!(buf[6..].iter().all(|&b| b == 0), true);
+/// ```
+pub fn str_to_fixed<const N: usize>(s: &str) -> [u8; N] {
+    let mut buf = [0u8; N];
+    let len = s.len().min(N - 1);
+    buf[..len].copy_from_slice(&s.as_bytes()[..len]);
+    buf
+}
+
 /// Fixed-width plugin metadata exchanged over FFI.
 ///
 /// Every field is a fixed-size byte buffer. The host reads them via
@@ -290,11 +308,11 @@ pub struct PluginVTable {
 ///     PluginInstanceC {
 ///         handle: std::ptr::null_mut(),
 ///         metadata: PluginMetadataC {
-///             id: read_c_str(b"my-plugin\0"),
-///             name: read_c_str(b"My Plugin\0"),
-///             version: read_c_str(b"1.0.0\0"),
-///             author: read_c_str(b"Me\0"),
-///             description: read_c_str(b"Does cool stuff\0"),
+///             id: str_to_fixed("my-plugin"),
+///             name: str_to_fixed("My Plugin"),
+///             version: str_to_fixed("1.0.0"),
+///             author: str_to_fixed("Me"),
+///             description: str_to_fixed("Does cool stuff"),
 ///         },
 ///         vtable: &VTABLE,
 ///         plugin_type: PluginType::Content as u32,
