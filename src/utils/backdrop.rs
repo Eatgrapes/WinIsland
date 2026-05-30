@@ -1,3 +1,4 @@
+use crate::utils::win32::with_capture_exclusion;
 use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
     AlphaType, Color, ColorType, Data, FilterMode, ISize, Image, ImageInfo, MipmapMode, Paint,
@@ -97,7 +98,9 @@ pub fn get_mica_background(
     });
 
     if needs_capture
-        && let Some(blurred) = capture_and_blur_mica(monitor_x, monitor_y, monitor_w, monitor_h)
+        && let Some(blurred) = with_capture_exclusion(|| {
+            capture_and_blur_mica(monitor_x, monitor_y, monitor_w, monitor_h)
+        })
     {
         MICA_CACHE.with(|cell| {
             *cell.borrow_mut() = Some(MicaCache {

@@ -1,3 +1,4 @@
+use crate::utils::win32::with_capture_exclusion;
 use skia_safe::{
     AlphaType, Color, ColorType, Data, FilterMode, ISize, Image, ImageInfo, MipmapMode, Paint,
     RRect, Rect, SamplingOptions, TileMode, image_filters, images, surfaces,
@@ -114,7 +115,8 @@ pub fn get_liquid_glass_background(
         return Some(img);
     }
 
-    let result = render_liquid_glass(screen_x, screen_y, w, h, corner_radius);
+    let result =
+        with_capture_exclusion(|| render_liquid_glass(screen_x, screen_y, w, h, corner_radius));
 
     if let Some(ref img) = result {
         GLASS_CACHE.with(|cell| {

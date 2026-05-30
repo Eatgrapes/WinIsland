@@ -1,8 +1,9 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowW, GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, PostMessageW, SW_RESTORE,
     SWP_NOACTIVATE, SetForegroundWindow, SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos,
-    ShowWindow, WDA_EXCLUDEFROMCAPTURE, WM_CLOSE,
+    ShowWindow, WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WM_CLOSE,
 };
 use windows::core::PCWSTR;
 
@@ -59,8 +60,32 @@ pub fn set_window_topmost(hwnd: HWND, x: i32, y: i32, w: i32, h: i32) {
     }
 }
 
-pub fn set_window_exclude_from_capture(hwnd: HWND) {
-    unsafe {
-        let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+static ISLAND_HWND: AtomicUsize = AtomicUsize::new(0);
+
+pub fn set_island_hwnd(hwnd: HWND) {
+    ISLAND_HWND.store(hwnd.0 as usize, Ordering::Relaxed);
+}
+
+/// Temporarily exclude the island window from GDI capture, execute `f`,
+/// then restore capture visibility.
+///
+/// This keeps the island visible to screenshot tools by default (WDA_NONE),
+/// but hides it during glass-effect GDI screen capture to prevent self-feedback
+/// (the island's own content being blurred into the background).
+pub fn with_capture_exclusion<R>(f: impl FnOnce() -> R) -> R {
+    let raw = ISLAND_HWND.load(Ordering::Relaxed);
+    if raw != 0 {
+        let hwnd = HWND(raw as *mut std::ffi::c_void);
+        unsafe {
+            let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        }
     }
+    let result = f();
+    if raw != 0 {
+        let hwnd = HWND(raw as *mut std::ffi::c_void);
+        unsafe {
+            let _ = SetWindowDisplayAffinity(hwnd, WDA_NONE);
+        }
+    }
+    result
 }

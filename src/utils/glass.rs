@@ -1,3 +1,4 @@
+use crate::utils::win32::with_capture_exclusion;
 use skia_safe::{
     AlphaType, Color, ColorType, Data, ISize, Image, ImageInfo, Paint, image_filters, images,
     surfaces,
@@ -11,11 +12,6 @@ type GlassCacheEntry = (Image, Instant, i32, i32, u32, u32);
 
 thread_local! {
     static GLASS_CACHE: RefCell<Option<GlassCacheEntry>> = const { RefCell::new(None) };
-    static GLASS_HWND: RefCell<isize> = const { RefCell::new(0) };
-}
-
-pub fn set_glass_hwnd(hwnd_raw: isize) {
-    GLASS_HWND.with(|cell| *cell.borrow_mut() = hwnd_raw);
 }
 
 /// Frosted dark glass backdrop: captures the island region + margin from the
@@ -54,7 +50,9 @@ pub fn get_glass_background(
 
     // SAFETY: capture_and_blur has been validated by the caller: w and h
     // are non-zero. The function internally checks GDI handle validity.
-    let result = unsafe { capture_and_blur(screen_x, screen_y, w, h, blur_sigma) };
+    let result = with_capture_exclusion(|| unsafe {
+        capture_and_blur(screen_x, screen_y, w, h, blur_sigma)
+    });
 
     if let Some(ref img) = result {
         GLASS_CACHE.with(|cell| {

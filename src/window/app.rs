@@ -14,7 +14,6 @@ use crate::ui::expanded::music_view::{
 use crate::utils::backdrop::{clear_mica_cache, disable_mica};
 use crate::utils::blur::calculate_blur_sigmas;
 use crate::utils::color::get_island_border_weights;
-use crate::utils::glass::set_glass_hwnd;
 use crate::utils::icon::get_app_icon;
 use crate::utils::liquid_glass::clear_liquid_glass_cache;
 use crate::utils::mouse::{
@@ -887,8 +886,7 @@ impl ApplicationHandler for App {
                     0,
                     WS_MAXIMIZEBOX.0 as isize | WS_THICKFRAME.0 as isize,
                 );
-                set_glass_hwnd(win32_handle.hwnd.get());
-                crate::utils::win32::set_window_exclude_from_capture(hwnd);
+                crate::utils::win32::set_island_hwnd(hwnd);
             }
 
             self.window = Some(window.clone());
