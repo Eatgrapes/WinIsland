@@ -37,4 +37,4 @@ And You should see [Contributing](CONTRIBUTING.md)
 > Any PRs not following the [Contributing Guidelines](CONTRIBUTING.md) will be closed.
 
 ## LICENCE
-[MIT](LICENSE)
+This project is subject to the [GNU General Public License v3.0](LICENSE).
