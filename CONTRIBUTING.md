@@ -4,13 +4,15 @@ English | [简体中文](Docs/CONTRIBUTING-zh.md)
 
 Thank you for your interest in the WinIsland project! This document will help you understand how to contribute.
 
-## PR Contribution Scope
+## 1. PR Contribution Scope
 
 For non-project-members, your PR can cover the following areas:
 
-1. Issues already labelled `accepted` — you may submit a PR for these.
-2. Documentation, comments, code cleanups (e.g. fixing clippy warnings), minor UI tweaks, and other small, well-defined changes.
-3. Feature PRs with a large diff (new features, refactoring core modules, etc.) require a detailed design proposal in the PR first; project members will then review it.
+1.1. Issues already labelled `accepted` — you may submit a PR for these.
+
+1.2. Documentation, comments, code cleanups (e.g. fixing clippy warnings), minor UI tweaks, and other small, well-defined changes.
+
+1.3. Feature PRs with a large diff (new features, refactoring core modules, etc.) require a detailed design proposal in the PR first; project members will then review it.
 
 ⛔ For PRs that fall outside this scope, project members **have the right to reject them directly**.
 
@@ -18,7 +20,7 @@ For non-project-members, your PR can cover the following areas:
 >
 > (Of course, if there has already been discussion in an issue, feel free to jump right in :P Just let us know :D)
 
-## Development Environment Requirements
+## 2. Development Environment Requirements
 
 - **Rust**: 1.80+ (installation via [rustup](https://rustup.rs/) is recommended)
 - **Git**: latest version
@@ -29,51 +31,51 @@ After the initial clone, run:
 cargo build
 ```
 
-## Code Standards
+## 3. Code Standards
 
-### Rust Code Style
+### 3.1 Rust Code Style
 
-**Formatting**: Must be run before committing:
+**3.1.1 Formatting**: Must be run before committing:
 ```bash
 cargo fmt --all
 ```
 
-**Linting**: All clippy checks must pass with no warnings allowed:
+**3.1.2 Linting**: All clippy checks must pass with no warnings allowed:
 ```bash
 cargo clippy --workspace -- -D warnings
 ```
 
-**Naming conventions**:
+**3.1.3 Naming conventions**:
 - File names: `snake_case` (e.g. `audio_capture.rs`)
 - Functions/variables: `snake_case` (e.g. `get_media_info`)
 - Structs/enums/traits: `PascalCase` (e.g. `MediaInfo`, `AudioProcessor`)
 - Constants/statics: `SCREAMING_SNAKE_CASE` (e.g. `MAX_SAMPLE_RATE`)
 
-**Comment conventions**:
+**3.1.4 Comment conventions**:
 - Complex logic or `unsafe` blocks require inline comments explaining the reasoning.
 - Avoid meaningless comments (e.g. ones that simply repeat what the code says).
 
-**Windows-specific**:
+**3.1.5 Windows-specific**:
 - All Win32 API calls must be wrapped inside `unsafe {}` blocks.
 - Code involving windows, audio, or SMTC must pay attention to thread safety.
 
-### Rendering (Skia)
+### 3.2 Rendering (Skia)
 
 - When modifying drawing logic in `src/core/render.rs`, ensure the Skia surface has been properly initialized.
 - Drawing code should use the 2D APIs provided by `skia_safe`; do not manually write into pixel buffers.
 - Adding new icons: define Skia paths under `src/icons/`; do not hardcode SVGs elsewhere.
 
-### Async Code
+### 3.3 Async Code
 
 - All async tasks should be started with `tokio::spawn`, for example updaters and audio capture.
 - When interacting with the winit event loop, use `tokio` channels or `winit::event_loop::EventLoopProxy` for cross-thread communication.
 
-### ui Guidelines
+### 3.4 UI Guidelines
 - All new/modified UI should follow Apple Design guidelines and maintain consistency with existing UI styles.
 
-## Git Workflow
+## 4. Git Workflow
 
-### Branch Naming
+### 4.1 Branch Naming
 
 - `feat/feature-name` — new feature
 - `fix/issue-description` — bug fix
@@ -81,7 +83,7 @@ cargo clippy --workspace -- -D warnings
 - `chore/task-description` — chores (dependency updates, build config, etc.)
 - `docs/documentation-description` — documentation updates
 
-### Commit Conventions
+### 4.2 Commit Conventions
 
 This project enforces [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). Format:
 
@@ -110,7 +112,7 @@ fix(render): fix rounded corner drawing issue in extended mode
 docs(contributing): supplement Skia rendering guidelines
 ```
 
-### Commit Checks
+### 4.3 Commit Checks
 
 The repository has automated checks configured:
 
@@ -118,13 +120,13 @@ The repository has automated checks configured:
 - `commit-msg`: validates that the commit message follows the Conventional Commits format.
 - CI: runs clippy, format checks, builds, and tests (if any) once more.
 
-### What if my commit is blocked?
+### 4.4 What if my commit is blocked?
 
 1. `cargo fmt` fails → run `cargo fmt --all`, then `git add` again.
 2. Commit message does not conform → rewrite it using the `<type>: description` format.
 3. Run self-checks beforehand: `cargo fmt --all -- --check && cargo clippy --workspace -- -D warnings && cargo build`
 
-### Pull Request Process
+### 4.5 Pull Request Process
 
 1. Fork the repository and create a branch:
    ```bash
@@ -148,9 +150,9 @@ The repository has automated checks configured:
     - Keep the PR title concise (≤70 characters). The description should include a summary of changes, testing instructions, and related issues.
     - If you changed configuration items (`config.rs`), describe backward compatibility.
 
-## Code Review Standards
+## 5. Code Review Standards
 
-### Must Meet
+### 5.1 Must Meet
 
 - ✅ All CI checks pass
 - ✅ `cargo fmt` produces no diff
@@ -159,30 +161,30 @@ The repository has automated checks configured:
 - ✅ Feature is complete and does not break existing SMTC monitoring or window behavior
 - ✅ `unsafe` blocks have adequate justification and their safety has been reviewed
 
-### Should Meet
+### 5.2 Should Meet
 
 - Adequate comments and documentation
 - Tests added or updated for relevant modules (e.g. serialization tests in `src/core/config.rs`)
 - If there are UI changes, provide screenshots or describe animation effects (spring parameters, etc.)
 
-## FAQ
+## 6. FAQ
 
-### How do I run WinIsland?
+### 6.1 How do I run WinIsland?
 ```bash
 cargo run --package WinIsland --bin WinIsland --profile dev
 ```
 > Note: Only one instance can run at a time (protected by a Windows mutex).
 
-### Too many clippy warnings?
+### 6.2 Too many clippy warnings?
 ```bash
 cargo clippy --fix --allow-dirty
 ```
 
-### How do I test audio visualization?
+### 6.3 How do I test audio visualization?
 - Play any audio that SMTC can recognize.
 - Check whether `src/core/audio.rs` behaves correctly (you can add temporary print statements during development).
 
-## Code of Conduct
+## 7. Code of Conduct
 
 - Respect all contributors, and remain kind and professional.
 - Accept constructive feedback.
