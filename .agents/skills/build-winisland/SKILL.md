@@ -1,7 +1,7 @@
 ---
 name: build-winisland
 description: Build, lint, and test the WinIsland Rust project. Use when the user wants to compile, check for errors, run clippy, format code, or execute tests. Trigger after every code change to verify correctness.
-license: MIT
+license: GPL-3.0
 metadata:
   project: WinIsland
 ---
