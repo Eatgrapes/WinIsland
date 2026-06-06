@@ -7,6 +7,9 @@ on:
       - 'Docs/**/*.md'
       - '*.md'
       - '.github/**'
+      - '.ai/**'
+      - '.agents/**'
+      - 'AGENTS.md'
 
 permissions:
   contents: read
@@ -16,6 +19,7 @@ env:
 
 jobs:
   build-and-test:
+    if: ${{ !contains(github.event.pull_request.title, '[ci-skip]') && !contains(github.event.pull_request.title, '[docs]') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
