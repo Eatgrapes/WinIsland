@@ -1,5 +1,5 @@
 ---
-name: commit-winisland
+name: commit-push
 description: Generate a Conventional Commit message from the current git diff and commit. Use when the user says 'commit', '/commit', 'commit changes', or asks to create a git commit.
 license: GPL-3.0
 metadata:
