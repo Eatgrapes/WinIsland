@@ -1,6 +1,6 @@
 ---
-name: build-winisland
-description: Build, lint, and test the WinIsland Rust project. Use when the user wants to compile, check for errors, run clippy, format code, or execute tests. Trigger after every code change to verify correctness.
+name: WinIsland PR Check
+description: Build and lint the WinIsland Rust project. Use when the user wants to compile, check for errors, run clippy, format code, or execute tests. Trigger after every code change to verify correctness.
 license: GPL-3.0
 metadata:
   project: WinIsland
@@ -32,15 +32,7 @@ cargo fmt --all
 
 Ensure all files are formatted. If the command makes changes, re-run step 1 and 2.
 
-## 4. Test
-
-```bash
-cargo test
-```
-
-Run all unit and integration tests.
-
-## 5. Release build (optional)
+## 4. Release build (optional)
 
 Only when the user explicitly asks for a release build:
 
