@@ -925,14 +925,74 @@ impl ApplicationHandler for App {
                     clear_mica_cache();
                 }
             }
-            let context = Context::new(window.clone()).unwrap();
-            let mut surface = Surface::new(&context, window.clone()).unwrap();
-            surface
-                .resize(
-                    std::num::NonZeroU32::new(self.os_w.max(1)).unwrap(),
-                    std::num::NonZeroU32::new(self.os_h.max(1)).unwrap(),
-                )
-                .unwrap();
+            // Retry GPU context creation up to 3 times with 500ms delay.
+            // Handles transient GPU unavailability (e.g., after taskkill from mpv script).
+            let (gpu_ctx, gpu_surface) = {
+                let mut last_err = None;
+                let mut created = None;
+                for attempt in 0..3 {
+                    if attempt > 0 {
+                        std::thread::sleep(Duration::from_millis(500));
+                        log::info!("Retrying softbuffer init (attempt {})", attempt + 1);
+                    }
+                    let ctx = match Context::new(window.clone()) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            last_err = Some(format!("Context::new: {e:?}"));
+                            continue;
+                        }
+                    };
+                    let mut surf = match Surface::new(&ctx, window.clone()) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            last_err = Some(format!("Surface::new: {e:?}"));
+                            continue;
+                        }
+                    };
+                    let w = std::num::NonZeroU32::new(self.os_w.max(1)).unwrap();
+                    let h = std::num::NonZeroU32::new(self.os_h.max(1)).unwrap();
+                    match surf.resize(w, h) {
+                        Ok(()) => {
+                            created = Some((ctx, surf));
+                            break;
+                        }
+                        Err(e) => {
+                            last_err = Some(format!("resize: {e:?}"));
+                        }
+                    }
+                }
+                match created {
+                    Some(pair) => pair,
+                    None => {
+                        log::error!(
+                            "Failed to create softbuffer surface after 3 retries: {:?}",
+                            last_err
+                        );
+                        let msg = format!(
+                            "WinIsland 初始化 GPU 失败，可能是驱动暂时不可用。\n请稍后再试。\n\n错误: {:?}",
+                            last_err
+                        );
+                        let msg_wide: Vec<u16> =
+                            msg.encode_utf16().chain(std::iter::once(0)).collect();
+                        let title_wide: Vec<u16> = "WinIsland - 启动错误"
+                            .encode_utf16()
+                            .chain(std::iter::once(0))
+                            .collect();
+                        unsafe {
+                            let _ = windows::Win32::UI::WindowsAndMessaging::MessageBoxW(
+                                None,
+                                PCWSTR::from_raw(msg_wide.as_ptr()),
+                                PCWSTR::from_raw(title_wide.as_ptr()),
+                                windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0),
+                            );
+                        }
+                        event_loop.exit();
+                        return;
+                    }
+                }
+            };
+            let context = gpu_ctx;
+            let mut surface = gpu_surface;
             if let Ok(mut buf) = surface.buffer_mut() {
                 for p in buf.iter_mut() {
                     *p = 0;

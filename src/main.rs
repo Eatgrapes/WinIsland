@@ -6,6 +6,7 @@ mod ui;
 mod utils;
 mod window;
 use crate::core::i18n::init_i18n;
+use crate::utils::logger;
 use crate::window::app::App;
 use std::env;
 use std::mem::ManuallyDrop;
@@ -16,8 +17,9 @@ use windows::core::w;
 use winit::event_loop::EventLoop;
 
 fn main() {
-    let _ = env_logger::try_init();
+    let _ = logger::init();
     let config = core::persistence::load_config();
+    logger::check_crash_flag();
     init_i18n(&config.language);
 
     let args: Vec<String> = env::args().collect();
