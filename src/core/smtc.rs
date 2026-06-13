@@ -264,6 +264,9 @@ fn smtc_poll_loop(
         current_allowed_apps = apps;
     }
 
+    let mut last_session_seen = Instant::now();
+    let mut last_was_playing = false;
+
     // Initial update with retries for SMTC timeline readiness.
     // Some music apps (Spotify, Netease) take 1-2s to populate
     // TimelineProperties after session creation, so we retry up
@@ -277,6 +280,8 @@ fn smtc_poll_loop(
             current_lyrics_local_dir.as_deref(),
             &mut current_allowed_apps,
             true,
+            &mut last_session_seen,
+            &mut last_was_playing,
         );
         let info = info_tx.borrow();
         let timeline_ready = info.duration_ms > 0
@@ -440,6 +445,8 @@ fn smtc_poll_loop(
                 current_lyrics_local_dir.as_deref(),
                 &mut current_allowed_apps,
                 true,
+                &mut last_session_seen,
+                &mut last_was_playing,
             );
             last_regular_update = Instant::now();
         }
@@ -459,6 +466,8 @@ fn smtc_poll_loop(
                 current_lyrics_local_dir.as_deref(),
                 &mut current_allowed_apps,
                 do_auto_allow,
+                &mut last_session_seen,
+                &mut last_was_playing,
             );
             last_regular_update = Instant::now();
         }
@@ -467,6 +476,7 @@ fn smtc_poll_loop(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn update_media_info(
     manager: &GlobalSystemMediaTransportControlsSessionManager,
     info_tx: &watch::Sender<MediaInfo>,
@@ -475,19 +485,31 @@ fn update_media_info(
     local_dir: Option<&str>,
     allowed_apps: &mut Vec<String>,
     auto_allow: bool,
+    last_session_seen: &mut Instant,
+    last_was_playing: &mut bool,
 ) {
     if auto_allow {
         *allowed_apps = auto_allow_new_apps(manager, allowed_apps);
     }
 
     if let Some(session) = get_target_session(manager, allowed_apps) {
+        *last_session_seen = Instant::now();
         let _ = fetch_properties(&session, info_tx, lyrics_source, lyrics_fallback, local_dir);
-    } else {
+        *last_was_playing = info_tx.borrow().is_playing;
+    } else if *last_was_playing {
         let info = info_tx.borrow();
         if !info.title.is_empty() {
             drop(info);
             let _ = info_tx.send(MediaInfo::default());
-            log::info!("SMTC: session lost, cleared media info");
+            log::info!("SMTC: app closed while playing, cleared immediately");
+        }
+        *last_was_playing = false;
+    } else if last_session_seen.elapsed() > Duration::from_secs(15) {
+        let info = info_tx.borrow();
+        if !info.title.is_empty() {
+            drop(info);
+            let _ = info_tx.send(MediaInfo::default());
+            log::info!("SMTC: paused session lost for >15s, cleared media info");
         }
     }
 }

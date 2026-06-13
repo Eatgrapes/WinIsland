@@ -5,6 +5,8 @@ use std::panic::{self, PanicHookInfo};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::SystemTime;
+use windows::Win32::UI::WindowsAndMessaging::{MESSAGEBOX_STYLE, MessageBoxW};
+use windows::core::PCWSTR;
 
 const LOG_DIR: &str = ".winisland/logs";
 const LOG_FILE: &str = "winisland.log";
@@ -142,11 +144,10 @@ pub fn check_crash_flag() {
 }
 
 fn write_crash_report(panic_info: &PanicHookInfo) {
-    let mut path = log_dir();
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default();
-    path.push(format!("crash-{}.txt", format_timestamp(now.as_secs())));
+    let ts = format_timestamp(now.as_secs());
 
     let msg = panic_info
         .payload()
@@ -175,17 +176,73 @@ Location: {}
 // Logs
 See ~/.winisland/logs/winisland.log for recent activity.
 "#,
-        format_timestamp(now.as_secs()),
-        location,
-        msg,
+        ts, location, msg,
     );
 
-    let _ = fs::write(&path, &report);
-    log::error!("Crash report written to {}", path.display());
+    // Try writing to log directory first
+    let mut path = log_dir();
+    path.push(format!("crash-{}.txt", ts));
+
+    if write_report_to(&path, &report).is_ok() {
+        show_message_box(
+            "WinIsland Crash",
+            "Crash report saved. Logs will be written on next startup.",
+        );
+        return;
+    }
+
+    // Fallback: write to Desktop
+    let msg_text = format!("WinIsland crashed at {}\n\nReason: {}", location, msg);
+    if let Some(desktop) = get_desktop_path() {
+        let mut desktop_path = desktop;
+        desktop_path.push(format!("WinIsland-crash-{}.txt", ts));
+        if write_report_to(&desktop_path, &report).is_ok() {
+            show_message_box(
+                "WinIsland Crash",
+                &format!("Crash report saved to:\n{}", desktop_path.display()),
+            );
+            return;
+        }
+    }
+
+    // Final fallback: show message box with crash info
+    show_message_box("WinIsland Crash", &msg_text);
 
     // Create crash flag for delayed startup next time
     let flag = crash_flag_path();
     let _ = fs::write(&flag, "");
+}
+
+fn show_message_box(title: &str, text: &str) {
+    let title_w: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+    let text_w: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        MessageBoxW(
+            None,
+            PCWSTR(text_w.as_ptr()),
+            PCWSTR(title_w.as_ptr()),
+            MESSAGEBOX_STYLE(0x00000010),
+        );
+    }
+}
+
+fn write_report_to(path: &std::path::Path, report: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut file = fs::File::create(path)?;
+    file.write_all(report.as_bytes())?;
+    file.sync_all()?;
+    Ok(())
+}
+
+fn get_desktop_path() -> Option<std::path::PathBuf> {
+    if let Ok(path) = std::env::var("USERPROFILE") {
+        let mut buf = std::path::PathBuf::from(path);
+        buf.push("Desktop");
+        if buf.exists() {
+            return Some(buf);
+        }
+    }
+    None
 }
 
 fn panic_hook(info: &PanicHookInfo) {

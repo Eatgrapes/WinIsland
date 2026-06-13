@@ -834,7 +834,7 @@ impl App {
                     } else {
                         self.lyric_scroll_offset = 0.0;
                         let min_w = self.config.base_width + 35.0;
-                        natural_w.clamp(min_w, max_w)
+                        natural_w.clamp(min_w.min(max_w), max_w)
                     }
                 } else {
                     let display_text = if !self.current_lyric_text.is_empty() {
@@ -846,7 +846,7 @@ impl App {
                     self.lyric_scroll_offset = 0.0;
                     let min_w = self.config.base_width + 35.0;
                     let w: f32 = 60.0 + text_w;
-                    w.clamp(min_w, 450.0)
+                    w.clamp(min_w.min(450.0), 450.0)
                 }
             } else {
                 self.config.base_width + 35.0

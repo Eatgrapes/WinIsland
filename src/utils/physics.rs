@@ -10,8 +10,18 @@ impl Spring {
         }
     }
     pub fn update_dt(&mut self, target: f32, stiffness: f32, damping: f32, dt: f32) {
+        if !dt.is_finite() || dt <= 0.0 {
+            return;
+        }
         let force = (target - self.value) * stiffness * dt;
         self.velocity = (self.velocity + force) * damping.powf(dt);
         self.value += self.velocity * dt;
+        if !self.value.is_finite() {
+            self.value = target;
+            self.velocity = 0.0;
+        }
+        if !self.velocity.is_finite() {
+            self.velocity = 0.0;
+        }
     }
 }

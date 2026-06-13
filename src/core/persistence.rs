@@ -24,10 +24,10 @@ pub fn load_config() -> AppConfig {
         return default;
     };
     config.global_scale = config.global_scale.clamp(0.5, 5.0);
-    config.base_width = config.base_width.max(40.0);
-    config.base_height = config.base_height.max(15.0);
-    config.expanded_width = config.expanded_width.max(200.0);
-    config.expanded_height = config.expanded_height.max(100.0);
+    config.base_width = config.base_width.clamp(40.0, 400.0);
+    config.base_height = config.base_height.clamp(15.0, 200.0);
+    config.expanded_width = config.expanded_width.clamp(200.0, 2000.0);
+    config.expanded_height = config.expanded_height.clamp(100.0, 1000.0);
     config
 }
 pub fn save_config(config: &AppConfig) {
