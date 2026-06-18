@@ -327,7 +327,6 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         None
     };
 
-    let pause_s = PAUSE_SPRING.with(|cell| cell.borrow().value);
     let mut effective_is_playing = media.is_playing;
     LOCAL_PLAY_STATE.with(|cell| {
         let mut opt = cell.borrow_mut();
@@ -343,13 +342,10 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
     let pause_t = PAUSE_ANIM.with(|cell| {
         let mut v = cell.borrow_mut();
         let target = if effective_is_playing { 1.0_f32 } else { 0.0 };
-        if pause_s < 0.15 {
+        let factor = (0.10 * dt).min(1.0);
+        *v += (target - *v) * factor;
+        if (*v - target).abs() < 0.003 {
             *v = target;
-        } else {
-            *v += (target - *v) * 0.12;
-            if (*v - target).abs() < 0.005 {
-                *v = target;
-            }
         }
         *v
     });
