@@ -12,11 +12,9 @@ use crate::ui::expanded::music_view::{
     set_progress_dragging, set_progress_hover, trigger_cover_flip, trigger_next_click,
     trigger_pause_click, trigger_prev_click,
 };
-use crate::utils::backdrop::{clear_mica_cache, disable_mica};
 use crate::utils::blur::calculate_blur_sigmas;
 use crate::utils::color::get_island_border_weights;
 use crate::utils::icon::get_app_icon;
-use crate::utils::liquid_glass::{clear_liquid_glass_cache, set_exclude_from_capture};
 use crate::utils::mouse::{
     get_global_cursor_pos, is_cursor_hidden, is_foreground_fullscreen, is_left_button_pressed,
     is_point_in_rect,
@@ -710,23 +708,6 @@ impl App {
 
             if old_style != self.config.island_style {
                 crate::utils::backdrop::clear_dynamic_bg_cache();
-                clear_mica_cache();
-                clear_liquid_glass_cache();
-                if let Ok(handle) = window.window_handle() {
-                    let raw = handle.as_raw();
-                    if let RawWindowHandle::Win32(win32_handle) = raw {
-                        let hwnd = HWND(win32_handle.hwnd.get() as _);
-                        if old_style == "mica" {
-                            disable_mica(hwnd);
-                        }
-                        if old_style == "liquid_glass" {
-                            set_exclude_from_capture(hwnd, false);
-                        }
-                        if self.config.island_style == "liquid_glass" {
-                            set_exclude_from_capture(hwnd, true);
-                        }
-                    }
-                }
             }
 
             if old_mini_shape != self.config.mini_cover_shape
@@ -908,9 +889,6 @@ impl ApplicationHandler for App {
                     0,
                     WS_MAXIMIZEBOX.0 as isize | WS_THICKFRAME.0 as isize,
                 );
-                if self.config.island_style == "liquid_glass" {
-                    set_exclude_from_capture(hwnd, true);
-                }
             }
 
             self.window = Some(window.clone());
@@ -951,9 +929,6 @@ impl ApplicationHandler for App {
                     self.win_x,
                     self.win_y
                 );
-                if self.config.island_style == "mica" {
-                    clear_mica_cache();
-                }
             }
             // Retry GPU context creation up to 3 times with 500ms delay.
             // Handles transient GPU unavailability (e.g., after taskkill from mpv script).
@@ -1053,7 +1028,6 @@ impl ApplicationHandler for App {
                     if let Some(tray) = self.tray.as_mut() {
                         tray.update_theme(is_light);
                     }
-                    clear_liquid_glass_cache();
                 }
                 WindowEvent::Resized(_) if win.is_maximized() => {
                     win.set_maximized(false);

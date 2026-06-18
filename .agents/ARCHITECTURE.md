@@ -37,12 +37,11 @@ src/
 ├── utils/             Utilities
 │   ├── animations.rs  Animation curve helpers
 │   ├── autostart.rs   Registry-based auto-start
-│   ├── backdrop.rs    Mica & dynamic color background effects
+│   ├── backdrop.rs    Dynamic color background effects
 │   ├── blur.rs        Motion blur sigma calculation
 │   ├── color.rs       Adaptive island border color from screen pixels
 │   ├── font.rs        Font manager with caching
 │   ├── glass.rs       Frosted glass effect (GDI capture + blur + dark overlay)
-│   ├── liquid_glass.rs Advanced refractive liquid glass effect (SKSL shader)
 │   ├── mouse.rs       Global cursor position, hit-test, fullscreen detection
 │   ├── physics.rs     Spring physics for smooth animations
 │   ├── scroll.rs      Scroll container helpers
@@ -81,7 +80,7 @@ RedrawRequested → draw_island():
   1. Compute dt, motion blur sigmas
   2. Get current MediaInfo from SMTC
   3. Get spectrum from AudioProcessor
-  4. Draw background (5 styles: default, glass, mica, dynamic, liquid_glass)
+  4. Draw background (3 styles: default, glass, dynamic)
   5. Draw album art (rounded/cover fit)
   6. Draw lyrics with transitions
   7. Draw spectrum visualizer bars
@@ -92,8 +91,6 @@ RedrawRequested → draw_island():
 
 Each style draws its background differently:
 - **glass**: GDI screen capture → heavy blur → dark multiply blend
-- **liquid_glass**: GDI screen capture → moderate blur → SKSL shader (refraction + specular)
-- **mica**: AcquireDesktopImage (Win11) or GDI capture → blur → overlay
 - **dynamic**: Solid color extracted from album art palette
 - **default**: Solid black
 
@@ -146,7 +143,7 @@ Plugin packages are `.zip` files with a manifest (YAML), optional signature, and
 | Audio | `IMMDeviceEnumerator`, `IAudioMeterInformation` |
 | Window | `SetWindowPos` (topmost), extended styles (WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE, WS_EX_LAYERED, WS_EX_TRANSPARENT) |
 | GDI | `GetDC`, `CreateCompatibleDC`, `BitBlt`, `GetDIBits`, `StretchBlt` |
-| DWM | `DwmEnableBlurBehindWindow` (deprecated), `DwmSetWindowAttribute` (mica) |
+| DWM | `DwmEnableBlurBehindWindow` (deprecated), `DwmSetWindowAttribute` |
 | IME | `ImmGetContext`, `ImmSetCompositionWindow` |
 | Registry | Auto-start registration |
 | Locale | `GetUserDefaultLocaleName` for language auto-detect |
@@ -161,7 +158,7 @@ All calls are in `unsafe` blocks with detailed `// SAFETY:` comments.
 Stored as TOML at `~/.winisland/config.toml`:
 
 - Window dimensions (compact/expanded)
-- Visual style (default/glass/mica/dynamic/liquid_glass)
+- Visual style (default/glass/dynamic)
 - Language (auto/en/zh)
 - SMTC settings (auto-allow, lyric sources)
 - Audio visualization (gate threshold)

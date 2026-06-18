@@ -17,12 +17,12 @@ All code, comments, and commit messages are in **English** unless the project co
 | Category | Convention | Example |
 |----------|-----------|---------|
 | Types/structs/enums | PascalCase | `NativePlugin`, `PluginError` |
-| Functions/methods | snake_case | `get_liquid_glass_background` |
+| Functions/methods | snake_case | `get_glass_background` |
 | Variables | snake_case | `screen_x`, `cached_img` |
 | Constants/statics | SCREAMING_SNAKE_CASE | `SKSL_SOURCE`, `MAX_FILENAME_COMPONENT` |
 | Type aliases | PascalCase | `BgCacheEntry` |
 | Thread-locals | SCREAMING_SNAKE_CASE | `GLASS_CACHE`, `EFFECT_CACHE` |
-| Module/file names | snake_case | `liquid_glass.rs`, `zip_loader.rs` |
+| Module/file names | snake_case | `glass.rs`, `zip_loader.rs` |
 
 ## Module responsibility
 
@@ -30,7 +30,6 @@ Each module has a single responsibility:
 - `src/core/render.rs` — all Skia drawing, and only drawing
 - `src/window/app.rs` — event loop, state, input handling
 - `src/utils/glass.rs` — frosted glass effect (and nothing else)
-- `src/utils/liquid_glass.rs` — liquid glass effect (and nothing else)
 
 **Do not** add unrelated logic to an existing module. Create a new module if the functionality is distinct.
 

@@ -31,4 +31,4 @@ cargo test           # Run tests
 6. **Follow security best practices** — never log or commit secrets/keys.
 7. **No unnecessary comments** — do NOT add comments in code unless asked.
 8. Prefer editing existing files over creating new ones.
-9. **WDA_EXCLUDEFROMCAPTURE is intentionally NOT set** — see glass.rs, liquid_glass.rs, and backdrop.rs doc comments for rationale.
+9. **WDA_EXCLUDEFROMCAPTURE is intentionally NOT set** — see glass.rs doc comments for rationale.

@@ -38,7 +38,6 @@ Match the scope to the module or subsystem affected:
 | `smtc` | `src/core/smtc.rs` — SMTC/media integration |
 | `render` | `src/core/render.rs` — rendering |
 | `glass` | `src/utils/glass.rs` — glass effect |
-| `liquid-glass` | `src/utils/liquid_glass.rs` — liquid glass effect |
 | `plugin` | `src/plugin/` or `crates/winisland-plugin-api/` |
 | `settings` | `src/window/settings/` or settings UI |
 | `packager` | `crates/winisland-plugin-api/src/packager/` |
@@ -51,7 +50,7 @@ Match the scope to the module or subsystem affected:
 feat(lyrics): prevent unrelated lyrics for browser video sessions and add local lyrics
 fix: filter empty path in RowFolderPicker clear_label and current_path
 refactor: restructure rendering pipeline, optimize code quality, fix plugin security issues
-perf(liquid_glass): capture background once, cache by position, reduce shader brightness
+perf(glass): capture background once, cache by position, reduce blur CPU usage
 style: fix fmt formatting in packager mod.rs
 ```
 

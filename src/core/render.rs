@@ -6,10 +6,9 @@ use crate::ui::expanded::music_view::{
     get_cached_media_image, get_cached_media_image_with_key, get_media_palette,
 };
 use crate::ui::expanded::widget_view::draw_widget_page;
-use crate::utils::backdrop::{get_dynamic_bg_color, get_last_valid_color, get_mica_background};
+use crate::utils::backdrop::{get_dynamic_bg_color, get_last_valid_color};
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::glass::get_glass_background;
-use crate::utils::liquid_glass::get_liquid_glass_background;
 use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
     ClipOp, Color, FilterMode, ISize, MipmapMode, Paint, RRect, Rect, SamplingOptions,
@@ -52,6 +51,7 @@ pub struct LyricsParams<'a> {
     pub lyric_scroll_offset: f32,
 }
 
+#[allow(dead_code)]
 pub struct WindowParams {
     pub win_x: i32,
     pub win_y: i32,
@@ -121,14 +121,7 @@ pub fn draw_island(
         lyric_transition,
         lyric_scroll_offset,
     } = lyrics;
-    let WindowParams {
-        win_x,
-        win_y,
-        monitor_x,
-        monitor_y,
-        monitor_w,
-        monitor_h,
-    } = window;
+    let WindowParams { win_x, win_y, .. } = window;
     let StyleParams {
         island_style,
         use_blur,
@@ -195,82 +188,10 @@ pub fn draw_island(
 
     let mut bg_color = Color::BLACK;
 
-    // Liquid glass text uses a tint derived from the music palette — keeps it
-    // readable on the dark refractive background while feeling cohesive.
-    let liquid_palette = if island_style == "liquid_glass" {
-        let p = get_media_palette(media);
-        if p.is_empty() || (p[0].r() >= 250 && p[0].g() >= 250 && p[0].b() >= 250) {
-            vec![Color::from_rgb(200, 200, 200)]
-        } else {
-            p
-        }
-    } else {
-        vec![Color::from_rgb(200, 200, 200)]
-    };
+    let text_color = Color::WHITE;
+    let text_color_sec = Color::WHITE;
 
-    let text_color = if island_style == "liquid_glass" {
-        let c = &liquid_palette[0];
-        Color::from_rgb(
-            (c.r() as f32 * 0.25 + 255.0 * 0.75) as u8,
-            (c.g() as f32 * 0.25 + 255.0 * 0.75) as u8,
-            (c.b() as f32 * 0.25 + 255.0 * 0.75) as u8,
-        )
-    } else {
-        Color::WHITE
-    };
-    let text_color_sec = if island_style == "liquid_glass" {
-        let c = &liquid_palette[0];
-        Color::from_rgb(
-            (c.r() as f32 * 0.15 + 255.0 * 0.85) as u8,
-            (c.g() as f32 * 0.15 + 255.0 * 0.85) as u8,
-            (c.b() as f32 * 0.15 + 255.0 * 0.85) as u8,
-        )
-    } else {
-        Color::WHITE
-    };
-
-    if island_style == "liquid_glass" {
-        let screen_x = win_x + offset_x as i32;
-        let screen_y = win_y + offset_y as i32;
-
-        let mut shadow_paint = Paint::default();
-        shadow_paint.set_anti_alias(true);
-        shadow_paint.set_color(Color::from_argb(50, 0, 0, 0));
-        if let Some(filter) = image_filters::blur((5.0, 5.0), None, None, None) {
-            shadow_paint.set_image_filter(filter);
-        }
-        let shadow_rrect = RRect::new_rect_xy(
-            Rect::from_xywh(offset_x, offset_y + 2.0, current_w, current_h),
-            current_r,
-            current_r,
-        );
-        canvas.draw_rrect(shadow_rrect, &shadow_paint);
-
-        canvas.save();
-        canvas.clip_rrect(rrect, ClipOp::Intersect, true);
-
-        if let Some(bg_img) = get_liquid_glass_background(
-            screen_x,
-            screen_y,
-            current_w as u32,
-            current_h as u32,
-            current_r,
-            monitor_x,
-            monitor_y,
-            monitor_w,
-            monitor_h,
-        ) {
-            let mut paint = Paint::default();
-            paint.set_anti_alias(true);
-            let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
-            canvas.draw_image_rect_with_sampling_options(&bg_img, None, rect, sampling, &paint);
-        } else {
-            let mut bg_paint = Paint::default();
-            bg_paint.set_color(Color::from_argb(180, 32, 32, 36));
-            bg_paint.set_anti_alias(true);
-            canvas.draw_rrect(rrect, &bg_paint);
-        }
-    } else if island_style == "glass" {
+    if island_style == "glass" {
         let screen_x = win_x + offset_x as i32;
         let screen_y = win_y + offset_y as i32;
         canvas.save();
@@ -286,36 +207,6 @@ pub fn draw_island(
             paint.set_anti_alias(true);
             let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
             canvas.draw_image_rect_with_sampling_options(&bg_img, None, rect, sampling, &paint);
-        } else {
-            let mut bg_paint = Paint::default();
-            bg_paint.set_color(Color::from_argb(205, 32, 32, 36));
-            bg_paint.set_anti_alias(true);
-            canvas.draw_rrect(rrect, &bg_paint);
-        }
-    } else if island_style == "mica" {
-        let screen_x = win_x + offset_x as i32;
-        let screen_y = win_y + offset_y as i32;
-        canvas.save();
-        canvas.clip_rrect(rrect, ClipOp::Intersect, true);
-        if let Some(bg_img) = get_mica_background(
-            screen_x,
-            screen_y,
-            current_w as u32,
-            current_h as u32,
-            monitor_x,
-            monitor_y,
-            monitor_w,
-            monitor_h,
-        ) {
-            let mut paint = Paint::default();
-            paint.set_anti_alias(true);
-            let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
-            canvas.draw_image_rect_with_sampling_options(&bg_img, None, rect, sampling, &paint);
-
-            let mut overlay = Paint::default();
-            overlay.set_color(Color::from_argb(110, 32, 32, 32));
-            overlay.set_anti_alias(true);
-            canvas.draw_rrect(rrect, &overlay);
         } else {
             let mut bg_paint = Paint::default();
             bg_paint.set_color(Color::from_argb(205, 32, 32, 36));
@@ -346,9 +237,7 @@ pub fn draw_island(
     let expanded_alpha_f = (expansion_progress.powf(2.0)).clamp(0.0, 1.0) * (1.0 - hide_progress);
     let mini_alpha_f = (1.0 - expansion_progress * 1.5).clamp(0.0, 1.0) * (1.0 - hide_progress);
 
-    let palette = if island_style == "liquid_glass" {
-        liquid_palette.clone()
-    } else if expanded_alpha_f > 0.01 || mini_alpha_f > 0.01 {
+    let palette = if expanded_alpha_f > 0.01 || mini_alpha_f > 0.01 {
         get_media_palette(media)
     } else {
         vec![
@@ -795,7 +684,7 @@ pub fn draw_island(
     }
     canvas.restore();
 
-    if island_style != "liquid_glass" {
+    {
         let mut border_paint = Paint::default();
         border_paint.set_anti_alias(true);
         border_paint.set_style(skia_safe::PaintStyle::Stroke);

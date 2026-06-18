@@ -154,7 +154,7 @@ unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) ->
         let data = Data::new_copy(&pixels);
         let src_img = images::raster_from_data(&info, data, (cap_w * 4) as usize)?;
 
-        // Frosted glass: heavy blur (sigma ~40, stronger than Mica's ~6).
+        // Frosted glass: heavy blur (sigma ~40).
         let scaled_sigma = blur_sigma / downscale as f32;
         let mut blur_surface = surfaces::raster_n32_premul(ISize::new(cap_w, cap_h))?;
         let blur_canvas = blur_surface.canvas();
