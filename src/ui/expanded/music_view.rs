@@ -141,11 +141,11 @@ pub fn get_progress_bar_rect(
     if !music_active {
         return None;
     }
-    let (img_size, img_x, img_y) = (72.0 * scale, ox + 28.0 * scale, oy + 24.0 * scale);
+    let (img_size, img_y) = (72.0 * scale, oy + 24.0 * scale);
     let bar_y = img_y + img_size + 18.0 * scale;
     let time_w = 36.0 * scale;
-    let bar_full_left = img_x;
-    let bar_full_right = img_x + w - 48.0 * scale;
+    let bar_full_left = ox + 28.0 * scale;
+    let bar_full_right = ox + w - 28.0 * scale;
     let bar_left = bar_full_left + time_w + 4.0 * scale;
     let bar_right = bar_full_right - time_w - 4.0 * scale;
     let hit_h = 16.0 * scale;
@@ -427,7 +427,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
     }
     canvas.restore();
     let text_x = img_x + img_size + 16.0 * scale;
-    let max_text_w = w - (text_x - ox) - 100.0 * scale;
+    let max_text_w = w - (text_x - ox) - 64.0 * scale;
     let title_y = img_y + 26.0 * scale;
     let mut text_paint = Paint::default();
     text_paint.set_anti_alias(true);
@@ -552,8 +552,8 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             "--:--".to_string()
         };
 
-        let bar_full_left = img_x;
-        let bar_full_right = img_x + w - 48.0 * scale;
+        let bar_full_left = ox + 28.0 * scale;
+        let bar_full_right = ox + w - 28.0 * scale;
 
         let bar_left = bar_full_left + time_w + 4.0 * scale;
         let bar_right = bar_full_right - time_w - 4.0 * scale;
@@ -585,25 +585,25 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             text_color.b(),
         ));
 
-        let elapsed_w = FontManager::global().measure_text_cached(
-            &elapsed_str,
-            time_font_size,
-            FontStyle::normal(),
-        );
         draw_text_cached(DrawTextCachedParams {
             canvas,
             text: &elapsed_str,
-            x: bar_left - elapsed_w - 6.0 * scale,
+            x: bar_full_left,
             y: text_baseline_y,
             size: time_font_size,
             bold: false,
             paint: &time_paint,
         });
 
+        let remaining_w = FontManager::global().measure_text_cached(
+            &remaining_str,
+            time_font_size,
+            FontStyle::normal(),
+        );
         draw_text_cached(DrawTextCachedParams {
             canvas,
             text: &remaining_str,
-            x: bar_right + 6.0 * scale,
+            x: bar_full_right - remaining_w,
             y: text_baseline_y,
             size: time_font_size,
             bold: false,
