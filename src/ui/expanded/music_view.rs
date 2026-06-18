@@ -87,15 +87,9 @@ pub fn get_pause_btn_rect(
     w: f32,
     _h: f32,
     scale: f32,
-    cover_shape: &str,
+    _cover_shape: &str,
 ) -> (f32, f32, f32, f32) {
-    let (img_size, img_y) = if cover_shape == "circle" {
-        let s = 72.0 * scale * 1.08;
-        let y = oy + 24.0 * scale - (s - 72.0 * scale) / 2.0;
-        (s, y)
-    } else {
-        (72.0 * scale, oy + 24.0 * scale)
-    };
+    let (img_size, img_y) = (72.0 * scale, oy + 24.0 * scale);
     let bar_y = img_y + img_size + 18.0 * scale;
     let btn_cy = bar_y + 42.0 * scale;
     let hit = 40.0 * scale;
@@ -109,15 +103,9 @@ pub fn get_prev_btn_rect(
     w: f32,
     _h: f32,
     scale: f32,
-    cover_shape: &str,
+    _cover_shape: &str,
 ) -> (f32, f32, f32, f32) {
-    let (img_size, img_y) = if cover_shape == "circle" {
-        let s = 72.0 * scale * 1.08;
-        let y = oy + 24.0 * scale - (s - 72.0 * scale) / 2.0;
-        (s, y)
-    } else {
-        (72.0 * scale, oy + 24.0 * scale)
-    };
+    let (img_size, img_y) = (72.0 * scale, oy + 24.0 * scale);
     let bar_y = img_y + img_size + 18.0 * scale;
     let btn_cy = bar_y + 42.0 * scale;
     let hit = 36.0 * scale;
@@ -131,15 +119,9 @@ pub fn get_next_btn_rect(
     w: f32,
     _h: f32,
     scale: f32,
-    cover_shape: &str,
+    _cover_shape: &str,
 ) -> (f32, f32, f32, f32) {
-    let (img_size, img_y) = if cover_shape == "circle" {
-        let s = 72.0 * scale * 1.08;
-        let y = oy + 24.0 * scale - (s - 72.0 * scale) / 2.0;
-        (s, y)
-    } else {
-        (72.0 * scale, oy + 24.0 * scale)
-    };
+    let (img_size, img_y) = (72.0 * scale, oy + 24.0 * scale);
     let bar_y = img_y + img_size + 18.0 * scale;
     let btn_cy = bar_y + 42.0 * scale;
     let hit = 36.0 * scale;
@@ -154,19 +136,12 @@ pub fn get_progress_bar_rect(
     _media: &MediaInfo,
     music_active: bool,
     scale: f32,
-    cover_shape: &str,
+    _cover_shape: &str,
 ) -> Option<(f32, f32, f32, f32)> {
     if !music_active {
         return None;
     }
-    let (img_size, img_x, img_y) = if cover_shape == "circle" {
-        let s = 72.0 * scale * 1.08;
-        let x = ox + 28.0 * scale - (s - 72.0 * scale) / 2.0;
-        let y = oy + 24.0 * scale - (s - 72.0 * scale) / 2.0;
-        (s, x, y)
-    } else {
-        (72.0 * scale, ox + 28.0 * scale, oy + 24.0 * scale)
-    };
+    let (img_size, img_x, img_y) = (72.0 * scale, ox + 28.0 * scale, oy + 24.0 * scale);
     let bar_y = img_y + img_size + 18.0 * scale;
     let time_w = 36.0 * scale;
     let bar_full_left = img_x;
@@ -241,6 +216,7 @@ pub fn clear_cover_cache() {
     });
 }
 
+#[allow(dead_code)]
 pub struct DrawMusicPageParams<'a> {
     pub canvas: &'a Canvas,
     pub ox: f32,
@@ -293,8 +269,8 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         viz_h_scale,
         use_blur,
         font_size,
-        cover_shape,
-        cover_rotate,
+        cover_shape: _,
+        cover_rotate: _,
         dt,
         text_color,
         text_color_sec,
@@ -313,14 +289,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         );
     }
     let base_img_size = 72.0 * scale;
-    let (img_size, img_x, img_y) = if cover_shape == "circle" {
-        let s = base_img_size * 1.08;
-        let x = ox + 28.0 * scale - (s - base_img_size) / 2.0;
-        let y = oy + 24.0 * scale - (s - base_img_size) / 2.0;
-        (s, x, y)
-    } else {
-        (base_img_size, ox + 28.0 * scale, oy + 24.0 * scale)
-    };
+    let (img_size, img_x, img_y) = (base_img_size, ox + 28.0 * scale, oy + 24.0 * scale);
     let image_to_draw = if music_active {
         get_cached_media_image(media)
     } else {
@@ -398,22 +367,6 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
     let img_cy = img_y + img_size / 2.0;
     canvas.translate((img_cx, img_cy));
 
-    let is_rotating = cover_rotate && cover_shape == "circle" && effective_is_playing;
-    let rotation_angle = COVER_ROTATION.with(|cell| {
-        let mut angle = cell.borrow_mut();
-        if is_rotating {
-            *angle += 0.5 * dt;
-            if *angle >= 360.0 {
-                *angle -= 360.0;
-            }
-        }
-        *angle
-    });
-
-    if cover_rotate && cover_shape == "circle" {
-        canvas.rotate(rotation_angle, None);
-    }
-
     canvas.scale((cover_scale * flip_scale_x, cover_scale));
     canvas.translate((-img_cx, -img_cy));
 
@@ -428,27 +381,15 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&blur_paint));
     }
 
-    if cover_shape == "circle" {
-        canvas.clip_rrect(
-            RRect::new_rect_xy(
-                Rect::from_xywh(img_x, img_y, img_size, img_size),
-                img_size / 2.0,
-                img_size / 2.0,
-            ),
-            skia_safe::ClipOp::Intersect,
-            true,
-        );
-    } else {
-        canvas.clip_rrect(
-            RRect::new_rect_xy(
-                Rect::from_xywh(img_x, img_y, img_size, img_size),
-                14.0 * scale,
-                14.0 * scale,
-            ),
-            skia_safe::ClipOp::Intersect,
-            true,
-        );
-    }
+    canvas.clip_rrect(
+        RRect::new_rect_xy(
+            Rect::from_xywh(img_x, img_y, img_size, img_size),
+            14.0 * scale,
+            14.0 * scale,
+        ),
+        skia_safe::ClipOp::Intersect,
+        true,
+    );
     if let Some(img) = cover_img {
         let mut img_paint = Paint::default();
         img_paint.set_anti_alias(true);
@@ -888,7 +829,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         smooth_factors: (0.6, 0.08),
     });
 
-    is_rotating
+    false
 }
 
 pub fn draw_visualizer(params: DrawVisualizerParams<'_>) {

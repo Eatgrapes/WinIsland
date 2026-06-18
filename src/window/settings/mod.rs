@@ -45,8 +45,6 @@ enum PopupKind {
     IslandStyle,
     DockPositionPopup,
     SettingsTheme,
-    MiniCoverShape,
-    ExpandedCoverShape,
 }
 
 struct PopupState {
@@ -383,28 +381,6 @@ impl SettingsApp {
                     ],
                     enabled: true,
                 });
-                items.push(SettingsItem::RowSourceSelect {
-                    label: tr("mini_cover_shape"),
-                    options: vec![
-                        (tr("shape_square"), self.config.mini_cover_shape == "square"),
-                        (tr("shape_circle"), self.config.mini_cover_shape == "circle"),
-                    ],
-                    enabled: true,
-                });
-                items.push(SettingsItem::RowSourceSelect {
-                    label: tr("expanded_cover_shape"),
-                    options: vec![
-                        (
-                            tr("shape_square"),
-                            self.config.expanded_cover_shape == "square",
-                        ),
-                        (
-                            tr("shape_circle"),
-                            self.config.expanded_cover_shape == "circle",
-                        ),
-                    ],
-                    enabled: true,
-                });
                 items.push(SettingsItem::RowSwitch {
                     label: tr("adaptive_border"),
                     on: self.config.adaptive_border,
@@ -413,11 +389,6 @@ impl SettingsApp {
                 items.push(SettingsItem::RowSwitch {
                     label: tr("motion_blur"),
                     on: self.config.motion_blur,
-                    enabled: true,
-                });
-                items.push(SettingsItem::RowSwitch {
-                    label: tr("cover_rotate"),
-                    on: self.config.cover_rotate,
                     enabled: true,
                 });
                 items.push(SettingsItem::RowSwitch {

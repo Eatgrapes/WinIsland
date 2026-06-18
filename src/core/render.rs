@@ -61,6 +61,7 @@ pub struct WindowParams {
     pub monitor_h: u32,
 }
 
+#[allow(dead_code)]
 pub struct StyleParams<'a> {
     pub island_style: &'a str,
     pub use_blur: bool,
@@ -127,9 +128,9 @@ pub fn draw_island(
         use_blur,
         font_size,
         weights: _weights,
-        mini_cover_shape,
-        expanded_cover_shape,
-        cover_rotate,
+        mini_cover_shape: _,
+        expanded_cover_shape: _,
+        cover_rotate: _,
         mini_controls: _,
         lyrics_delay,
         dt,
@@ -309,8 +310,8 @@ pub fn draw_island(
             viz_h_scale: viz_h_scale * global_scale,
             use_blur,
             font_size,
-            cover_shape: expanded_cover_shape,
-            cover_rotate,
+            cover_shape: "square",
+            cover_rotate: false,
             dt,
             text_color,
             text_color_sec,
@@ -349,65 +350,25 @@ pub fn draw_island(
                 let alpha = (mini_alpha_f * 255.0) as u8;
                 if let Some(image) = get_cached_media_image(media) {
                     let base_size = 18.0 * global_scale;
-                    let (size, ix, iy) = if mini_cover_shape == "circle" {
-                        let s = base_size * 1.15;
-                        let x = offset_x + 10.0 * global_scale - (s - base_size) / 2.0;
-                        let y = offset_y + (current_h - s) / 2.0;
-                        (s, x, y)
-                    } else {
-                        (
-                            base_size,
-                            offset_x + 10.0 * global_scale,
-                            offset_y + (current_h - base_size) / 2.0,
-                        )
-                    };
+                    let (size, ix, iy) = (
+                        base_size,
+                        offset_x + 10.0 * global_scale,
+                        offset_y + (current_h - base_size) / 2.0,
+                    );
                     let mut paint = Paint::default();
                     paint.set_anti_alias(true);
                     paint.set_alpha_f(alpha as f32 / 255.0);
                     canvas.save();
 
-                    let is_mini_rotating =
-                        cover_rotate && mini_cover_shape == "circle" && media.is_playing;
-                    let mini_rotation_angle = MINI_COVER_ROTATION.with(|cell| {
-                        let mut angle = cell.borrow_mut();
-                        if is_mini_rotating {
-                            *angle += 0.5 * dt;
-                            if *angle >= 360.0 {
-                                *angle -= 360.0;
-                            }
-                        }
-                        *angle
-                    });
-
-                    if cover_rotate && mini_cover_shape == "circle" {
-                        let img_cx = ix + size / 2.0;
-                        let img_cy = iy + size / 2.0;
-                        canvas.translate((img_cx, img_cy));
-                        canvas.rotate(mini_rotation_angle, None);
-                        canvas.translate((-img_cx, -img_cy));
-                    }
-
-                    if mini_cover_shape == "circle" {
-                        canvas.clip_rrect(
-                            RRect::new_rect_xy(
-                                Rect::from_xywh(ix, iy, size, size),
-                                size / 2.0,
-                                size / 2.0,
-                            ),
-                            ClipOp::Intersect,
-                            true,
-                        );
-                    } else {
-                        canvas.clip_rrect(
-                            RRect::new_rect_xy(
-                                Rect::from_xywh(ix, iy, size, size),
-                                5.0 * global_scale,
-                                5.0 * global_scale,
-                            ),
-                            ClipOp::Intersect,
-                            true,
-                        );
-                    }
+                    canvas.clip_rrect(
+                        RRect::new_rect_xy(
+                            Rect::from_xywh(ix, iy, size, size),
+                            5.0 * global_scale,
+                            5.0 * global_scale,
+                        ),
+                        ClipOp::Intersect,
+                        true,
+                    );
                     let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::Linear);
                     let img_w = image.width() as f32;
                     let img_h = image.height() as f32;
@@ -434,10 +395,6 @@ pub fn draw_island(
                         &paint,
                     );
                     canvas.restore();
-
-                    if is_mini_rotating {
-                        widget_animating = true;
-                    }
                 }
                 let palette = &palette;
                 let viz_x = offset_x + current_w - 17.0 * global_scale;

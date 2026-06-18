@@ -42,12 +42,6 @@ impl SettingsApp {
                         self.config.settings_theme = value.clone();
                         self.update_theme();
                     }
-                    PopupKind::MiniCoverShape => {
-                        self.config.mini_cover_shape = value;
-                    }
-                    PopupKind::ExpandedCoverShape => {
-                        self.config.expanded_cover_shape = value;
-                    }
                 }
                 save_config(&self.config);
                 self.mark_items_dirty();
@@ -394,36 +388,6 @@ impl SettingsApp {
                                 "light".to_string(),
                                 "dark".to_string(),
                             ],
-                            selected_idx,
-                            self.win_w / scale,
-                            self.win_h / scale,
-                        ));
-                    } else if label == &tr("mini_cover_shape") {
-                        let selected_idx = if self.config.mini_cover_shape == "circle" {
-                            1
-                        } else {
-                            0
-                        };
-                        self.popup = Some(PopupState::new(
-                            PopupKind::MiniCoverShape,
-                            Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                            vec![tr("shape_square"), tr("shape_circle")],
-                            vec!["square".to_string(), "circle".to_string()],
-                            selected_idx,
-                            self.win_w / scale,
-                            self.win_h / scale,
-                        ));
-                    } else if label == &tr("expanded_cover_shape") {
-                        let selected_idx = if self.config.expanded_cover_shape == "circle" {
-                            1
-                        } else {
-                            0
-                        };
-                        self.popup = Some(PopupState::new(
-                            PopupKind::ExpandedCoverShape,
-                            Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                            vec![tr("shape_square"), tr("shape_circle")],
-                            vec!["square".to_string(), "circle".to_string()],
                             selected_idx,
                             self.win_w / scale,
                             self.win_h / scale,
