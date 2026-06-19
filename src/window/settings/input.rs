@@ -42,9 +42,6 @@ impl SettingsApp {
                         self.config.settings_theme = value.clone();
                         self.update_theme();
                     }
-                    PopupKind::UpdateChannel => {
-                        self.config.update_channel = value.clone();
-                    }
                 }
                 save_config(&self.config);
                 self.mark_items_dirty();
@@ -385,20 +382,6 @@ impl SettingsApp {
                                 "light".to_string(),
                                 "dark".to_string(),
                             ],
-                            selected_idx,
-                            self.win_w / scale,
-                            self.win_h / scale,
-                        ));
-                    } else if label == &tr("update_channel") {
-                        let selected_idx = match self.config.update_channel.as_str() {
-                            "stable" => 1,
-                            _ => 0,
-                        };
-                        self.popup = Some(PopupState::new(
-                            PopupKind::UpdateChannel,
-                            Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                            vec![tr("channel_nightly"), tr("channel_stable")],
-                            vec!["nightly".to_string(), "stable".to_string()],
                             selected_idx,
                             self.win_w / scale,
                             self.win_h / scale,

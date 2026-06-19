@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-pub const APP_VERSION: &str = "1.0.0";
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APP_AUTHOR: &str = "Eatgrapes";
 pub const APP_HOMEPAGE: &str = "https://github.com/Eatgrapes/WinIsland";
 pub const WINDOW_TITLE: &str = "WinIsland";
@@ -111,9 +111,6 @@ pub struct AppConfig {
     pub check_for_updates: bool,
     #[serde(default = "default_update_check_interval")]
     pub update_check_interval: f32,
-    /// "nightly" (auto-download) or "stable" (check only, link to website).
-    #[serde(default = "default_update_channel")]
-    pub update_channel: String,
     #[serde(default = "default_language")]
     pub language: String,
     #[serde(default = "default_lyrics_source")]
@@ -184,10 +181,6 @@ fn default_check_for_updates() -> bool {
 
 fn default_update_check_interval() -> f32 {
     4.0
-}
-
-fn default_update_channel() -> String {
-    "nightly".to_string()
 }
 
 fn default_language() -> String {
@@ -272,7 +265,6 @@ impl Default for AppConfig {
             auto_hide_delay: 5.0,
             check_for_updates: true,
             update_check_interval: 4.0,
-            update_channel: "nightly".to_string(),
             language: "auto".to_string(),
             lyrics_source: "163".to_string(),
             lyrics_fallback: true,

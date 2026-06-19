@@ -12,7 +12,7 @@ use windows::core::PCWSTR;
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
-        .user_agent("WinIsland/1.1.0")
+        .user_agent(format!("WinIsland/{}", env!("CARGO_PKG_VERSION")))
         .build()
         .unwrap()
 });
@@ -322,55 +322,29 @@ async fn do_check(app_dir: &Path) {
             remote_info.timestamp
         );
 
-        let config = crate::core::persistence::load_config();
-        let is_stable = config.update_channel == "stable";
+        let title_w: Vec<u16> = format!("{}\0", tr("update_available_title"))
+            .encode_utf16()
+            .collect();
+        let text_w: Vec<u16> = tr("update_available_desc")
+            .replace("{}", &remote_info.timestamp)
+            .add_null()
+            .encode_utf16()
+            .collect();
 
-        if is_stable {
-            // Stable channel: just notify the user to download from website
-            let title_w: Vec<u16> = format!("{}\0", tr("update_available_title"))
-                .encode_utf16()
-                .collect();
-            let text_w: Vec<u16> = tr("update_available_desc")
-                .replace("{}", &remote_info.timestamp)
-                .add_null()
-                .encode_utf16()
-                .collect();
-            tokio::task::spawn_blocking(move || unsafe {
-                MessageBoxW(
-                    None,
-                    PCWSTR(text_w.as_ptr()),
-                    PCWSTR(title_w.as_ptr()),
-                    MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND,
-                );
-            })
-            .await
-            .ok();
-        } else {
-            // Nightly channel: show download prompt
-            let title_w: Vec<u16> = format!("{}\0", tr("update_available_title"))
-                .encode_utf16()
-                .collect();
-            let text_w: Vec<u16> = tr("update_available_desc")
-                .replace("{}", &remote_info.timestamp)
-                .add_null()
-                .encode_utf16()
-                .collect();
+        let result = tokio::task::spawn_blocking(move || unsafe {
+            MessageBoxW(
+                None,
+                PCWSTR(text_w.as_ptr()),
+                PCWSTR(title_w.as_ptr()),
+                MB_OKCANCEL | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND,
+            )
+        })
+        .await;
 
-            let result = tokio::task::spawn_blocking(move || unsafe {
-                MessageBoxW(
-                    None,
-                    PCWSTR(text_w.as_ptr()),
-                    PCWSTR(title_w.as_ptr()),
-                    MB_OKCANCEL | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND,
-                )
-            })
-            .await;
-
-            if let Ok(r) = result
-                && (r == IDOK || r == IDYES)
-            {
-                perform_update(remote_json_str, app_dir.to_path_buf()).await;
-            }
+        if let Ok(r) = result
+            && (r == IDOK || r == IDYES)
+        {
+            perform_update(remote_json_str, app_dir.to_path_buf()).await;
         }
     }
 }
