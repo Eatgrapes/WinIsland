@@ -34,7 +34,8 @@ export default defineConfig({
           {
             text: 'Developer',
             items: [
-              { text: 'Plugin Development', link: '/plugin-dev' }
+              { text: 'Plugin Development', link: '/plugin-dev' },
+              { text: 'API Changelog', link: '/api-changelog' }
             ]
           }
         ],
@@ -71,7 +72,8 @@ export default defineConfig({
           {
             text: '开发者',
             items: [
-              { text: '插件开发', link: '/zh/plugin-dev' }
+              { text: '插件开发', link: '/zh/plugin-dev' },
+              { text: 'API 更新日志', link: '/zh/api-changelog' }
             ]
           }
         ],

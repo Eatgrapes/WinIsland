@@ -8,7 +8,7 @@ WinIsland is a Dynamic Island emulator for Windows. Plugins are native DLLs that
 
 ```toml
 [dependencies]
-winisland-plugin-api = "0.1"
+winisland-plugin-api = "0.1.3"
 ```
 
 Then export a `plugin_get_instance` function from your `cdylib`:
@@ -51,4 +51,5 @@ pub unsafe extern "C" fn plugin_get_instance() -> PluginInstanceC {
 ## Links
 
 - [GitHub](https://github.com/Eatgrapes/WinIsland)
-- [Plugin Development Guide](https://github.com/Eatgrapes/WinIsland/blob/master/Page/plugin-dev.md)
+- [Plugin Development Guide](https://tanikaze.icu/WinIsland/)
+- [ChangeLog](https://github.com/Eatgrapes/WinIsland/blob/master/crates/winisland-plugin-api/ChangeLog.md)
