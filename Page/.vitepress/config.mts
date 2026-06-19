@@ -37,6 +37,12 @@ export default defineConfig({
               { text: 'Plugin Development', link: '/plugin-dev' },
               { text: 'API Changelog', link: '/api-changelog' }
             ]
+          },
+          {
+            text: 'Updates',
+            items: [
+              { text: 'Release Notes', link: '/release-notes' }
+            ]
           }
         ],
         footer: {
@@ -74,6 +80,12 @@ export default defineConfig({
             items: [
               { text: '插件开发', link: '/zh/plugin-dev' },
               { text: 'API 更新日志', link: '/zh/api-changelog' }
+            ]
+          },
+          {
+            text: '更新',
+            items: [
+              { text: '发布说明', link: '/zh/release-notes' }
             ]
           }
         ],

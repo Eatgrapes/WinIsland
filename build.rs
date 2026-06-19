@@ -1,4 +1,11 @@
 fn main() {
+    // Embed build timestamp so the updater can compare against it
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    println!("cargo:rustc-env=WINISLAND_BUILD_TS={}", now);
+
     if std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows" {
         let mut res = winres::WindowsResource::new();
 

@@ -45,6 +45,7 @@ enum PopupKind {
     IslandStyle,
     DockPositionPopup,
     SettingsTheme,
+    UpdateChannel,
 }
 
 struct PopupState {
@@ -463,6 +464,17 @@ impl SettingsApp {
                     items.push(SettingsItem::RowStepper {
                         label: tr("update_interval"),
                         value: format!("{:.0}", self.config.update_check_interval),
+                        enabled: true,
+                    });
+                    items.push(SettingsItem::RowSourceSelect {
+                        label: tr("update_channel"),
+                        options: vec![
+                            (
+                                tr("channel_nightly"),
+                                self.config.update_channel == "nightly",
+                            ),
+                            (tr("channel_stable"), self.config.update_channel == "stable"),
+                        ],
                         enabled: true,
                     });
                 }
