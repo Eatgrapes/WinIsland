@@ -13,10 +13,6 @@ pub const COLOR_GROUP_BG: Color = Color::from_rgb(48, 48, 50);
 pub const COLOR_TOGGLE_ON: Color = Color::from_rgb(48, 209, 88);
 pub const COLOR_TOGGLE_OFF: Color = Color::from_rgb(57, 57, 61);
 
-pub fn color_sidebar_sel() -> Color {
-    Color::from_argb(50, 10, 132, 255)
-}
-
 pub fn color_sidebar_hover() -> Color {
     Color::from_argb(20, 255, 255, 255)
 }
@@ -41,7 +37,7 @@ pub struct SettingsTheme {
     pub danger: Color,
     pub toggle_on: Color,
     pub toggle_off: Color,
-    pub sidebar_sel: Color,
+
     pub sidebar_hover: Color,
     pub separator: Color,
     pub popup_bg: Color,
@@ -62,7 +58,7 @@ pub fn dark_settings_theme() -> SettingsTheme {
         danger: COLOR_DANGER,
         toggle_on: COLOR_TOGGLE_ON,
         toggle_off: COLOR_TOGGLE_OFF,
-        sidebar_sel: color_sidebar_sel(),
+
         sidebar_hover: color_sidebar_hover(),
         separator: color_separator(),
         popup_bg: Color::from_rgb(50, 50, 52),
@@ -84,7 +80,7 @@ pub fn light_settings_theme() -> SettingsTheme {
         danger: Color::from_rgb(255, 59, 48),
         toggle_on: Color::from_rgb(52, 199, 89),
         toggle_off: Color::from_rgb(178, 178, 183),
-        sidebar_sel: Color::from_argb(50, 0, 122, 255),
+
         sidebar_hover: Color::from_argb(20, 0, 0, 0),
         separator: Color::from_argb(26, 0, 0, 0),
         popup_bg: Color::from_rgb(255, 255, 255),

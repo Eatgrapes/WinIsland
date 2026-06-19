@@ -987,14 +987,14 @@ impl SettingsApp {
             let row_w = SIDEBAR_W - SIDEBAR_PAD * 2.0;
 
             if self.active_page == i {
-                paint.set_color(theme.sidebar_sel);
+                paint.set_color(theme.accent);
                 canvas.draw_round_rect(
                     Rect::from_xywh(row_x, row_y, row_w, SIDEBAR_ROW_H),
                     SIDEBAR_SEL_RADIUS,
                     SIDEBAR_SEL_RADIUS,
                     &paint,
                 );
-                paint.set_color(theme.text_pri);
+                paint.set_color(Color::WHITE);
             } else {
                 let hover_val = self.anim.get(SIDEBAR_KEY_BASE + i as u64);
                 if hover_val > 0.005 {
@@ -1011,10 +1011,65 @@ impl SettingsApp {
                 paint.set_color(theme.text_sec);
             }
 
+            // Draw macOS-style icon next to text
+            let icon_bg_rect = Rect::from_xywh(row_x + 8.0, row_y + 6.0, 20.0, 20.0);
+            let mut icon_bg_paint = Paint::default();
+            icon_bg_paint.set_anti_alias(true);
+
+            match i {
+                0 => {
+                    icon_bg_paint.set_color(Color::from_rgb(142, 142, 147)); // Gray
+                    canvas.draw_round_rect(icon_bg_rect, 5.0, 5.0, &icon_bg_paint);
+                    crate::icons::settings::draw_settings_icon(
+                        canvas,
+                        row_x + 18.0,
+                        row_y + 16.0,
+                        255,
+                        0.5,
+                        Color::WHITE,
+                    );
+                }
+                1 => {
+                    icon_bg_paint.set_color(Color::from_rgb(252, 60, 68)); // Pink/Red
+                    canvas.draw_round_rect(icon_bg_rect, 5.0, 5.0, &icon_bg_paint);
+                    crate::icons::music::draw_music_icon(
+                        canvas,
+                        row_x + 18.0,
+                        row_y + 16.0,
+                        255,
+                        0.5,
+                        Color::WHITE,
+                    );
+                }
+                2 => {
+                    icon_bg_paint.set_color(Color::from_rgb(0, 122, 255)); // Royal Blue
+                    canvas.draw_round_rect(icon_bg_rect, 5.0, 5.0, &icon_bg_paint);
+
+                    let mut info_paint = Paint::default();
+                    info_paint.set_anti_alias(true);
+                    info_paint.set_color(Color::WHITE);
+                    info_paint.set_stroke_width(1.2);
+
+                    info_paint.set_style(skia_safe::paint::Style::Stroke);
+                    canvas.draw_circle((row_x + 18.0, row_y + 16.0), 6.5, &info_paint);
+
+                    info_paint.set_style(skia_safe::paint::Style::Fill);
+                    canvas.draw_circle((row_x + 18.0, row_y + 13.0), 0.8, &info_paint);
+
+                    info_paint.set_style(skia_safe::paint::Style::Stroke);
+                    canvas.draw_line(
+                        (row_x + 18.0, row_y + 15.0),
+                        (row_x + 18.0, row_y + 18.5),
+                        &info_paint,
+                    );
+                }
+                _ => {}
+            }
+
             fm.draw_text_cached(DrawTextCachedParams {
                 canvas,
                 text: label,
-                x: row_x + 12.0,
+                x: row_x + 36.0,
                 y: row_y + 21.0,
                 size: 13.0,
                 bold: false,
