@@ -13,7 +13,7 @@ use crate::utils::settings_ui::*;
 use skia_safe::Rect;
 
 impl SettingsApp {
-    pub(super) fn handle_click(&mut self) {
+    pub(super) fn handle_click(&mut self, _el: &winit::event_loop::ActiveEventLoop) {
         let (mx, my) = self.logical_mouse_pos;
 
         if let Some(popup) = &self.popup {
@@ -56,7 +56,7 @@ impl SettingsApp {
 
         if mx < SIDEBAR_W {
             let pages = 3;
-            let start_y = 20.0;
+            let start_y = 60.0;
             for i in 0..pages {
                 let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
                 if my >= row_y
@@ -113,7 +113,7 @@ impl SettingsApp {
         let content_start_y = if self.active_page == 0 {
             SUB_TAB_START_Y + SUB_TAB_H + CONTENT_START_Y
         } else {
-            CONTENT_START_Y
+            50.0
         };
         let content_y = my + self.scroll_y;
         let items = self.build_current_items();
@@ -612,6 +612,14 @@ impl SettingsApp {
     pub(super) fn get_hover_state(&mut self) -> bool {
         let (mx, my) = self.logical_mouse_pos;
 
+        // Hover over Apple dots
+        let is_on_red = (mx - 20.0).powi(2) + (my - 24.0).powi(2) <= 36.0;
+        let is_on_yellow = (mx - 40.0).powi(2) + (my - 24.0).powi(2) <= 36.0;
+        let is_on_green = (mx - 60.0).powi(2) + (my - 24.0).powi(2) <= 36.0;
+        if is_on_red || is_on_yellow || is_on_green {
+            return true;
+        }
+
         if let Some(popup) = &self.popup {
             let menu = popup.menu_rect();
             if mx >= menu.left && mx <= menu.right && my >= menu.top && my <= menu.bottom {
@@ -620,7 +628,7 @@ impl SettingsApp {
         }
 
         if mx < SIDEBAR_W {
-            let start_y = 20.0;
+            let start_y = 60.0;
             for i in 0..3 {
                 let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
                 if my >= row_y
@@ -648,7 +656,7 @@ impl SettingsApp {
         let content_start_y = if self.active_page == 0 {
             SUB_TAB_START_Y + SUB_TAB_H + CONTENT_START_Y
         } else {
-            CONTENT_START_Y
+            50.0
         };
         let content_y = my + self.scroll_y;
         self.ensure_items_cache();

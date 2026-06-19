@@ -20,7 +20,7 @@ use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use winit::window::{Window, WindowButtons, WindowId};
+use winit::window::{Window, WindowId};
 
 pub mod input;
 
@@ -179,6 +179,8 @@ pub struct SettingsApp {
     cached_row_heights: Vec<f32>,
     win_w: f32,
     win_h: f32,
+    focused: bool,
+    dots_hovered: bool,
 }
 
 impl SettingsApp {
@@ -227,6 +229,8 @@ impl SettingsApp {
             cached_row_heights: Vec::new(),
             win_w: WIN_W,
             win_h: WIN_H,
+            focused: true,
+            dots_hovered: false,
         }
     }
 
@@ -637,7 +641,7 @@ impl SettingsApp {
         let content_start_y = if self.active_page == 0 {
             SUB_TAB_START_Y + SUB_TAB_H + CONTENT_START_Y
         } else {
-            CONTENT_START_Y
+            50.0
         };
         self.cached_content_height = content_height(&self.cached_items, content_start_y);
         let scale = self
@@ -848,7 +852,7 @@ impl SettingsApp {
             let content_start_y = if self.active_page == 0 {
                 SUB_TAB_START_Y + SUB_TAB_H + CONTENT_START_Y
             } else {
-                CONTENT_START_Y
+                50.0
             };
 
             self.target_scroll_y = self.target_scroll_y.clamp(0.0, self.cached_max_scroll);
@@ -856,7 +860,7 @@ impl SettingsApp {
             let clip_start_y = if self.active_page == 0 {
                 SUB_TAB_START_Y + SUB_TAB_H
             } else {
-                0.0
+                50.0
             };
 
             canvas.save();
@@ -910,6 +914,63 @@ impl SettingsApp {
         paint.set_color(theme.sidebar_bg);
         canvas.draw_rect(Rect::from_xywh(0.0, 0.0, SIDEBAR_W, self.win_h), &paint);
 
+        // Draw Apple-style Window Control Dots
+        let (red_color, yellow_color, green_color) = if self.focused {
+            (
+                Color::from_rgb(0xFF, 0x5F, 0x56),
+                Color::from_rgb(0xFF, 0xBD, 0x2E),
+                Color::from_rgb(0x27, 0xC9, 0x3F),
+            )
+        } else if self.is_light {
+            (
+                Color::from_rgb(0xE6, 0xE6, 0xE6),
+                Color::from_rgb(0xE6, 0xE6, 0xE6),
+                Color::from_rgb(0xE6, 0xE6, 0xE6),
+            )
+        } else {
+            (
+                Color::from_rgb(0x4D, 0x4D, 0x4D),
+                Color::from_rgb(0x4D, 0x4D, 0x4D),
+                Color::from_rgb(0x4D, 0x4D, 0x4D),
+            )
+        };
+
+        let radius = 6.0;
+        let red_center = (20.0, 24.0);
+        let yellow_center = (40.0, 24.0);
+        let green_center = (60.0, 24.0);
+
+        paint.set_color(red_color);
+        canvas.draw_circle(red_center, radius, &paint);
+
+        paint.set_color(yellow_color);
+        canvas.draw_circle(yellow_center, radius, &paint);
+
+        paint.set_color(green_color);
+        canvas.draw_circle(green_center, radius, &paint);
+
+        // Draw symbols if hovered and focused
+        if self.dots_hovered && self.focused {
+            let mut sym_paint = Paint::default();
+            sym_paint.set_anti_alias(true);
+            sym_paint.set_style(skia_safe::paint::Style::Stroke);
+            sym_paint.set_stroke_width(1.0);
+
+            // Red Close cross: x
+            sym_paint.set_color(Color::from_rgb(0x4C, 0x00, 0x02));
+            canvas.draw_line((17.5, 21.5), (22.5, 26.5), &sym_paint);
+            canvas.draw_line((22.5, 21.5), (17.5, 26.5), &sym_paint);
+
+            // Yellow Minimize line: -
+            sym_paint.set_color(Color::from_rgb(0x5C, 0x3E, 0x00));
+            canvas.draw_line((36.5, 24.0), (43.5, 24.0), &sym_paint);
+
+            // Green Maximize plus: +
+            sym_paint.set_color(Color::from_rgb(0x00, 0x4D, 0x02));
+            canvas.draw_line((57.0, 24.0), (63.0, 24.0), &sym_paint);
+            canvas.draw_line((60.0, 21.0), (60.0, 27.0), &sym_paint);
+        }
+
         let mut sep = Paint::default();
         sep.set_anti_alias(true);
         sep.set_color(theme.separator);
@@ -918,7 +979,7 @@ impl SettingsApp {
         canvas.draw_line((SIDEBAR_W, 0.0), (SIDEBAR_W, self.win_h), &sep);
 
         let pages = [tr("tab_general"), tr("tab_music"), tr("tab_about")];
-        let start_y = 20.0;
+        let start_y = 60.0;
 
         for (i, label) in pages.iter().enumerate() {
             let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
@@ -1213,7 +1274,7 @@ impl ApplicationHandler for SettingsApp {
             .with_min_inner_size(LogicalSize::new(WIN_W as f64, WIN_H as f64))
             .with_position(LogicalPosition::new(win_x, win_y))
             .with_resizable(true)
-            .with_enabled_buttons(WindowButtons::CLOSE | WindowButtons::MINIMIZE)
+            .with_decorations(false)
             .with_window_icon(get_app_icon());
         let window = Arc::new(event_loop.create_window(attrs).unwrap());
         self.window = Some(window.clone());
@@ -1231,6 +1292,12 @@ impl ApplicationHandler for SettingsApp {
     fn window_event(&mut self, _el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => _el.exit(),
+            WindowEvent::Focused(focused) => {
+                self.focused = focused;
+                if let Some(win) = &self.window {
+                    win.request_redraw();
+                }
+            }
             WindowEvent::ThemeChanged(theme) if self.config.settings_theme == "system" => {
                 self.is_light = theme == winit::window::Theme::Light;
                 if let Some(win) = &self.window {
@@ -1318,6 +1385,15 @@ impl ApplicationHandler for SettingsApp {
                     || (new_pos.1 - self.last_hover_mouse_pos.1).abs() > 0.5;
                 self.logical_mouse_pos = new_pos;
 
+                let (mx, my) = self.logical_mouse_pos;
+                let is_hovering_dots = (10.0..=70.0).contains(&mx) && (14.0..=34.0).contains(&my);
+                if is_hovering_dots != self.dots_hovered {
+                    self.dots_hovered = is_hovering_dots;
+                    if let Some(win) = &self.window {
+                        win.request_redraw();
+                    }
+                }
+
                 if let Some(popup) = &mut self.popup {
                     let (pmx, pmy) = self.logical_mouse_pos;
                     let new_hover = popup.hit_test_item(pmx, pmy);
@@ -1334,7 +1410,7 @@ impl ApplicationHandler for SettingsApp {
                     let (mx, my) = self.logical_mouse_pos;
                     let mut new_hover: i32 = -1;
                     if mx < SIDEBAR_W {
-                        let start_y = 20.0;
+                        let start_y = 60.0;
                         for i in 0..3 {
                             let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
                             if my >= row_y
@@ -1471,7 +1547,33 @@ impl ApplicationHandler for SettingsApp {
                 button: MouseButton::Left,
                 ..
             } => {
-                self.handle_click();
+                let (mx, my) = self.logical_mouse_pos;
+                let is_on_red = (mx - 20.0).powi(2) + (my - 24.0).powi(2) <= 36.0;
+                let is_on_yellow = (mx - 40.0).powi(2) + (my - 24.0).powi(2) <= 36.0;
+                let is_on_green = (mx - 60.0).powi(2) + (my - 24.0).powi(2) <= 36.0;
+
+                if is_on_red {
+                    _el.exit();
+                } else if is_on_yellow {
+                    if let Some(win) = &self.window {
+                        win.set_minimized(true);
+                    }
+                } else if is_on_green {
+                    if let Some(win) = &self.window {
+                        let maximized = win.is_maximized();
+                        win.set_maximized(!maximized);
+                    }
+                } else {
+                    let is_in_sidebar_title = mx < SIDEBAR_W && my < 60.0;
+                    let is_in_content_title = mx >= SIDEBAR_W && my < 50.0;
+                    if (is_in_sidebar_title || is_in_content_title) && self.popup.is_none() {
+                        if let Some(win) = &self.window {
+                            let _ = win.drag_window();
+                        }
+                    } else {
+                        self.handle_click(_el);
+                    }
+                }
             }
             WindowEvent::MouseInput {
                 state: ElementState::Released,
