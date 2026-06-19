@@ -217,7 +217,7 @@ fn smtc_poll_loop(
     let _com_guard = com_initialized.then_some(ComGuard);
 
     let manager = match GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
-        Ok(op) => match op.get() {
+        Ok(op) => match op.join() {
             Ok(m) => m,
             Err(_) => {
                 log::error!("SMTC: failed to get session manager");
@@ -236,12 +236,10 @@ fn smtc_poll_loop(
 
     // COM event bridge: COM callback -> std::sync::mpsc -> polling loop
     let (event_tx, event_rx) = std::sync::mpsc::channel::<()>();
-    let handler = TypedEventHandler::new(
-        move |_m: &Option<GlobalSystemMediaTransportControlsSessionManager>, _| {
-            let _ = event_tx.send(());
-            Ok(())
-        },
-    );
+    let handler = TypedEventHandler::new(move |_m, _| {
+        let _ = event_tx.send(());
+        Ok(())
+    });
     let _ = manager.SessionsChanged(&handler);
 
     // Local state mirrored from channels
@@ -310,7 +308,7 @@ fn smtc_poll_loop(
         // Refresh manager every 30 seconds
         if last_manager_refresh.elapsed() > Duration::from_secs(30) {
             if let Ok(new_mgr_op) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
-                && let Ok(new_mgr) = new_mgr_op.get()
+                && let Ok(new_mgr) = new_mgr_op.join()
             {
                 current_manager = new_mgr;
                 let _ = current_manager.SessionsChanged(&handler);
@@ -650,7 +648,7 @@ fn fetch_properties(
         return Ok(());
     }
 
-    let props = session.TryGetMediaPropertiesAsync()?.get()?;
+    let props = session.TryGetMediaPropertiesAsync()?.join()?;
     let pb_info = session.GetPlaybackInfo()?;
     let is_playing = pb_info.PlaybackStatus()? == windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing;
 
@@ -781,7 +779,7 @@ fn fetch_properties(
             }
             for attempt in 0..10 {
                 let res = (|| -> windows::core::Result<(String, String, Vec<u8>)> {
-                    let props = session_clone.TryGetMediaPropertiesAsync()?.get()?;
+                    let props = session_clone.TryGetMediaPropertiesAsync()?.join()?;
                     let fetched_title = props.Title()?.to_string();
                     let fetched_artist = props.Artist()?.to_string();
                     if fetched_title != title_clone || fetched_artist != artist_clone {
@@ -793,7 +791,7 @@ fn fetch_properties(
                         ));
                     }
                     let thumb_ref = props.Thumbnail()?;
-                    let stream = thumb_ref.OpenReadAsync()?.get()?;
+                    let stream = thumb_ref.OpenReadAsync()?.join()?;
                     let size = stream.Size()?;
                     if size == 0 {
                         return Err(windows::core::Error::new(
@@ -808,7 +806,7 @@ fn fetch_properties(
                             size as u32,
                             windows::Storage::Streams::InputStreamOptions::None,
                         )?
-                        .get()?;
+                        .join()?;
                     let reader = windows::Storage::Streams::DataReader::FromBuffer(&res_buffer)?;
                     let mut bytes = vec![0u8; size as usize];
                     reader.ReadBytes(&mut bytes)?;

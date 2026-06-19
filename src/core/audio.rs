@@ -127,7 +127,10 @@ impl AudioProcessor {
                     return;
                 }
             };
-            let device_name = device.name().unwrap_or_else(|_| "unknown".to_string());
+            let device_name = device
+                .description()
+                .map(|d| d.name().to_string())
+                .unwrap_or_else(|_| "unknown".to_string());
             let config = match device.default_output_config() {
                 Ok(c) => c,
                 Err(_) => {
@@ -237,7 +240,7 @@ fn build_capture_stream<T>(
     spectrum_arc: Arc<Mutex<[f32; 6]>>,
     gate_clone: Arc<AtomicU32>,
     gate_override_clone: Arc<AtomicU32>,
-) -> Result<Stream, cpal::BuildStreamError>
+) -> Result<Stream, cpal::Error>
 where
     T: cpal::SizedSample + Copy,
     f32: FromSample<T>,
@@ -250,7 +253,7 @@ where
     let mut adaptive_max = [0.1f32; 6];
 
     device.build_input_stream(
-        config,
+        *config,
         move |data: &[T], _: &_| {
             for &sample in data {
                 pcm_buffer.push(f32::from_sample(sample));

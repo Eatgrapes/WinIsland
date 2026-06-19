@@ -3,7 +3,6 @@ use skia_safe::{
 };
 use std::cell::RefCell;
 use std::time::Instant;
-use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::*;
 
 type GlassCacheEntry = (Image, Instant, i32, i32, u32, u32);
@@ -82,23 +81,23 @@ unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) ->
     // are released in reverse order. GetDC with default HWND retrieves the
     // desktop DC. StretchBlt with HALFTONE mode provides quality downscaling.
     unsafe {
-        let hdc_screen = GetDC(HWND::default());
+        let hdc_screen = GetDC(None);
         if hdc_screen.is_invalid() {
             return None;
         }
 
-        let hdc_mem = CreateCompatibleDC(hdc_screen);
+        let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
         if hdc_mem.is_invalid() {
-            ReleaseDC(HWND::default(), hdc_screen);
+            ReleaseDC(None, hdc_screen);
             return None;
         }
         let hbm = CreateCompatibleBitmap(hdc_screen, cap_w, cap_h);
         if hbm.is_invalid() {
             let _ = DeleteDC(hdc_mem);
-            ReleaseDC(HWND::default(), hdc_screen);
+            ReleaseDC(None, hdc_screen);
             return None;
         }
-        let old = SelectObject(hdc_mem, hbm);
+        let old = SelectObject(hdc_mem, hbm.into());
 
         let capture_offset_y = if sy > 500 {
             -(h as i32 + margin + 10)
@@ -112,7 +111,7 @@ unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) ->
             0,
             cap_w,
             cap_h,
-            hdc_screen,
+            Some(hdc_screen),
             sx - margin,
             sy - margin + capture_offset_y,
             cap_full_w,
@@ -141,9 +140,9 @@ unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) ->
         );
 
         SelectObject(hdc_mem, old);
-        let _ = DeleteObject(hbm);
+        let _ = DeleteObject(hbm.into());
         let _ = DeleteDC(hdc_mem);
-        ReleaseDC(HWND::default(), hdc_screen);
+        ReleaseDC(None, hdc_screen);
 
         for pixel in pixels.chunks_exact_mut(4) {
             pixel[3] = 255;
