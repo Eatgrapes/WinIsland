@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
 use super::types::{
-    AnimationConfig, ContentProvider, Plugin, PluginError, PluginGetInstanceFn,
-    PluginHandle, PluginInstanceC, PluginMetadata, PluginResultC, PluginType, Shortcut, ShortcutC,
+    AnimationConfig, ContentProvider, Plugin, PluginError, PluginGetInstanceFn, PluginHandle,
+    PluginInstanceC, PluginMetadata, PluginResultC, PluginType, Shortcut, ShortcutC,
     ShortcutProvider, ThemeColors, ThemeProvider,
 };
 use libloading::Library;
