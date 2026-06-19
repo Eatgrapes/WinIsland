@@ -76,6 +76,7 @@ fn parse_translations(content: &str) -> HashMap<String, String> {
     map
 }
 
+#[allow(dead_code)]
 fn format_args(template: &str, args: &[&str]) -> String {
     if args.is_empty() {
         return template.to_string();
@@ -201,6 +202,7 @@ pub fn tr(key: &str) -> String {
     I18N.read().unwrap().get(key)
 }
 
+#[allow(dead_code)]
 pub fn tr_args(key: &str, args: &[&str]) -> String {
     let template = I18N.read().unwrap().get(key);
     format_args(&template, args)
