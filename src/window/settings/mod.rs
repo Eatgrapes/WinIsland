@@ -1,5 +1,5 @@
 use crate::core::config::{APP_AUTHOR, APP_VERSION, AppConfig, DockPosition};
-use crate::core::i18n::{current_lang, tr};
+use crate::core::i18n::{available_langs, current_lang, tr};
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
@@ -441,14 +441,18 @@ impl SettingsApp {
                         enabled: true,
                     });
                 }
-                items.push(SettingsItem::RowSourceSelect {
-                    label: tr("language"),
-                    options: vec![
-                        ("English".to_string(), current_lang() == "en"),
-                        ("中文".to_string(), current_lang() == "zh"),
-                    ],
-                    enabled: true,
-                });
+                {
+                    let cur = current_lang();
+                    let options: Vec<_> = available_langs()
+                        .iter()
+                        .map(|l| (l.name.clone(), l.code == cur))
+                        .collect();
+                    items.push(SettingsItem::RowSourceSelect {
+                        label: tr("language"),
+                        options,
+                        enabled: true,
+                    });
+                }
                 items.push(SettingsItem::GroupEnd);
 
                 items.push(SettingsItem::SectionHeader {
