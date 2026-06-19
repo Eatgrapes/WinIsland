@@ -24,9 +24,11 @@ Added:
 - **Compile-time build timestamp** embedded in binary — prevents false update prompts after manual exe replacement
 - **HTTP retry mechanism** (3 attempts, exponential backoff) for update downloads
 - **Release notes page** on website
+- and more...
 
 Fixed:
 
 - "Cannot download new version" error now retries automatically before showing failure dialog
 - Manual replacement of exe no longer causes repeated update prompts
 - Update download more resilient to network failures
+- and more...
