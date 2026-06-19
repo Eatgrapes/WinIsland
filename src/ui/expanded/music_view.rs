@@ -289,7 +289,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         );
     }
     let base_img_size = 72.0 * scale;
-    let (img_size, img_x, img_y) = (base_img_size, ox + 28.0 * scale, oy + 24.0 * scale);
+    let (img_size, img_x, img_y) = (base_img_size, ox + 36.0 * scale, oy + 24.0 * scale);
     let image_to_draw = if music_active {
         get_cached_media_image(media)
     } else {
@@ -427,7 +427,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
     }
     canvas.restore();
     let text_x = img_x + img_size + 16.0 * scale;
-    let max_text_w = w - (text_x - ox) - 64.0 * scale;
+    let max_text_w = w - (text_x - ox) - 70.0 * scale;
     let title_y = img_y + 26.0 * scale;
     let mut text_paint = Paint::default();
     text_paint.set_anti_alias(true);
@@ -552,11 +552,11 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             "--:--".to_string()
         };
 
-        let bar_full_left = ox + 28.0 * scale;
-        let bar_full_right = ox + w - 28.0 * scale;
+        let bar_full_left = ox + 36.0 * scale;
+        let bar_full_right = ox + w - 36.0 * scale;
 
-        let bar_left = bar_full_left + time_w + 4.0 * scale;
-        let bar_right = bar_full_right - time_w - 4.0 * scale;
+        let bar_left = ox + 28.0 * scale + time_w + 4.0 * scale;
+        let bar_right = ox + w - 28.0 * scale - time_w - 4.0 * scale;
         let bar_total_w = bar_right - bar_left;
 
         let hover_t = PROGRESS_HOVER.with(|cell| {
