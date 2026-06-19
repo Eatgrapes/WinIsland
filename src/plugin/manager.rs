@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use super::loader::NativePlugin;
+use super::types::read_c_str;
 use super::types::{
     ContentProvider, Plugin, PluginError, PluginType, ShortcutProvider, ThemeProvider,
 };
@@ -10,6 +11,17 @@ use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use std::sync::{Mutex, OnceLock};
 
+/// Buffered plugin media source, drained by the main thread each frame.
+pub struct PendingMediaSource {
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub duration_ms: u64,
+    pub position_ms: u64,
+    pub is_playing: bool,
+    pub cover_data: Vec<u8>,
+}
+
 // ---------------------------------------------------------------------------
 // Global router — C callbacks route through thread-safe pending buffers
 // ---------------------------------------------------------------------------
@@ -17,21 +29,33 @@ use std::sync::{Mutex, OnceLock};
 static PENDING_CONTEXTS: OnceLock<Mutex<Vec<crate::core::context::PluginContext>>> =
     OnceLock::new();
 static PENDING_CLOSE: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+static PENDING_MEDIA_SOURCE: OnceLock<Mutex<Option<PendingMediaSource>>> = OnceLock::new();
 static PLUGIN_HANDLES: OnceLock<Mutex<HashMap<isize, String>>> = OnceLock::new();
 static HOST_STATE: OnceLock<Mutex<crate::plugin::types::HostState>> = OnceLock::new();
+/// Leaked `'static` HostApiC — plugins hold a raw pointer to this.
+static HOST_API: OnceLock<Box<crate::plugin::types::HostApiC>> = OnceLock::new();
 
 /// Initialise the global plugin→host routing. Must be called once at startup.
-pub fn init_host_api() -> crate::plugin::types::HostApiC {
+///
+/// Returns a `*const` to a leaked `'static` HostApiC that plugins can safely
+/// store and call through for the entire process lifetime.
+pub fn init_host_api() -> *const crate::plugin::types::HostApiC {
     PENDING_CONTEXTS.get_or_init(|| Mutex::new(Vec::new()));
     PENDING_CLOSE.get_or_init(|| Mutex::new(Vec::new()));
+    PENDING_MEDIA_SOURCE.get_or_init(|| Mutex::new(None));
     PLUGIN_HANDLES.get_or_init(|| Mutex::new(HashMap::new()));
     HOST_STATE.get_or_init(|| Mutex::new(crate::plugin::types::HostState::default()));
 
-    crate::plugin::types::HostApiC {
-        send_context: host_send_context,
-        close_context: host_close_context,
-        query_host_state: host_query_host_state,
-    }
+    let api = HOST_API.get_or_init(|| {
+        Box::new(crate::plugin::types::HostApiC {
+            send_context: host_send_context,
+            close_context: host_close_context,
+            query_host_state: host_query_host_state,
+            set_media_source: host_set_media_source,
+            clear_media_source: host_clear_media_source,
+        })
+    });
+    api.as_ref() as *const _
 }
 
 /// Drain all pending plugin contexts and push them into the ContextManager.
@@ -80,6 +104,53 @@ pub fn update_host_state(state: crate::plugin::types::HostState) {
     {
         *m = state;
     }
+}
+
+/// Drain the pending plugin media source. Returns `None` if cleared or empty.
+pub fn drain_pending_media_source() -> Option<PendingMediaSource> {
+    PENDING_MEDIA_SOURCE.get()?.lock().ok()?.take()
+}
+
+unsafe extern "C" fn host_set_media_source(
+    _handle: crate::plugin::types::PluginHandle,
+    data: crate::plugin::types::MediaSourceC,
+) -> crate::plugin::types::PluginResultC {
+    let raw = read_c_str(&data.title);
+    if raw.is_empty() {
+        return crate::plugin::types::PluginResultC::err("title is empty");
+    }
+
+    let cover_data = if !data.cover_data.is_null() && data.cover_len > 0 {
+        unsafe { std::slice::from_raw_parts(data.cover_data, data.cover_len as usize) }.to_vec()
+    } else {
+        Vec::new()
+    };
+
+    if let Some(buf) = PENDING_MEDIA_SOURCE.get()
+        && let Ok(mut m) = buf.lock()
+    {
+        *m = Some(PendingMediaSource {
+            title: raw,
+            artist: read_c_str(&data.artist),
+            album: read_c_str(&data.album),
+            duration_ms: data.duration_ms,
+            position_ms: data.position_ms,
+            is_playing: data.is_playing,
+            cover_data,
+        });
+    }
+    crate::plugin::types::PluginResultC::ok()
+}
+
+unsafe extern "C" fn host_clear_media_source(
+    _handle: crate::plugin::types::PluginHandle,
+) -> crate::plugin::types::PluginResultC {
+    if let Some(buf) = PENDING_MEDIA_SOURCE.get()
+        && let Ok(mut m) = buf.lock()
+    {
+        *m = None;
+    }
+    crate::plugin::types::PluginResultC::ok()
 }
 
 unsafe extern "C" fn host_send_context(
@@ -321,7 +392,7 @@ impl PluginManager {
     }
 
     /// Call `set_host_api` on every loaded plugin and register its handle.
-    pub fn init_plugin_host_api(&self, api: crate::plugin::types::HostApiC) {
+    pub fn init_plugin_host_api(&self, api: *const crate::plugin::types::HostApiC) {
         let entries = match self.entries.read() {
             Ok(g) => g,
             Err(e) => {

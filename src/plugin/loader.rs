@@ -149,9 +149,21 @@ impl NativePlugin {
     }
 
     /// Give this plugin a pointer to the host API table.
-    pub fn set_host_api(&self, api: super::types::HostApiC) {
-        if let Some(f) = self.vtable().set_host_api {
-            unsafe { (f)(self.handle, &api as *const _) };
+    ///
+    /// Looks for a `plugin_set_host_api` symbol exported by the DLL.
+    /// If the plugin doesn't export it (old plugin), this is a no-op.
+    /// The pointer must be `'static` (leaked or global).
+    pub fn set_host_api(&self, api: *const super::types::HostApiC) {
+        // Try to find the `plugin_set_host_api` symbol exported by the DLL.
+        // Old plugins don't export it — this is a no-op for those.
+        let lib: &Library = &self._lib;
+        if let Ok(func) = unsafe {
+            lib.get::<unsafe extern "C" fn(
+                crate::plugin::types::PluginHandle,
+                *const crate::plugin::types::HostApiC,
+            )>(b"plugin_set_host_api\0")
+        } {
+            unsafe { (func)(self.handle, api) };
         }
     }
 

@@ -4,9 +4,10 @@ use serde::{Deserialize, Serialize};
 
 pub use winisland_plugin_api::{
     AnimationConfigC, ContextDataC, ContextIdC, HostApiC, HostStateC, ISLAND_CONTENT_TAG_MUSIC,
-    ISLAND_CONTENT_TAG_NOTIFICATION, ISLAND_CONTENT_TAG_STATUS, IslandContentC, PRIORITY_HIGH,
-    PRIORITY_LOW, PRIORITY_MEDIUM, PluginGetInstanceFn, PluginHandle, PluginInstanceC,
-    PluginMetadataC, PluginResultC, PluginType, PluginVTable, ShortcutC, ThemeColorsC,
+    ISLAND_CONTENT_TAG_NOTIFICATION, ISLAND_CONTENT_TAG_STATUS, IslandContentC, MediaSourceC,
+    PRIORITY_HIGH, PRIORITY_LOW, PRIORITY_MEDIUM, PluginGetInstanceFn, PluginHandle,
+    PluginInstanceC, PluginMetadataC, PluginResultC, PluginType, PluginVTable, ShortcutC,
+    ThemeColorsC,
 };
 
 pub fn read_c_str(buf: &[u8]) -> String {

@@ -290,6 +290,32 @@ pub struct HostStateC {
     pub theme: [u8; 32],
 }
 
+/// Media source data pushed by a plugin to replace SMTC playback info.
+///
+/// When a plugin calls `set_media_source`, the host uses this data
+/// instead of the current SMTC session for the entire media UI
+/// (progress bar, cover art, title/artist, playback controls).
+/// Call `clear_media_source` to restore SMTC as the source.
+#[repr(C)]
+pub struct MediaSourceC {
+    /// Track title. Max 255 bytes + NUL.
+    pub title: [u8; 256],
+    /// Artist name. Max 255 bytes + NUL.
+    pub artist: [u8; 256],
+    /// Album name. Max 255 bytes + NUL.
+    pub album: [u8; 256],
+    /// Total duration in milliseconds.
+    pub duration_ms: u64,
+    /// Current playback position in milliseconds.
+    pub position_ms: u64,
+    /// Whether the media is currently playing.
+    pub is_playing: bool,
+    /// Raw cover art bytes (JPEG/PNG). Null pointer if no cover.
+    pub cover_data: *const u8,
+    /// Length of `cover_data` in bytes. 0 if no cover.
+    pub cover_len: u32,
+}
+
 /// Host-side API table passed to plugins via [`PluginVTable::set_host_api`].
 ///
 /// Plugins store this pointer during `set_host_api` and call through it
@@ -308,6 +334,15 @@ pub struct HostApiC {
 
     /// Query the current host state.
     pub query_host_state: unsafe extern "C" fn(PluginHandle) -> HostStateC,
+
+    /// Replace SMTC with plugin-provided media source.
+    ///
+    /// The host will use this data for the entire media UI. Returns an
+    /// error if `title` is empty. Call [`clear_media_source`] to restore SMTC.
+    pub set_media_source: unsafe extern "C" fn(PluginHandle, MediaSourceC) -> PluginResultC,
+
+    /// Restore SMTC as the active media source and stop using plugin data.
+    pub clear_media_source: unsafe extern "C" fn(PluginHandle) -> PluginResultC,
 }
 
 // ---------------------------------------------------------------------------

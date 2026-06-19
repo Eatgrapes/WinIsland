@@ -94,6 +94,7 @@ pub struct App {
     touch_pos: PhysicalPosition<f64>,
     ctx_mgr: ContextManager,
     plugin_mgr: PluginManager,
+    plugin_media_source: Option<crate::core::smtc::MediaInfo>,
     pending_install: Option<mpsc::Receiver<InstallResult>>,
 }
 
@@ -155,6 +156,7 @@ impl Default for App {
             touch_pos: PhysicalPosition::new(0.0, 0.0),
             ctx_mgr: ContextManager::new(),
             plugin_mgr: PluginManager::default(),
+            plugin_media_source: None,
             pending_install: None,
         }
     }
@@ -1039,11 +1041,51 @@ impl ApplicationHandler for App {
                             - self.config.base_height * self.config.global_scale)
                             .abs();
                         let progress = (dist_h / total_h).clamp(0.0, 1.0);
-                        let mut media_info = if self.config.smtc_enabled {
-                            self.smtc.get_info()
-                        } else {
-                            crate::core::smtc::MediaInfo::default()
-                        };
+                        // Drain pending plugin media source (called once per frame)
+                        if let Some(ps) = crate::plugin::manager::drain_pending_media_source() {
+                            use std::sync::Arc;
+                            let (cover, hash) = if !ps.cover_data.is_empty() {
+                                use std::collections::hash_map::DefaultHasher;
+                                use std::hash::{Hash, Hasher};
+                                let mut hasher = DefaultHasher::new();
+                                ps.cover_data.hash(&mut hasher);
+                                (Some(Arc::new(ps.cover_data)), hasher.finish())
+                            } else {
+                                (None, 0)
+                            };
+                            self.plugin_media_source = Some(crate::core::smtc::MediaInfo {
+                                title: ps.title,
+                                artist: ps.artist,
+                                album: ps.album,
+                                duration_ms: ps.duration_ms,
+                                duration_secs: ps.duration_ms / 1000,
+                                position_ms: ps.position_ms,
+                                is_playing: ps.is_playing,
+                                last_update: Instant::now(),
+                                thumbnail: cover,
+                                thumbnail_hash: hash,
+                                ..Default::default()
+                            });
+                        }
+                        // Advance plugin media source position
+                        if let Some(ref mut info) = self.plugin_media_source
+                            && info.is_playing
+                        {
+                            let elapsed = info.last_update.elapsed().as_millis() as u64;
+                            info.position_ms = info.position_ms.saturating_add(elapsed);
+                            info.last_update = Instant::now();
+                        }
+                        let mut media_info = self
+                            .plugin_media_source
+                            .clone()
+                            .or_else(|| {
+                                if self.config.smtc_enabled {
+                                    Some(self.smtc.get_info())
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or_default();
                         if self.seeking_progress && self.seeking_duration_ms > 0 {
                             media_info.position_ms = self.seeking_preview_ms;
                             media_info.last_update = Instant::now();
