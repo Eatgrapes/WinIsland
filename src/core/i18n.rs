@@ -1,5 +1,6 @@
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 use windows::Win32::Globalization::GetUserDefaultLocaleName;
 
@@ -50,27 +51,16 @@ fn lang_dir() -> std::path::PathBuf {
         .join("lang")
 }
 
-fn parse_lang_header(content: &str) -> Option<(String, String)> {
-    let mut code = None;
-    let mut name = None;
+fn parse_lang_name(content: &str) -> Option<String> {
     for line in content.lines() {
-        if let Some(rest) = line.strip_prefix("!lang_code=") {
-            code = Some(rest.trim().to_string());
-        } else if let Some(rest) = line.strip_prefix("!lang_name=") {
-            name = Some(rest.trim().to_string());
-        } else if line.starts_with('!') {
-            continue;
-        } else {
-            break;
+        if let Some(rest) = line.strip_prefix("!lang_name=") {
+            return Some(rest.trim().to_string());
         }
-        if code.is_some() && name.is_some() {
+        if !line.starts_with('!') {
             break;
         }
     }
-    match (code, name) {
-        (Some(c), Some(n)) => Some((c, n)),
-        _ => None,
-    }
+    None
 }
 
 fn parse_translations(content: &str) -> HashMap<String, String> {
@@ -105,13 +95,17 @@ fn discover_disk_langs() -> (Vec<Language>, HashMap<String, String>) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("lang") {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    if let Some((code, name)) = parse_lang_header(&content) {
-                        if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-                            file_map.insert(code.clone(), filename.to_string());
-                        }
-                        languages.push(Language { code, name });
-                    }
+                if let Some(filename) = path.file_name().and_then(|n| n.to_str())
+                    && let Ok(content) = std::fs::read_to_string(&path)
+                {
+                    let code = Path::new(filename)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(filename)
+                        .to_string();
+                    let name = parse_lang_name(&content).unwrap_or_else(|| code.clone());
+                    file_map.insert(code.clone(), filename.to_string());
+                    languages.push(Language { code, name });
                 }
             }
         }
@@ -125,18 +119,22 @@ impl I18n {
         let mut available = disk_langs;
         let file_map = disk_files;
 
-        for (_filename, content) in &embedded_langs() {
-            if let Some((code, name)) = parse_lang_header(content) {
-                if !available.iter().any(|l| l.code == code) {
-                    available.push(Language { code, name });
-                }
+        for (filename, content) in &embedded_langs() {
+            let code = Path::new(filename)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(filename)
+                .to_string();
+            if !available.iter().any(|l| l.code == code) {
+                let name = parse_lang_name(content).unwrap_or_else(|| code.clone());
+                available.push(Language { code, name });
             }
         }
 
         let default_lang = available
             .first()
             .map(|l| l.code.clone())
-            .unwrap_or_else(|| "en".to_string());
+            .unwrap_or_else(|| "en_us".to_string());
 
         let mut i18n = I18n {
             current_lang: default_lang.clone(),
@@ -155,11 +153,13 @@ impl I18n {
                 return Some(content);
             }
         }
-        for (_filename, content) in &embedded_langs() {
-            if let Some((code, _name)) = parse_lang_header(content) {
-                if code == lang {
-                    return Some(content.to_string());
-                }
+        for (filename, content) in &embedded_langs() {
+            let code = Path::new(filename)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+            if code == lang {
+                return Some(content.to_string());
             }
         }
         None
@@ -219,10 +219,15 @@ fn get_system_lang() -> String {
         let len = GetUserDefaultLocaleName(&mut buffer);
         if len > 0 {
             let s = String::from_utf16_lossy(&buffer[..len as usize - 1]);
-            if s.starts_with("zh") {
-                return "zh".to_string();
+            let lower = s.to_lowercase();
+            if lower.starts_with("zh") {
+                return "zh_cn".to_string();
             }
+            if lower.starts_with("es") {
+                return "es_es".to_string();
+            }
+            return "en_us".to_string();
         }
     }
-    "en".to_string()
+    "en_us".to_string()
 }
