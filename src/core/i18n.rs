@@ -96,19 +96,18 @@ fn discover_disk_langs() -> (Vec<Language>, HashMap<String, String>) {
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("lang") {
-                if let Some(filename) = path.file_name().and_then(|n| n.to_str())
-                    && let Ok(content) = std::fs::read_to_string(&path)
-                {
-                    let code = Path::new(filename)
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or(filename)
-                        .to_string();
-                    let name = parse_lang_name(&content).unwrap_or_else(|| code.clone());
-                    file_map.insert(code.clone(), filename.to_string());
-                    languages.push(Language { code, name });
-                }
+            if path.extension().and_then(|e| e.to_str()) == Some("lang")
+                && let Some(filename) = path.file_name().and_then(|n| n.to_str())
+                && let Ok(content) = std::fs::read_to_string(&path)
+            {
+                let code = Path::new(filename)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(filename)
+                    .to_string();
+                let name = parse_lang_name(&content).unwrap_or_else(|| code.clone());
+                file_map.insert(code.clone(), filename.to_string());
+                languages.push(Language { code, name });
             }
         }
     }
@@ -176,10 +175,10 @@ impl I18n {
     }
 
     pub fn get(&self, key: &str) -> String {
-        if let Some(overlay) = self.plugin_translations.get(&self.current_lang) {
-            if let Some(v) = overlay.get(key) {
-                return v.clone();
-            }
+        if let Some(overlay) = self.plugin_translations.get(&self.current_lang)
+            && let Some(v) = overlay.get(key)
+        {
+            return v.clone();
         }
         self.translations
             .get(key)
