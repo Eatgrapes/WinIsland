@@ -4,7 +4,7 @@ use super::{
 };
 use super::{PopupKind, PopupState, SettingsApp};
 use crate::core::config::{APP_HOMEPAGE, AppConfig, DockPosition};
-use crate::core::i18n::{current_lang, init_i18n, set_lang, tr};
+use crate::core::i18n::{available_langs, current_lang, init_i18n, set_lang, tr};
 use crate::core::persistence::save_config;
 use crate::utils::autostart::set_autostart;
 use crate::utils::font::FontManager;
@@ -387,13 +387,17 @@ impl SettingsApp {
                             self.win_h / scale,
                         ));
                     } else {
-                        let lang = current_lang();
+                        let langs = available_langs();
+                        let cur = current_lang();
+                        let selected_idx = langs.iter().position(|l| l.code == cur).unwrap_or(0);
+                        let options: Vec<String> = langs.iter().map(|l| l.name.clone()).collect();
+                        let values: Vec<String> = langs.iter().map(|l| l.code.clone()).collect();
                         self.popup = Some(PopupState::new(
                             PopupKind::Language,
                             Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                            vec!["English".to_string(), "中文".to_string()],
-                            vec!["en".to_string(), "zh".to_string()],
-                            if lang == "zh" { 1 } else { 0 },
+                            options,
+                            values,
+                            selected_idx,
                             self.win_w / scale,
                             self.win_h / scale,
                         ));

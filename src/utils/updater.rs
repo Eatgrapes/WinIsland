@@ -1,4 +1,4 @@
-use crate::core::i18n::tr;
+use crate::core::i18n::{tr, tr_args};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -325,8 +325,7 @@ async fn do_check(app_dir: &Path) {
         let title_w: Vec<u16> = format!("{}\0", tr("update_available_title"))
             .encode_utf16()
             .collect();
-        let text_w: Vec<u16> = tr("update_available_desc")
-            .replace("{}", &remote_info.timestamp)
+        let text_w: Vec<u16> = tr_args("update_available_desc", &[&remote_info.timestamp])
             .add_null()
             .encode_utf16()
             .collect();
