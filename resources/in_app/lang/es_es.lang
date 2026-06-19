@@ -86,3 +86,6 @@ tray_hide=Ocultar
 tray_settings=Ajustes
 tray_restart=Reiniciar
 tray_exit=Salir
+update_channel=Canal de Actualización
+channel_stable=Estable
+channel_beta=Beta
