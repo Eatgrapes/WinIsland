@@ -26,7 +26,6 @@ WinIsland.exe  ──libloading──▶  your_plugin.dll
 
 | 类型 | 用途 | 状态 |
 |------|------|------|
-| **Content** (id=1) | 提供自定义岛内容（天气、通知、状态…） | 🔲 API 待定 |
 | **Theme** (id=2) | 覆盖岛的配色和动画参数 | 🔲 API 待定 |
 | **Shortcut** (id=3) | 注册可执行操作 | 🔲 API 待定 |
 
@@ -50,7 +49,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-winisland-plugin-api = "0.1"
+winisland-plugin-api = "0.1.3"
 ```
 
 ## 实现插件
@@ -123,7 +122,7 @@ unsafe extern "C" fn destroy(handle: PluginHandle) {
 
 ```toml
 [dev-dependencies]
-winisland-plugin-api = { version = "0.1", features = ["packager"] }
+winisland-plugin-api = { version = "0.1.3", features = ["packager"] }
 
 [[bin]]
 name = "pack"
@@ -261,15 +260,6 @@ WinIsland 在加载插件时应用了多重安全措施：
 | **后台解压** | ZIP 解压在后台线程执行 |
 | **锁中毒处理** | 锁中毒不会导致宿主崩溃 |
 | **VTable 校验** | 调用前检查必需的函数指针是否为空 |
-
-## 如何验证你的插件已加载？
-
-由于宿主端 API 仍在开发中，插件暂时不会在岛界面上显示任何内容。
-
-**验证方法：**
-1. 按 `F12` 打开 WinIsland 调试日志窗口
-2. 搜索你的插件名称——你应该能看到类似 `Loaded plugin: xxx (xxx)` 的信息
-3. 拖放 ZIP 会触发 Windows 弹出窗口确认成功/失败
 
 ## C ABI 类型参考
 
