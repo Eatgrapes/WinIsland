@@ -1,0 +1,64 @@
+name: Release App
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number to release (e.g., 1.0.0 or v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: Extract Release Notes
+      run: |
+        python .github/scripts/extract_changelog.py "${{ inputs.version }}"
+
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Rust Cache
+      uses: swatinem/rust-cache@v2
+
+    - name: Install dependencies
+      run: |
+        choco install ninja
+
+    - name: Build Release
+      run: cargo build --release --verbose
+
+    - name: Determine Tag Name
+      shell: bash
+      run: |
+        VERSION="${{ inputs.version }}"
+        if [[ "$VERSION" =~ ^[vV] ]]; then
+          echo "TAG_NAME=$VERSION" >> $GITHUB_ENV
+        else
+          echo "TAG_NAME=v$VERSION" >> $GITHUB_ENV
+        fi
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ env.TAG_NAME }}
+        name: ${{ env.TAG_NAME }}
+        body_path: release_notes.txt
+        draft: false
+        prerelease: false
+        files: |
+          target/release/WinIsland.exe
+        make_latest: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
