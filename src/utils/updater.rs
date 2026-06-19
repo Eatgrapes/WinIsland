@@ -12,19 +12,55 @@ use windows::core::PCWSTR;
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
+        .user_agent("WinIsland-Updater")
         .build()
         .unwrap()
 });
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VersionInfo {
-    pub timestamp: String,
+    pub version: Option<String>,
+    pub timestamp: Option<String>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct GithubRelease {
+    tag_name: String,
+    assets: Vec<GithubAsset>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct GithubAsset {
+    name: String,
+    browser_download_url: String,
 }
 
 const UPDATE_URL_JSON: &str =
     "https://github.com/Eatgrapes/WinIsland/releases/download/nightly/version_info.json";
 const UPDATE_URL_EXE: &str =
     "https://github.com/Eatgrapes/WinIsland/releases/download/nightly/WinIsland.exe";
+
+fn is_version_newer(current: &str, remote: &str) -> bool {
+    let current_parts: Vec<&str> = current.split('.').collect();
+    let remote_parts: Vec<&str> = remote.split('.').collect();
+
+    for i in 0..std::cmp::max(current_parts.len(), remote_parts.len()) {
+        let current_val = current_parts
+            .get(i)
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+        let remote_val = remote_parts
+            .get(i)
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+        if remote_val > current_val {
+            return true;
+        } else if remote_val < current_val {
+            return false;
+        }
+    }
+    false
+}
 
 pub fn get_app_dir() -> PathBuf {
     let mut path = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -65,18 +101,27 @@ pub fn start_update_checker() {
 }
 
 async fn do_check(app_dir: &Path) {
-    let local_json_path = app_dir.join("version_info.json");
+    let config = crate::core::persistence::load_config();
+    let channel = config.update_channel.as_str();
 
+    if channel == "beta" {
+        do_beta_check(app_dir).await;
+    } else {
+        do_stable_check(app_dir).await;
+    }
+}
+
+async fn do_beta_check(app_dir: &Path) {
     let remote_json_str = match HTTP_CLIENT.get(UPDATE_URL_JSON).send().await {
         Ok(resp) => match resp.text().await {
             Ok(s) => s,
             Err(_) => {
-                log::warn!("Update check: failed to read remote version info");
+                log::warn!("Update check (Beta): failed to read remote version info");
                 return;
             }
         },
         Err(_) => {
-            log::warn!("Update check: HTTP request failed for version_info.json");
+            log::warn!("Update check (Beta): HTTP request failed for version_info.json");
             return;
         }
     };
@@ -84,58 +129,58 @@ async fn do_check(app_dir: &Path) {
     let remote_info: VersionInfo = match serde_json::from_str(&remote_json_str) {
         Ok(info) => info,
         Err(_) => {
-            log::warn!("Update check: failed to parse remote version info");
+            log::warn!("Update check (Beta): failed to parse remote version info");
             return;
         }
     };
 
+    let remote_timestamp = match &remote_info.timestamp {
+        Some(t) => t,
+        None => {
+            log::warn!("Update check (Beta): remote version info does not contain timestamp");
+            return;
+        }
+    };
+
+    let local_json_path = app_dir.join("version_info.json");
     let mut needs_update = false;
+
     if local_json_path.exists() {
         if let Ok(local_content) = fs::read_to_string(&local_json_path) {
             if let Ok(local_info) = serde_json::from_str::<VersionInfo>(&local_content) {
-                if remote_info.timestamp > local_info.timestamp {
-                    needs_update = true;
+                if let Some(local_timestamp) = &local_info.timestamp {
+                    if remote_timestamp > local_timestamp {
+                        needs_update = true;
+                    } else {
+                        log::info!(
+                            "Update check (Beta): current version is up-to-date ({})",
+                            local_timestamp
+                        );
+                    }
                 } else {
-                    log::info!(
-                        "Update check: current version is up-to-date ({})",
-                        local_info.timestamp
-                    );
+                    needs_update = true;
                 }
             } else {
-                log::info!("Update check: local version info corrupted, will update");
                 needs_update = true;
             }
         } else {
-            log::warn!("Update check: failed to read local version file");
             needs_update = true;
         }
     } else {
-        log::info!("Update check: no local version info, fresh install");
         needs_update = true;
     }
 
     if needs_update {
-        log::info!(
-            "Update available: {} -> {}",
-            if local_json_path.exists() {
-                "current"
-            } else {
-                "none"
-            },
-            remote_info.timestamp
-        );
+        log::info!("Update available (Beta): -> {}", remote_timestamp);
         let title_w: Vec<u16> = format!("{}\0", tr("update_available_title"))
             .encode_utf16()
             .collect();
         let text_w: Vec<u16> = tr("update_available_desc")
-            .replace("{}", &remote_info.timestamp)
+            .replace("{}", remote_timestamp)
             .add_null()
             .encode_utf16()
             .collect();
 
-        // SAFETY: MessageBoxW displays a modal dialog. The text and title are
-        // null-terminated UTF-16 strings allocated in the outer scope and moved
-        // into the closure. None hWnd makes it a top-level message box.
         let result = tokio::task::spawn_blocking(move || unsafe {
             MessageBoxW(
                 None,
@@ -149,14 +194,100 @@ async fn do_check(app_dir: &Path) {
         if let Ok(r) = result
             && (r == IDOK || r == IDYES)
         {
-            perform_update(remote_json_str, app_dir.to_path_buf()).await;
+            perform_update(UPDATE_URL_EXE, remote_json_str, app_dir.to_path_buf()).await;
         }
     }
 }
 
-async fn perform_update(remote_json_str: String, app_dir: PathBuf) {
-    log::info!("Update: downloading new executable");
-    let bytes = match HTTP_CLIENT.get(UPDATE_URL_EXE).send().await {
+async fn do_stable_check(app_dir: &Path) {
+    let latest_release_url = "https://api.github.com/repos/Eatgrapes/WinIsland/releases/latest";
+    let remote_json_str = match HTTP_CLIENT.get(latest_release_url).send().await {
+        Ok(resp) => match resp.text().await {
+            Ok(s) => s,
+            Err(_) => {
+                log::warn!("Update check (Stable): failed to read latest release info");
+                return;
+            }
+        },
+        Err(_) => {
+            log::warn!("Update check (Stable): HTTP request failed for latest release info");
+            return;
+        }
+    };
+
+    let release: GithubRelease = match serde_json::from_str(&remote_json_str) {
+        Ok(r) => r,
+        Err(e) => {
+            log::warn!(
+                "Update check (Stable): failed to parse release JSON: {:?}",
+                e
+            );
+            return;
+        }
+    };
+
+    let remote_version = release
+        .tag_name
+        .trim_start_matches('v')
+        .trim_start_matches('V');
+    let needs_update = is_version_newer(crate::core::config::APP_VERSION, remote_version);
+
+    if needs_update {
+        log::info!(
+            "Update available (Stable): {} -> {}",
+            crate::core::config::APP_VERSION,
+            remote_version
+        );
+
+        // Find the download URL for WinIsland.exe
+        let download_url = match release.assets.iter().find(|a| a.name == "WinIsland.exe") {
+            Some(asset) => asset.browser_download_url.clone(),
+            None => {
+                log::warn!("Update check (Stable): no WinIsland.exe asset found in release");
+                return;
+            }
+        };
+
+        let title_w: Vec<u16> = format!("{}\0", tr("update_available_title"))
+            .encode_utf16()
+            .collect();
+        let text_w: Vec<u16> = tr("update_available_desc")
+            .replace("{}", remote_version)
+            .add_null()
+            .encode_utf16()
+            .collect();
+
+        let result = tokio::task::spawn_blocking(move || unsafe {
+            MessageBoxW(
+                None,
+                PCWSTR(text_w.as_ptr()),
+                PCWSTR(title_w.as_ptr()),
+                MB_OKCANCEL | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND,
+            )
+        })
+        .await;
+
+        if let Ok(r) = result
+            && (r == IDOK || r == IDYES)
+        {
+            let local_version_info = VersionInfo {
+                version: Some(remote_version.to_string()),
+                timestamp: None,
+            };
+            let serialized = serde_json::to_string(&local_version_info).unwrap_or_default();
+            perform_update(&download_url, serialized, app_dir.to_path_buf()).await;
+        }
+    } else {
+        log::info!(
+            "Update check (Stable): current version is up-to-date ({})",
+            crate::core::config::APP_VERSION
+        );
+    }
+}
+
+async fn perform_update(download_url: &str, remote_json_str: String, app_dir: PathBuf) {
+    log::info!("Update: downloading new executable from {}", download_url);
+    let bytes = match HTTP_CLIENT.get(download_url).send().await {
         Ok(r) => match r.bytes().await {
             Ok(b) => b.to_vec(),
             Err(_) => {

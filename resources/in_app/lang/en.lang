@@ -85,3 +85,6 @@ tray_hide=Hide
 tray_settings=Settings
 tray_restart=Restart
 tray_exit=Exit
+update_channel=Update Channel
+channel_stable=Stable
+channel_beta=Beta

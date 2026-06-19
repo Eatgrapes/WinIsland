@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-pub const APP_VERSION: &str = "1.0.0";
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APP_AUTHOR: &str = "Eatgrapes";
 pub const APP_HOMEPAGE: &str = "https://github.com/Eatgrapes/WinIsland";
 pub const WINDOW_TITLE: &str = "WinIsland";
@@ -141,6 +141,8 @@ pub struct AppConfig {
     pub expanded_cover_shape: String,
     #[serde(default = "default_cover_rotate")]
     pub cover_rotate: bool,
+    #[serde(default = "default_update_channel")]
+    pub update_channel: String,
 }
 
 fn default_island_style() -> String {
@@ -243,6 +245,10 @@ fn default_cover_rotate() -> bool {
     false
 }
 
+fn default_update_channel() -> String {
+    "stable".to_string()
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -280,6 +286,7 @@ impl Default for AppConfig {
             mini_cover_shape: "square".to_string(),
             expanded_cover_shape: "square".to_string(),
             cover_rotate: false,
+            update_channel: "stable".to_string(),
         }
     }
 }
