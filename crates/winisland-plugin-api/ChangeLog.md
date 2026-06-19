@@ -5,6 +5,23 @@ All notable changes to `winisland-plugin-api` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.2.0 - Jun 19, 2026
+
+Added:
+
+- `TranslationPairC` — FFI-safe translation key-value pair for plugin i18n
+- `HostApiC::register_translations` — plugin registers translations during `on_load`;
+  later registrations override earlier ones for the same key
+- i18n overlay layer — `tr()` checks plugin-registered translations before `.lang` files
+
+Changed:
+
+- **Breaking**: `HostApiC` gains a new required field `register_translations`;
+  all host implementations must provide this callback
+- `lib.rs` split into modular files: `host.rs`, `vtable.rs`, `types/mod.rs`,
+  `types/{metadata,content,context,theme,shortcut,i18n}.rs`
+- All public types re-exported from crate root — import paths unchanged for plugin authors
+
 ## 0.1.3 - Jun 19, 2026
 
 Added:
