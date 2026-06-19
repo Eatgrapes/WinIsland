@@ -264,7 +264,7 @@ impl App {
                 let mut dd: DISPLAY_DEVICEW = std::mem::zeroed();
                 dd.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
                 if EnumDisplayDevicesW(None, idx, &mut dd, 0).as_bool() {
-                    if (dd.StateFlags & DISPLAY_DEVICE_ACTIVE) != 0 {
+                    if (dd.StateFlags & DISPLAY_DEVICE_ACTIVE) != DISPLAY_DEVICE_STATE_FLAGS(0) {
                         let name = String::from_utf16_lossy(&dd.DeviceName)
                             .trim_end_matches('\0')
                             .to_string();

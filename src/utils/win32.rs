@@ -1,4 +1,4 @@
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowW, GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, PostMessageW, SW_RESTORE,
     SWP_NOACTIVATE, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_CLOSE,
@@ -28,7 +28,7 @@ pub fn find_window(title: &str) -> Option<HWND> {
 pub fn close_window(title: &str) {
     if let Some(hwnd) = find_window(title) {
         unsafe {
-            let _ = PostMessageW(hwnd, WM_CLOSE, None, None);
+            let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
         }
     }
 }
@@ -74,6 +74,6 @@ pub fn modify_window_style(hwnd: HWND, add_flags: isize, remove_flags: isize) {
 // valid.
 pub fn set_window_topmost(hwnd: HWND, x: i32, y: i32, w: i32, h: i32) {
     unsafe {
-        let _ = SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE);
+        let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), x, y, w, h, SWP_NOACTIVATE);
     }
 }

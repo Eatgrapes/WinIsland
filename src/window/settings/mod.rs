@@ -673,7 +673,7 @@ impl SettingsApp {
                 let mut dd: DISPLAY_DEVICEW = std::mem::zeroed();
                 dd.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
                 if EnumDisplayDevicesW(None, idx, &mut dd, 0).as_bool() {
-                    if (dd.StateFlags & DISPLAY_DEVICE_ACTIVE) != 0 {
+                    if (dd.StateFlags & DISPLAY_DEVICE_ACTIVE) != DISPLAY_DEVICE_STATE_FLAGS(0) {
                         active_count += 1;
                         let name = String::from_utf16_lossy(&dd.DeviceName)
                             .trim_end_matches('\0')
@@ -742,7 +742,7 @@ impl SettingsApp {
         use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
         let mut changed = false;
         if let Ok(manager_async) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
-            && let Ok(manager) = manager_async.get()
+            && let Ok(manager) = manager_async.join()
             && let Ok(sessions) = manager.GetSessions()
             && let Ok(size) = sessions.Size()
         {

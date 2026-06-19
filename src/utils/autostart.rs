@@ -25,7 +25,7 @@ pub fn set_autostart(enabled: bool) -> Result<(), Box<dyn std::error::Error>> {
             let res = RegCreateKeyExW(
                 HKEY_CURRENT_USER,
                 sub_key,
-                0,
+                Some(0),
                 None,
                 REG_OPTION_NON_VOLATILE,
                 KEY_WRITE,
@@ -38,7 +38,7 @@ pub fn set_autostart(enabled: bool) -> Result<(), Box<dyn std::error::Error>> {
                 let _ = RegSetValueExW(
                     hkey,
                     app_name,
-                    0,
+                    Some(0),
                     REG_SZ,
                     Some(std::slice::from_raw_parts(
                         exe_path_wide.as_ptr() as *const u8,
@@ -60,7 +60,7 @@ pub fn set_autostart(enabled: bool) -> Result<(), Box<dyn std::error::Error>> {
             if RegCreateKeyExW(
                 HKEY_CURRENT_USER,
                 sub_key,
-                0,
+                Some(0),
                 None,
                 REG_OPTION_NON_VOLATILE,
                 KEY_WRITE,

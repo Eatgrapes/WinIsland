@@ -217,7 +217,7 @@ fn smtc_poll_loop(
     let _com_guard = com_initialized.then_some(ComGuard);
 
     let manager = match GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
-        Ok(op) => match op.get() {
+        Ok(op) => match op.join() {
             Ok(m) => m,
             Err(_) => {
                 log::error!("SMTC: failed to get session manager");
@@ -236,12 +236,10 @@ fn smtc_poll_loop(
 
     // COM event bridge: COM callback -> std::sync::mpsc -> polling loop
     let (event_tx, event_rx) = std::sync::mpsc::channel::<()>();
-    let handler = TypedEventHandler::new(
-        move |_m: &Option<GlobalSystemMediaTransportControlsSessionManager>, _| {
-            let _ = event_tx.send(());
-            Ok(())
-        },
-    );
+    let handler = TypedEventHandler::new(move |_m, _| {
+        let _ = event_tx.send(());
+        Ok(())
+    });
     let _ = manager.SessionsChanged(&handler);
 
     // Local state mirrored from channels
@@ -310,7 +308,7 @@ fn smtc_poll_loop(
         // Refresh manager every 30 seconds
         if last_manager_refresh.elapsed() > Duration::from_secs(30) {
             if let Ok(new_mgr_op) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
-                && let Ok(new_mgr) = new_mgr_op.get()
+                && let Ok(new_mgr) = new_mgr_op.join()
             {
                 current_manager = new_mgr;
                 let _ = current_manager.SessionsChanged(&handler);
@@ -634,6 +632,13 @@ fn is_music_session(session: &GlobalSystemMediaTransportControlsSession) -> bool
     true
 }
 
+thread_local! {
+    static LAST_TIMELINE_FETCH: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
+    static LAST_FETCHED_SMTC_POS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static LAST_FETCHED_DURATION_SECS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static LAST_FETCHED_DURATION_MS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
 fn fetch_properties(
     session: &GlobalSystemMediaTransportControlsSession,
     info_tx: &watch::Sender<MediaInfo>,
@@ -650,50 +655,65 @@ fn fetch_properties(
         return Ok(());
     }
 
-    let props = session.TryGetMediaPropertiesAsync()?.get()?;
+    let props = session.TryGetMediaPropertiesAsync()?.join()?;
     let pb_info = session.GetPlaybackInfo()?;
     let is_playing = pb_info.PlaybackStatus()? == windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing;
-
-    let smtc_pos = if let Ok(tl) = session.GetTimelineProperties() {
-        if let Ok(pos) = tl.Position() {
-            let raw = pos.Duration;
-            if raw > 0 { (raw / 10_000) as u64 } else { 0 }
-        } else {
-            0
-        }
-    } else {
-        0
-    };
-
-    let duration_secs = if let Ok(tl) = session.GetTimelineProperties() {
-        if let Ok(end) = tl.EndTime() {
-            let raw = end.Duration;
-            if raw > 0 {
-                (raw / 10_000_000) as u64
-            } else {
-                0
-            }
-        } else {
-            0
-        }
-    } else {
-        0
-    };
-
-    let duration_ms_from_tl = if let Ok(tl) = session.GetTimelineProperties() {
-        if let Ok(end) = tl.EndTime() {
-            let raw = end.Duration;
-            if raw > 0 { (raw / 10_000) as u64 } else { 0 }
-        } else {
-            0
-        }
-    } else {
-        0
-    };
 
     let new_title = props.Title()?.to_string();
     let new_artist = props.Artist()?.to_string();
     let new_album = props.AlbumTitle()?.to_string();
+
+    let song_changed = {
+        let info = info_tx.borrow();
+        info.title != new_title || info.artist != new_artist || info.album != new_album
+    };
+
+    let should_fetch = song_changed
+        || (info_tx.borrow().is_playing != is_playing)
+        || LAST_TIMELINE_FETCH.with(|cell| match cell.get() {
+            Some(last) => last.elapsed() >= Duration::from_millis(500),
+            None => true,
+        });
+
+    let mut smtc_pos = LAST_FETCHED_SMTC_POS.with(|cell| cell.get());
+    let mut duration_secs = LAST_FETCHED_DURATION_SECS.with(|cell| cell.get());
+    let mut duration_ms_from_tl = LAST_FETCHED_DURATION_MS.with(|cell| cell.get());
+
+    if should_fetch {
+        if let Ok(tl) = session.GetTimelineProperties() {
+            if let Ok(pos) = tl.Position() {
+                let raw = pos.Duration;
+                smtc_pos = if raw > 0 { (raw / 10_000) as u64 } else { 0 };
+            } else {
+                smtc_pos = 0;
+            }
+
+            if let Ok(end) = tl.EndTime() {
+                let raw = end.Duration;
+                if raw > 0 {
+                    duration_secs = (raw / 10_000_000) as u64;
+                    duration_ms_from_tl = (raw / 10_000) as u64;
+                } else {
+                    duration_secs = 0;
+                    duration_ms_from_tl = 0;
+                }
+            } else {
+                duration_secs = 0;
+                duration_ms_from_tl = 0;
+            }
+
+            LAST_TIMELINE_FETCH.with(|cell| cell.set(Some(Instant::now())));
+            LAST_FETCHED_SMTC_POS.with(|cell| cell.set(smtc_pos));
+            LAST_FETCHED_DURATION_SECS.with(|cell| cell.set(duration_secs));
+            LAST_FETCHED_DURATION_MS.with(|cell| cell.set(duration_ms_from_tl));
+        } else {
+            smtc_pos = 0;
+            duration_secs = 0;
+            duration_ms_from_tl = 0;
+            LAST_TIMELINE_FETCH.with(|cell| cell.set(Some(Instant::now())));
+        }
+    }
+
     let mut should_fetch_lyrics = false;
     let mut should_fetch_thumbnail = false;
 
@@ -781,7 +801,7 @@ fn fetch_properties(
             }
             for attempt in 0..10 {
                 let res = (|| -> windows::core::Result<(String, String, Vec<u8>)> {
-                    let props = session_clone.TryGetMediaPropertiesAsync()?.get()?;
+                    let props = session_clone.TryGetMediaPropertiesAsync()?.join()?;
                     let fetched_title = props.Title()?.to_string();
                     let fetched_artist = props.Artist()?.to_string();
                     if fetched_title != title_clone || fetched_artist != artist_clone {
@@ -793,7 +813,7 @@ fn fetch_properties(
                         ));
                     }
                     let thumb_ref = props.Thumbnail()?;
-                    let stream = thumb_ref.OpenReadAsync()?.get()?;
+                    let stream = thumb_ref.OpenReadAsync()?.join()?;
                     let size = stream.Size()?;
                     if size == 0 {
                         return Err(windows::core::Error::new(
@@ -808,7 +828,7 @@ fn fetch_properties(
                             size as u32,
                             windows::Storage::Streams::InputStreamOptions::None,
                         )?
-                        .get()?;
+                        .join()?;
                     let reader = windows::Storage::Streams::DataReader::FromBuffer(&res_buffer)?;
                     let mut bytes = vec![0u8; size as usize];
                     reader.ReadBytes(&mut bytes)?;

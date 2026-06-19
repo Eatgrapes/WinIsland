@@ -7,20 +7,21 @@ edition = "2024"
 members = ["crates/winisland-plugin-api"]
 
 [dependencies]
-cpal = "0.15"
+cpal = "0.18.1"
 realfft = "3.3"
 bytemuck = "1.25.0"
-skia-safe = "0.93.1"
+skia-safe = "0.97.2"
 softbuffer = "0.4.8"
-tray-icon = "0.19"
-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_System_Registry", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_Security", "Media_Control", "Foundation", "Foundation_Collections", "Storage_Streams", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_System_Com", "Win32_System_Variant", "Win32_Globalization", "Win32_UI_Shell", "UI_Notifications", "Data_Xml_Dom"] }
+tray-icon = "0.24.1"
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_Registry", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_Security", "Media_Control", "Foundation", "Foundation_Collections", "Storage_Streams", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_System_Com", "Win32_System_Variant", "Win32_Globalization", "Win32_UI_Shell", "UI_Notifications", "Data_Xml_Dom"] }
+windows-future = "0.3.2"
 winit = "0.30"
 serde = { version = "1.0", features = ["derive"] }
-toml = "0.8"
+toml = "1.1.2"
 dirs = "6.0"
 open = "5.3"
 image = "0.25"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13.4", features = ["json"] }
 serde_json = "1.0.149"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 tokio-util = "0.7"
@@ -30,7 +31,7 @@ libloading = "0.9"
 log = "0.4"
 env_logger = "0.11"
 winisland-plugin-api = { path = "crates/winisland-plugin-api" }
-zip = "2"
+zip = "8.6.0"
 serde_yaml = "0.9"
 
 [build-dependencies]
