@@ -1,3 +1,5 @@
+!lang_code=en
+!lang_name=English
 tab_general=General
 tab_music=Music
 tab_about=About
@@ -76,7 +78,7 @@ scan_apps=Scan Apps
 no_sessions=No sessions detected
 delete=Delete
 update_available_title=Update Available
-update_available_desc=A new version of WinIsland is available (Released: {}). Would you like to update now?
+update_available_desc=A new version of WinIsland is available (Released: {0}). Would you like to update now?
 update_failed_title=Update Failed
 update_failed_dl=Failed to download the new version.
 update_failed_save=Failed to save the new version.
