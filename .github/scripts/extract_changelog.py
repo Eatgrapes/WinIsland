@@ -7,7 +7,7 @@ sys.stderr.reconfigure(encoding='utf-8')
 if len(sys.argv) < 2:
     sys.exit(1)
 
-version = sys.argv[1].strip()
+version = sys.argv[1].strip().strip('"').strip("'").strip()
 
 def extract(filepath, ver):
     clean_ver = re.sub(r'^[vV]', '', ver)
