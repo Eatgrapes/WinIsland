@@ -99,10 +99,10 @@ unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) ->
         }
         let old = SelectObject(hdc_mem, hbm.into());
 
-        let capture_offset_y = if sy > 500 {
-            -(h as i32 + margin + 10)
+        let capture_offset_x = if sx > 960 {
+            -(w as i32 + 2 * margin + 10)
         } else {
-            h as i32 + margin + 10
+            w as i32 + 2 * margin + 10
         };
         let _ = SetStretchBltMode(hdc_mem, STRETCH_BLT_MODE(HALFTONE.0));
         let _ = StretchBlt(
@@ -112,8 +112,8 @@ unsafe fn capture_and_blur(sx: i32, sy: i32, w: u32, h: u32, blur_sigma: f32) ->
             cap_w,
             cap_h,
             Some(hdc_screen),
-            sx - margin,
-            sy - margin + capture_offset_y,
+            sx - margin + capture_offset_x,
+            sy - margin,
             cap_full_w,
             cap_full_h,
             SRCCOPY,
