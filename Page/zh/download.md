@@ -1,6 +1,12 @@
 # 下载 WinIsland
 
-WinIsland 目前正在积极开发中。你可以在下方下载最新的每日预览版 (Nightly Build)。
+你可以在下方选择下载稳定的官方正式版，或是最新的每日预览版 (Nightly Build)。
+
+## 官方正式版 (Release)
+
+适合大多数用户的稳定版本。
+
+[下载最新正式版 (.exe)](https://github.com/Eatgrapes/WinIsland/releases/latest/download/WinIsland.exe)
 
 ## 预览版 (Nightly)
 

@@ -13,7 +13,7 @@ hero:
       text: Get Started
       link: /guide
     - theme: alt
-      text: Download Nightly
+      text: Download
       link: /download
 
 features:

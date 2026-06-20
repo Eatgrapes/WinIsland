@@ -1,6 +1,12 @@
 # Download WinIsland
 
-WinIsland is currently in active development. You can download the latest nightly build below.
+You can download either the stable official releases or the nightly builds below.
+
+## Official Releases
+
+Stable builds that are suitable for most users.
+
+[Download Latest Release (.exe)](https://github.com/Eatgrapes/WinIsland/releases/latest/download/WinIsland.exe)
 
 ## Nightly Builds
 

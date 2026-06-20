@@ -35,7 +35,8 @@ export default defineConfig({
           {
             text: 'Download',
             items: [
-              { text: 'Latest Nightly', link: '/download' }
+              { text: 'Latest Release', link: '/download#official-releases' },
+              { text: 'Latest Nightly', link: '/download#nightly-builds' }
             ]
           },
           {
@@ -47,7 +48,7 @@ export default defineConfig({
           }
         ],
         footer: {
-          message: 'Released under the MIT License.',
+          message: 'Released under the GNU GPL v3 License.',
           copyright: 'Copyright © 2026-present WinIsland'
         }
       }
@@ -80,7 +81,8 @@ export default defineConfig({
           {
             text: '下载',
             items: [
-              { text: '最新预览版', link: '/zh/download' }
+              { text: '最新正式版', link: '/zh/download#官方正式版-release' },
+              { text: '最新预览版', link: '/zh/download#预览版-nightly' }
             ]
           },
           {
@@ -92,7 +94,7 @@ export default defineConfig({
           }
         ],
         footer: {
-          message: '基于 MIT 许可发布。',
+          message: '基于 GNU GPL v3 许可发布。',
           copyright: '版权所有 © 2026-present WinIsland'
         },
         docFooter: {

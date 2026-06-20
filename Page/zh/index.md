@@ -13,7 +13,7 @@ hero:
       text: 快速开始
       link: /zh/guide
     - theme: alt
-      text: 下载最新预览版
+      text: 立即下载
       link: /zh/download
 
 features:
