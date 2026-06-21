@@ -1,5 +1,9 @@
 # Changelog
 
+### v1.2.0
+- Resolve stable update check failures
+- Distinguish between Stable and Beta update channels in the update available dialog title
+
 ### v1.1.0
 - Restore Mica background style
 - Adjust glass style capture position to horizontal offsets
