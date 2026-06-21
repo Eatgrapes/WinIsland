@@ -768,6 +768,87 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 }
                 row_idx += 1;
             }
+            SettingsItem::RowButton {
+                label,
+                btn_label,
+                enabled,
+            } => {
+                let visible = y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y;
+                if visible {
+                    draw_row_hover(
+                        canvas,
+                        y,
+                        ROW_HEIGHT,
+                        content_w,
+                        row_idx,
+                        in_group,
+                        hover_anims,
+                        theme,
+                    );
+                }
+                let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
+                let cy = y + ROW_HEIGHT / 2.0;
+
+                if visible {
+                    paint.set_color(if *enabled {
+                        theme.text_pri
+                    } else {
+                        theme.text_sec
+                    });
+                    fm.draw_text_cached(DrawTextCachedParams {
+                        canvas,
+                        text: label,
+                        x: row_x,
+                        y: cy + 5.0,
+                        size: 13.0,
+                        bold: false,
+                        paint: &paint,
+                    });
+
+                    let label_color = if *enabled {
+                        theme.text_pri
+                    } else {
+                        theme.text_sec
+                    };
+                    let bg_color = if *enabled {
+                        theme.card_highlight
+                    } else {
+                        theme.disabled
+                    };
+
+                    let btn_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - POPUP_BTN_W;
+                    draw_pill_btn(PillBtnParams {
+                        canvas,
+                        x: btn_x,
+                        y: cy - POPUP_BTN_H / 2.0,
+                        w: POPUP_BTN_W,
+                        h: POPUP_BTN_H,
+                        label: btn_label,
+                        text_color: label_color,
+                        bg_color,
+                    });
+                }
+
+                if in_group {
+                    group_current_row += 1;
+                    if group_current_row < group_row_count && visible {
+                        let mut sep = Paint::default();
+                        sep.set_anti_alias(true);
+                        sep.set_color(theme.separator);
+                        sep.set_stroke_width(0.5);
+                        sep.set_style(skia_safe::paint::Style::Stroke);
+                        canvas.draw_line(
+                            (row_x, y + ROW_HEIGHT),
+                            (
+                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
+                                y + ROW_HEIGHT,
+                            ),
+                            &sep,
+                        );
+                    }
+                }
+                row_idx += 1;
+            }
             SettingsItem::RowAppItem {
                 label,
                 active,

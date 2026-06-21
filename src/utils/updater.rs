@@ -23,18 +23,6 @@ pub struct VersionInfo {
     pub timestamp: Option<String>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
-struct GithubRelease {
-    tag_name: String,
-    assets: Vec<GithubAsset>,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-struct GithubAsset {
-    name: String,
-    browser_download_url: String,
-}
-
 const UPDATE_URL_JSON: &str =
     "https://github.com/Eatgrapes/WinIsland/releases/download/nightly/version_info.json";
 const UPDATE_URL_EXE: &str =
@@ -79,7 +67,7 @@ pub fn start_update_checker() {
         // Initial check
         if crate::core::persistence::load_config().check_for_updates {
             log::info!("Update checker started");
-            do_check(&app_dir).await;
+            do_check(&app_dir, false).await;
         } else {
             log::info!("Update checker: disabled in config");
         }
@@ -93,35 +81,60 @@ pub fn start_update_checker() {
 
             let interval_secs = config.update_check_interval * 3600.0;
             if last_check.elapsed().as_secs_f32() >= interval_secs {
-                do_check(&app_dir).await;
+                do_check(&app_dir, false).await;
                 last_check = tokio::time::Instant::now();
             }
         }
     });
 }
 
-async fn do_check(app_dir: &Path) {
+pub fn check_updates_manually() {
+    std::thread::spawn(|| {
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(r) => r,
+            Err(e) => {
+                log::error!("Failed to build runtime for manual update check: {:?}", e);
+                return;
+            }
+        };
+        rt.block_on(async {
+            let app_dir = get_app_dir();
+            do_check(&app_dir, true).await;
+        });
+    });
+}
+
+async fn do_check(app_dir: &Path, manual: bool) {
     let config = crate::core::persistence::load_config();
     let channel = config.update_channel.as_str();
 
     if channel == "beta" {
-        do_beta_check(app_dir).await;
+        do_beta_check(app_dir, manual).await;
     } else {
-        do_stable_check(app_dir).await;
+        do_stable_check(app_dir, manual).await;
     }
 }
 
-async fn do_beta_check(app_dir: &Path) {
+async fn do_beta_check(app_dir: &Path, manual: bool) {
     let remote_json_str = match HTTP_CLIENT.get(UPDATE_URL_JSON).send().await {
         Ok(resp) => match resp.text().await {
             Ok(s) => s,
             Err(_) => {
                 log::warn!("Update check (Beta): failed to read remote version info");
+                if manual {
+                    show_error_box(tr("update_failed_title"), tr("update_failed_desc")).await;
+                }
                 return;
             }
         },
         Err(_) => {
             log::warn!("Update check (Beta): HTTP request failed for version_info.json");
+            if manual {
+                show_error_box(tr("update_failed_title"), tr("update_failed_desc")).await;
+            }
             return;
         }
     };
@@ -130,6 +143,9 @@ async fn do_beta_check(app_dir: &Path) {
         Ok(info) => info,
         Err(_) => {
             log::warn!("Update check (Beta): failed to parse remote version info");
+            if manual {
+                show_error_box(tr("update_failed_title"), tr("update_failed_desc")).await;
+            }
             return;
         }
     };
@@ -138,6 +154,9 @@ async fn do_beta_check(app_dir: &Path) {
         Some(t) => t,
         None => {
             log::warn!("Update check (Beta): remote version info does not contain timestamp");
+            if manual {
+                show_error_box(tr("update_failed_title"), tr("update_failed_desc")).await;
+            }
             return;
         }
     };
@@ -172,7 +191,8 @@ async fn do_beta_check(app_dir: &Path) {
 
     if needs_update {
         log::info!("Update available (Beta): -> {}", remote_timestamp);
-        let title_w: Vec<u16> = format!("{}\0", tr("update_available_title"))
+        let channel_name = tr("channel_beta");
+        let title_w: Vec<u16> = format!("{} ({})\0", tr("update_available_title"), channel_name)
             .encode_utf16()
             .collect();
         let text_w: Vec<u16> = tr("update_available_desc")
@@ -196,40 +216,72 @@ async fn do_beta_check(app_dir: &Path) {
         {
             perform_update(UPDATE_URL_EXE, remote_json_str, app_dir.to_path_buf()).await;
         }
+    } else if manual {
+        show_error_box(tr("update_no_update_title"), tr("update_no_update_desc")).await;
     }
 }
 
-async fn do_stable_check(app_dir: &Path) {
-    let latest_release_url = "https://api.github.com/repos/Eatgrapes/WinIsland/releases/latest";
-    let remote_json_str = match HTTP_CLIENT.get(latest_release_url).send().await {
-        Ok(resp) => match resp.text().await {
-            Ok(s) => s,
-            Err(_) => {
-                log::warn!("Update check (Stable): failed to read latest release info");
-                return;
-            }
-        },
+async fn do_stable_check(app_dir: &Path, manual: bool) {
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .user_agent("WinIsland-Updater")
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+    {
+        Ok(c) => c,
         Err(_) => {
-            log::warn!("Update check (Stable): HTTP request failed for latest release info");
+            log::warn!("Update check (Stable): failed to build redirect-disabled HTTP client");
+            if manual {
+                show_error_box(tr("update_failed_title"), tr("update_failed_desc")).await;
+            }
             return;
         }
     };
 
-    let release: GithubRelease = match serde_json::from_str(&remote_json_str) {
+    let resp = match client
+        .get("https://github.com/Eatgrapes/WinIsland/releases/latest")
+        .send()
+        .await
+    {
         Ok(r) => r,
         Err(e) => {
             log::warn!(
-                "Update check (Stable): failed to parse release JSON: {:?}",
+                "Update check (Stable): HTTP request failed for latest release page redirect: {:?}",
                 e
             );
+            if manual {
+                show_error_box(tr("update_failed_title"), tr("update_failed_desc")).await;
+            }
             return;
         }
     };
 
-    let remote_version = release
-        .tag_name
-        .trim_start_matches('v')
-        .trim_start_matches('V');
+    let tag_name = if resp.status().is_redirection() {
+        if let Some(loc) = resp.headers().get(reqwest::header::LOCATION) {
+            loc.to_str()
+                .ok()
+                .and_then(|loc_str| loc_str.split("/tag/").last().map(|tag| tag.to_string()))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let tag_name = match tag_name {
+        Some(t) => t,
+        None => {
+            log::warn!(
+                "Update check (Stable): failed to extract latest release tag from redirect location"
+            );
+            if manual {
+                show_error_box(tr("update_failed_title"), tr("update_failed_desc")).await;
+            }
+            return;
+        }
+    };
+
+    let remote_version = tag_name.trim_start_matches('v').trim_start_matches('V');
     let needs_update = is_version_newer(crate::core::config::APP_VERSION, remote_version);
 
     if needs_update {
@@ -239,16 +291,13 @@ async fn do_stable_check(app_dir: &Path) {
             remote_version
         );
 
-        // Find the download URL for WinIsland.exe
-        let download_url = match release.assets.iter().find(|a| a.name == "WinIsland.exe") {
-            Some(asset) => asset.browser_download_url.clone(),
-            None => {
-                log::warn!("Update check (Stable): no WinIsland.exe asset found in release");
-                return;
-            }
-        };
+        let download_url = format!(
+            "https://github.com/Eatgrapes/WinIsland/releases/download/{}/WinIsland.exe",
+            tag_name
+        );
 
-        let title_w: Vec<u16> = format!("{}\0", tr("update_available_title"))
+        let channel_name = tr("channel_stable");
+        let title_w: Vec<u16> = format!("{} ({})\0", tr("update_available_title"), channel_name)
             .encode_utf16()
             .collect();
         let text_w: Vec<u16> = tr("update_available_desc")
@@ -282,6 +331,9 @@ async fn do_stable_check(app_dir: &Path) {
             "Update check (Stable): current version is up-to-date ({})",
             crate::core::config::APP_VERSION
         );
+        if manual {
+            show_error_box(tr("update_no_update_title"), tr("update_no_update_desc")).await;
+        }
     }
 }
 

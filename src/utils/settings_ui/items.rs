@@ -60,6 +60,11 @@ pub enum SettingsItem {
         options: Vec<(String, bool)>,
         enabled: bool,
     },
+    RowButton {
+        label: String,
+        btn_label: String,
+        enabled: bool,
+    },
     RowAppItem {
         label: String,
         active: bool,
@@ -114,6 +119,7 @@ impl SettingsItem {
                 | SettingsItem::RowFontPicker { .. }
                 | SettingsItem::RowFolderPicker { .. }
                 | SettingsItem::RowSourceSelect { .. }
+                | SettingsItem::RowButton { .. }
                 | SettingsItem::RowAppItem { .. }
                 | SettingsItem::RowLabel { .. }
         )

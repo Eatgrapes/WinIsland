@@ -480,6 +480,11 @@ impl SettingsApp {
                         enabled: true,
                     });
                 }
+                items.push(SettingsItem::RowButton {
+                    label: tr("check_updates_manual"),
+                    btn_label: tr("update_check_btn"),
+                    enabled: true,
+                });
                 items.push(SettingsItem::GroupEnd);
 
                 items.push(SettingsItem::Spacer { height: 10.0 });

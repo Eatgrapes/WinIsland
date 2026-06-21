@@ -453,6 +453,13 @@ impl SettingsApp {
                 ]);
                 changed = true;
             }
+            ClickResult::RowButton(idx) => {
+                if let Some(SettingsItem::RowButton { label, .. }) = items.get(idx)
+                    && label == &tr("check_updates_manual")
+                {
+                    crate::utils::updater::check_updates_manually();
+                }
+            }
             _ => {}
         }
 
