@@ -399,7 +399,7 @@ impl App {
     }
 
     fn handle_input(&mut self, state: ElementState, px: i32, py: i32) {
-        if self.is_fullscreen_suppressed || self.is_cursor_suppressed {
+        if self.is_cursor_suppressed {
             return;
         }
         let rel_x = px - self.win_x;
@@ -1274,7 +1274,7 @@ impl ApplicationHandler for App {
             }
         }
 
-        if self.is_fullscreen_suppressed || self.is_cursor_suppressed {
+        if self.is_cursor_suppressed {
             let _ = window.set_cursor_hittest(false);
         } else {
             let _ = window.set_cursor_hittest(is_hovering_visible || is_on_hidden_handle);
