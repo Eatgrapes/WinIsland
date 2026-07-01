@@ -57,22 +57,40 @@ impl AudioProcessor {
             // SAFETY: CoInitializeEx initializes COM for this thread. COINIT_MULTITHREADED
             // is safe as we don't use single-threaded COM apartments.
             let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
-            // SAFETY: CoCreateInstance creates COM objects for audio enumeration.
-            // All COM calls operate on locally created objects with no shared mutable state.
-            let session_manager: Option<IAudioSessionManager2> = unsafe {
-                (|| -> Option<IAudioSessionManager2> {
-                    let enumerator: IMMDeviceEnumerator =
-                        CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
-                    let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
-                    device.Activate(CLSCTX_ALL, None).ok()
-                })()
-            };
-            log::info!(
-                "Audio meter thread started (COM: {}, session_mgr: {})",
-                hr.is_ok(),
-                session_manager.is_some()
-            );
+            let host = cpal::default_host();
+            let mut current_device_name = None;
+            let mut session_manager: Option<IAudioSessionManager2> = None;
+
+            log::info!("Audio meter thread started (COM: {})", hr.is_ok());
+
             while !cancel.is_cancelled() {
+                let default_device = host.default_output_device();
+                let default_device_name = default_device
+                    .as_ref()
+                    .and_then(|d| d.description().map(|desc| desc.name().to_string()).ok());
+
+                if default_device_name != current_device_name {
+                    session_manager = None;
+                    current_device_name = None;
+
+                    if default_device_name.is_some() {
+                        session_manager = unsafe {
+                            (|| -> Option<IAudioSessionManager2> {
+                                let enumerator: IMMDeviceEnumerator =
+                                    CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+                                let device =
+                                    enumerator.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
+                                device.Activate(CLSCTX_ALL, None).ok()
+                            })()
+                        };
+                        current_device_name = default_device_name;
+                        log::info!(
+                            "Audio meter thread: switched to device {:?}",
+                            current_device_name
+                        );
+                    }
+                }
+
                 let mut max_peak = 0.0f32;
                 if let Some(ref mgr) = session_manager {
                     // SAFETY: GetSessionEnumerator and subsequent COM calls enumerate audio
@@ -113,6 +131,7 @@ impl AudioProcessor {
         });
     }
 
+    #[allow(unused_variables, unused_assignments)]
     fn start_capture(&self) {
         let spectrum_arc = self.spectrum.clone();
         let cancel = self.cancel_token.clone();
@@ -120,115 +139,146 @@ impl AudioProcessor {
         let gate_override_clone = self.gate_override.clone();
         tokio::task::spawn_blocking(move || {
             let host = cpal::default_host();
-            let device = match host.default_output_device() {
-                Some(d) => d,
-                None => {
-                    log::warn!("Audio capture: no default output device found");
-                    return;
-                }
-            };
-            let device_name = device
-                .description()
-                .map(|d| d.name().to_string())
-                .unwrap_or_else(|_| "unknown".to_string());
-            let config = match device.default_output_config() {
-                Ok(c) => c,
-                Err(_) => {
-                    log::warn!(
-                        "Audio capture: no default output config for '{}'",
-                        device_name
+            let mut current_device_name = None;
+            let mut current_stream = None;
+            let mut current_session = None;
+            let mut hr = None;
+
+            while !cancel.is_cancelled() {
+                let default_device = host.default_output_device();
+                let default_device_name = default_device
+                    .as_ref()
+                    .and_then(|d| d.description().map(|desc| desc.name().to_string()).ok());
+
+                if default_device_name != current_device_name {
+                    log::info!(
+                        "Audio capture: default device changed from {:?} to {:?}",
+                        current_device_name,
+                        default_device_name
                     );
-                    return;
-                }
-            };
-            log::info!(
-                "Audio capture: device='{}', config={:?} {:?}",
-                device_name,
-                config.sample_format(),
-                config.config()
-            );
-            let stream_config: StreamConfig = config.config();
-            let stream = match config.sample_format() {
-                SampleFormat::F32 => build_capture_stream::<f32>(
-                    &device,
-                    &stream_config,
-                    spectrum_arc,
-                    gate_clone,
-                    gate_override_clone,
-                ),
-                SampleFormat::I16 => build_capture_stream::<i16>(
-                    &device,
-                    &stream_config,
-                    spectrum_arc,
-                    gate_clone,
-                    gate_override_clone,
-                ),
-                SampleFormat::U16 => build_capture_stream::<u16>(
-                    &device,
-                    &stream_config,
-                    spectrum_arc,
-                    gate_clone,
-                    gate_override_clone,
-                ),
-                _ => return,
-            };
-            if let Ok(s) = stream {
-                log::info!("Audio capture stream created for '{}'", device_name);
-                // SAFETY: CoInitializeEx initializes COM for this thread. COINIT_MULTITHREADED
-                // is safe as we don't use single-threaded COM apartments.
-                let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
-                // SAFETY: CoCreateInstance and subsequent COM calls create audio session objects.
-                // All objects are locally scoped and valid for the lifetime of this thread.
-                let _session = unsafe {
-                    let enumerator: IMMDeviceEnumerator = match CoCreateInstance(
-                        &MMDeviceEnumerator,
-                        None,
-                        CLSCTX_ALL,
-                    )
-                    .ok()
-                    {
-                        Some(e) => e,
-                        None => {
-                            log::warn!(
-                                "Audio capture: IMMDeviceEnumerator CoCreateInstance failed, running without mute"
-                            );
-                            let _ = s.play();
-                            while !cancel.is_cancelled() {
-                                std::thread::sleep(std::time::Duration::from_millis(100));
-                            }
-                            if hr.is_ok() {
-                                // SAFETY: COM was initialized above, no COM objects to drop.
-                                CoUninitialize();
-                            }
-                            return;
+
+                    // Releasing old stream and session
+                    current_stream = None;
+                    current_session = None;
+                    if hr.is_some() {
+                        unsafe {
+                            CoUninitialize();
                         }
-                    };
-                    let mut session = None;
-                    if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eConsole)
-                        && let Ok(mgr) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None)
-                        && let Ok(ses) = mgr.GetSimpleAudioVolume(None, 0)
-                    {
-                        session = Some(ses);
+                        hr = None;
                     }
-                    session
-                };
-                // TODO: Re-enable auto-mute for monitoring wallpaper-only audio
-                // if let Some(ref ses) = session {
-                //     let _ = unsafe { ses.SetMute(true, std::ptr::null()) };
-                // }
-                let _ = s.play();
-                while !cancel.is_cancelled() {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                }
-                // Drop COM objects while COM is still initialized, then clean up.
-                drop(_session);
-                if hr.is_ok() {
-                    // SAFETY: COM was initialized above, and all COM objects are dropped.
-                    unsafe {
-                        CoUninitialize();
+                    current_device_name = None;
+
+                    if let Some(device) = default_device {
+                        let device_name = default_device_name
+                            .clone()
+                            .unwrap_or_else(|| "unknown".to_string());
+                        let config = match device.default_output_config() {
+                            Ok(c) => c,
+                            Err(e) => {
+                                log::warn!(
+                                    "Audio capture: no default output config for '{}': {:?}",
+                                    device_name,
+                                    e
+                                );
+                                std::thread::sleep(std::time::Duration::from_millis(500));
+                                continue;
+                            }
+                        };
+
+                        log::info!(
+                            "Audio capture: device='{}', config={:?} {:?}",
+                            device_name,
+                            config.sample_format(),
+                            config.config()
+                        );
+
+                        let stream_config: StreamConfig = config.config();
+                        let stream = match config.sample_format() {
+                            SampleFormat::F32 => build_capture_stream::<f32>(
+                                &device,
+                                &stream_config,
+                                spectrum_arc.clone(),
+                                gate_clone.clone(),
+                                gate_override_clone.clone(),
+                            ),
+                            SampleFormat::I16 => build_capture_stream::<i16>(
+                                &device,
+                                &stream_config,
+                                spectrum_arc.clone(),
+                                gate_clone.clone(),
+                                gate_override_clone.clone(),
+                            ),
+                            SampleFormat::U16 => build_capture_stream::<u16>(
+                                &device,
+                                &stream_config,
+                                spectrum_arc.clone(),
+                                gate_clone.clone(),
+                                gate_override_clone.clone(),
+                            ),
+                            _ => {
+                                std::thread::sleep(std::time::Duration::from_millis(500));
+                                continue;
+                            }
+                        };
+
+                        if let Ok(s) = stream {
+                            let play_hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+                            if play_hr.is_ok() {
+                                hr = Some(play_hr);
+                            }
+                            // SAFETY: CoCreateInstance and subsequent COM calls create audio session objects.
+                            // All objects are locally scoped and valid for the lifetime of this thread.
+                            let _session = unsafe {
+                                let enumerator: Option<IMMDeviceEnumerator> =
+                                    CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok();
+                                let mut session = None;
+                                if let Some(ref enum_val) = enumerator {
+                                    if let Ok(device) =
+                                        enum_val.GetDefaultAudioEndpoint(eRender, eConsole)
+                                        && let Ok(mgr) = device
+                                            .Activate::<IAudioSessionManager2>(CLSCTX_ALL, None)
+                                        && let Ok(ses) = mgr.GetSimpleAudioVolume(None, 0)
+                                    {
+                                        session = Some(ses);
+                                    }
+                                } else {
+                                    log::warn!(
+                                        "Audio capture: IMMDeviceEnumerator CoCreateInstance failed, running without simple audio volume"
+                                    );
+                                }
+                                session
+                            };
+
+                            if s.play().is_ok() {
+                                log::info!("Audio capture stream started for '{}'", device_name);
+                                current_stream = Some(s);
+                                current_session = _session;
+                                current_device_name = Some(device_name);
+                            } else {
+                                log::error!("Audio capture: failed to play stream");
+                                if play_hr.is_ok() {
+                                    unsafe {
+                                        CoUninitialize();
+                                    }
+                                }
+                                hr = None;
+                            }
+                        } else if let Err(e) = stream {
+                            log::error!("Audio capture: failed to build capture stream: {:?}", e);
+                        }
                     }
                 }
-                // TODO: Re-enable auto-mute cleanup
+
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+
+            // Cleanup when loop ends
+            current_stream = None;
+            current_session = None;
+            if hr.is_some() {
+                unsafe {
+                    CoUninitialize();
+                }
             }
         });
     }
