@@ -151,10 +151,12 @@ fn compute_text_groups(text: &str, size: f32, style: FontStyle) -> (f32, TextGro
     let mut groups: TextGroups = Vec::new();
 
     if is_ascii_text(text) {
-        let tf = FONT_MGR.with(|mgr| {
-            mgr.match_family_style("Microsoft YaHei", style)
-                .or_else(|| mgr.match_family_style("Segoe UI", style))
-                .unwrap_or_else(|| mgr.legacy_make_typeface(None, style).unwrap())
+        let tf = get_custom_typeface().unwrap_or_else(|| {
+            FONT_MGR.with(|mgr| {
+                mgr.match_family_style("Microsoft YaHei", style)
+                    .or_else(|| mgr.match_family_style("Segoe UI", style))
+                    .unwrap_or_else(|| mgr.legacy_make_typeface(None, style).unwrap())
+            })
         });
         let embolden = needs_synthetic_bold(&tf, style);
         let mut font = Font::from_typeface(tf.clone(), size);
