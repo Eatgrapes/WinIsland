@@ -161,36 +161,14 @@ async fn do_beta_check(app_dir: &Path, manual: bool) {
         }
     };
 
-    let local_json_path = app_dir.join("version_info.json");
-    let mut needs_update = false;
-
-    if local_json_path.exists() {
-        if let Ok(local_content) = fs::read_to_string(&local_json_path) {
-            if let Ok(local_info) = serde_json::from_str::<VersionInfo>(&local_content) {
-                if let Some(local_timestamp) = &local_info.timestamp {
-                    if remote_timestamp > local_timestamp {
-                        needs_update = true;
-                    } else {
-                        log::info!(
-                            "Update check (Beta): current version is up-to-date ({})",
-                            local_timestamp
-                        );
-                    }
-                } else {
-                    needs_update = true;
-                }
-            } else {
-                needs_update = true;
-            }
-        } else {
-            needs_update = true;
-        }
-    } else {
-        needs_update = true;
-    }
+    let needs_update = remote_timestamp.as_str() > env!("BUILD_TIMESTAMP");
 
     if needs_update {
-        log::info!("Update available (Beta): -> {}", remote_timestamp);
+        log::info!(
+            "Update available (Beta): {} -> {}",
+            env!("BUILD_TIMESTAMP"),
+            remote_timestamp
+        );
         let channel_name = tr("channel_beta");
         let title_w: Vec<u16> = format!("{} ({})\0", tr("update_available_title"), channel_name)
             .encode_utf16()
@@ -216,29 +194,20 @@ async fn do_beta_check(app_dir: &Path, manual: bool) {
         {
             perform_update(UPDATE_URL_EXE, remote_json_str, app_dir.to_path_buf()).await;
         }
-    } else if manual {
-        show_error_box(tr("update_no_update_title"), tr("update_no_update_desc")).await;
+    } else {
+        log::info!(
+            "Update check (Beta): current version is up-to-date (local: {}, remote: {})",
+            env!("BUILD_TIMESTAMP"),
+            remote_timestamp
+        );
+        if manual {
+            show_error_box(tr("update_no_update_title"), tr("update_no_update_desc")).await;
+        }
     }
 }
 
 async fn do_stable_check(app_dir: &Path, manual: bool) {
-    let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .user_agent("WinIsland-Updater")
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-    {
-        Ok(c) => c,
-        Err(_) => {
-            log::warn!("Update check (Stable): failed to build redirect-disabled HTTP client");
-            if manual {
-                show_error_box(tr("update_failed_title"), tr("update_failed_desc")).await;
-            }
-            return;
-        }
-    };
-
-    let resp = match client
+    let resp = match HTTP_CLIENT
         .get("https://github.com/Eatgrapes/WinIsland/releases/latest")
         .send()
         .await
@@ -246,7 +215,7 @@ async fn do_stable_check(app_dir: &Path, manual: bool) {
         Ok(r) => r,
         Err(e) => {
             log::warn!(
-                "Update check (Stable): HTTP request failed for latest release page redirect: {:?}",
+                "Update check (Stable): HTTP request failed for latest release: {:?}",
                 e
             );
             if manual {
@@ -256,14 +225,9 @@ async fn do_stable_check(app_dir: &Path, manual: bool) {
         }
     };
 
-    let tag_name = if resp.status().is_redirection() {
-        if let Some(loc) = resp.headers().get(reqwest::header::LOCATION) {
-            loc.to_str()
-                .ok()
-                .and_then(|loc_str| loc_str.split("/tag/").last().map(|tag| tag.to_string()))
-        } else {
-            None
-        }
+    let path = resp.url().path();
+    let tag_name = if path.contains("/tag/") {
+        path.split("/tag/").last().map(|tag| tag.to_string())
     } else {
         None
     };
@@ -272,7 +236,8 @@ async fn do_stable_check(app_dir: &Path, manual: bool) {
         Some(t) => t,
         None => {
             log::warn!(
-                "Update check (Stable): failed to extract latest release tag from redirect location"
+                "Update check (Stable): failed to extract latest release tag from URL path '{}'",
+                path
             );
             if manual {
                 show_error_box(tr("update_failed_title"), tr("update_failed_desc")).await;
@@ -339,17 +304,25 @@ async fn do_stable_check(app_dir: &Path, manual: bool) {
 
 async fn perform_update(download_url: &str, remote_json_str: String, app_dir: PathBuf) {
     log::info!("Update: downloading new executable from {}", download_url);
-    let bytes = match HTTP_CLIENT.get(download_url).send().await {
-        Ok(r) => match r.bytes().await {
-            Ok(b) => b.to_vec(),
-            Err(_) => {
-                log::error!("Update: download failed (read response)");
-                show_error_box(tr("update_failed_title"), tr("update_failed_dl")).await;
-                return;
-            }
-        },
+    let resp = match HTTP_CLIENT.get(download_url).send().await {
+        Ok(r) => r,
         Err(_) => {
             log::error!("Update: download request failed");
+            show_error_box(tr("update_failed_title"), tr("update_failed_dl")).await;
+            return;
+        }
+    };
+
+    if !resp.status().is_success() {
+        log::error!("Update: download failed with status {}", resp.status());
+        show_error_box(tr("update_failed_title"), tr("update_failed_dl")).await;
+        return;
+    }
+
+    let bytes = match resp.bytes().await {
+        Ok(b) => b.to_vec(),
+        Err(_) => {
+            log::error!("Update: download failed (read response)");
             show_error_box(tr("update_failed_title"), tr("update_failed_dl")).await;
             return;
         }
