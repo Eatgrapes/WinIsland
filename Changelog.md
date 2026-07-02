@@ -1,5 +1,15 @@
 # Changelog
 
+### v1.2.1
+- Add optional right-click long-press drag to reposition the island (#92)
+- Enable window resizability to allow dynamic scale updates (#94)
+- Allow music album cover to scale smoothly on play/pause click
+- Allow island interaction when other apps are fullscreen (#95)
+- Auto-rebuild audio stream on device change (#90)
+- Use custom font for ASCII-only text (#89)
+- Quote autostart path and sync on startup (#88, #89)
+- Improve update checker reliability and beta version comparison (#89)
+
 ### v1.2.0
 - Resolve stable update check failures
 - Distinguish between Stable and Beta update channels in the update available dialog title
