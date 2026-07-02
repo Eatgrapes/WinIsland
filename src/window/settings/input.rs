@@ -266,6 +266,9 @@ impl SettingsApp {
                             let _ = set_autostart(self.config.auto_start);
                         }
                         l if l == tr("auto_hide") => self.config.auto_hide = !self.config.auto_hide,
+                        l if l == tr("right_click_drag") => {
+                            self.config.right_click_drag = !self.config.right_click_drag
+                        }
                         l if l == tr("check_updates") => {
                             self.config.check_for_updates = !self.config.check_for_updates
                         }

@@ -143,6 +143,12 @@ pub struct AppConfig {
     pub cover_rotate: bool,
     #[serde(default = "default_update_channel")]
     pub update_channel: String,
+    #[serde(default = "default_right_click_drag")]
+    pub right_click_drag: bool,
+}
+
+fn default_right_click_drag() -> bool {
+    false
 }
 
 fn default_island_style() -> String {
@@ -287,6 +293,7 @@ impl Default for AppConfig {
             expanded_cover_shape: "square".to_string(),
             cover_rotate: false,
             update_channel: "stable".to_string(),
+            right_click_drag: false,
         }
     }
 }

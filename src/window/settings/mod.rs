@@ -192,6 +192,7 @@ impl SettingsApp {
             config.cover_rotate,
             config.auto_start,
             config.auto_hide,
+            config.right_click_drag,
             config.check_for_updates,
             config.smtc_enabled,
             config.show_lyrics,
@@ -433,6 +434,11 @@ impl SettingsApp {
                 items.push(SettingsItem::RowSwitch {
                     label: tr("auto_hide"),
                     on: self.config.auto_hide,
+                    enabled: true,
+                });
+                items.push(SettingsItem::RowSwitch {
+                    label: tr("right_click_drag"),
+                    on: self.config.right_click_drag,
                     enabled: true,
                 });
                 if self.config.auto_hide {
@@ -739,22 +745,23 @@ impl SettingsApp {
         self.switch_anim.set_target(2, self.config.cover_rotate);
         self.switch_anim.set_target(3, self.config.auto_start);
         self.switch_anim.set_target(4, self.config.auto_hide);
+        self.switch_anim.set_target(5, self.config.right_click_drag);
         self.switch_anim
-            .set_target(5, self.config.check_for_updates);
-        self.switch_anim.set_target(6, self.config.smtc_enabled);
-        self.switch_anim.set_target(7, self.config.show_lyrics);
+            .set_target(6, self.config.check_for_updates);
+        self.switch_anim.set_target(7, self.config.smtc_enabled);
+        self.switch_anim.set_target(8, self.config.show_lyrics);
         let fb_on = if self.config.show_lyrics {
             self.config.lyrics_fallback
         } else {
             false
         };
-        self.switch_anim.set_target(8, fb_on);
+        self.switch_anim.set_target(9, fb_on);
         let fw_on = if self.config.show_lyrics {
             self.config.lyrics_scroll
         } else {
             false
         };
-        self.switch_anim.set_target(9, fw_on);
+        self.switch_anim.set_target(10, fw_on);
     }
 
     fn update_detected_apps(&mut self) {
@@ -1325,10 +1332,10 @@ impl SettingsApp {
             0 => match self.active_sub_page {
                 0 => SwitchAnimator::new(&[]),
                 1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[0, 1, 2]),
-                2 => SwitchAnimator::new_with_anims(&self.switch_anim, &[3, 4, 5]),
+                2 => SwitchAnimator::new_with_anims(&self.switch_anim, &[3, 4, 5, 6]),
                 _ => SwitchAnimator::new(&[]),
             },
-            1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[6, 7, 8, 9]),
+            1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[7, 8, 9, 10]),
             _ => SwitchAnimator::new(&[]),
         }
     }
