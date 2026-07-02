@@ -21,6 +21,7 @@ fn main() {
     log::info!("WinIsland v{} starting", env!("CARGO_PKG_VERSION"));
 
     let config = core::persistence::load_config();
+    let _ = utils::autostart::set_autostart(config.auto_start);
     logger::check_crash_flag();
     init_i18n(&config.language);
 

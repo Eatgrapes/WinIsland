@@ -97,6 +97,11 @@ pub struct App {
     plugin_mgr: PluginManager,
     plugin_media_source: Option<crate::core::smtc::MediaInfo>,
     pending_install: Option<mpsc::Receiver<InstallResult>>,
+    right_press_time: Option<Instant>,
+    right_press_cursor: Option<(i32, i32)>,
+    is_right_dragging: bool,
+    right_drag_start_pos: Option<(i32, i32)>,
+    right_drag_start_offset: Option<(i32, i32)>,
 }
 
 impl Default for App {
@@ -160,6 +165,11 @@ impl Default for App {
             plugin_mgr: PluginManager::default(),
             plugin_media_source: None,
             pending_install: None,
+            right_press_time: None,
+            right_press_cursor: None,
+            is_right_dragging: false,
+            right_drag_start_pos: None,
+            right_drag_start_offset: None,
         }
     }
 }
@@ -399,7 +409,7 @@ impl App {
     }
 
     fn handle_input(&mut self, state: ElementState, px: i32, py: i32) {
-        if self.is_fullscreen_suppressed || self.is_cursor_suppressed {
+        if self.is_cursor_suppressed {
             return;
         }
         let rel_x = px - self.win_x;
@@ -410,6 +420,43 @@ impl App {
             self.handle_press(rel_x, rel_y, &layout);
         } else if state == ElementState::Released {
             self.handle_release(py);
+        }
+    }
+
+    fn handle_right_input(&mut self, state: ElementState, px: i32, py: i32) {
+        if !self.config.right_click_drag || self.expanded || self.is_cursor_suppressed {
+            return;
+        }
+        match state {
+            ElementState::Pressed => {
+                let rel_x = px - self.win_x;
+                let rel_y = py - self.win_y;
+                let layout = self.compute_island_layout();
+                let is_hovering = is_point_in_rect(
+                    rel_x as f64,
+                    rel_y as f64,
+                    layout.offset_x,
+                    layout.current_island_y,
+                    self.spring_w.value as f64,
+                    self.spring_h.value as f64,
+                );
+                if is_hovering {
+                    self.right_press_time = Some(Instant::now());
+                    self.right_press_cursor = Some((px, py));
+                }
+            }
+            ElementState::Released => {
+                self.right_press_time = None;
+                if self.is_right_dragging {
+                    self.is_right_dragging = false;
+                    crate::core::persistence::save_config(&self.config);
+                    log::info!(
+                        "Right click drag offsets saved: ({}, {})",
+                        self.config.position_x_offset,
+                        self.config.position_y_offset
+                    );
+                }
+            }
         }
     }
 
@@ -829,7 +876,7 @@ impl ApplicationHandler for App {
                 .with_transparent(true)
                 .with_visible(false)
                 .with_decorations(false)
-                .with_resizable(false)
+                .with_resizable(true)
                 .with_enabled_buttons(WindowButtons::empty())
                 .with_window_level(WindowLevel::AlwaysOnTop)
                 .with_skip_taskbar(true)
@@ -1010,13 +1057,13 @@ impl ApplicationHandler for App {
                 }
                 WindowEvent::HoveredFile(_) => (),
                 WindowEvent::HoveredFileCancelled => (),
-                WindowEvent::MouseInput {
-                    state,
-                    button: MouseButton::Left,
-                    ..
-                } => {
+                WindowEvent::MouseInput { state, button, .. } => {
                     let (px, py) = get_global_cursor_pos();
-                    self.handle_input(state, px, py);
+                    if button == MouseButton::Left {
+                        self.handle_input(state, px, py);
+                    } else if button == MouseButton::Right {
+                        self.handle_right_input(state, px, py);
+                    }
                 }
                 WindowEvent::Touch(touch) => {
                     let (px, py) = (
@@ -1232,6 +1279,44 @@ impl ApplicationHandler for App {
         };
         let rel_x = px - self.win_x;
         let rel_y = py - self.win_y;
+
+        if let Some(press_time) = self.right_press_time
+            && press_time.elapsed().as_millis() >= 300
+        {
+            self.right_press_time = None;
+            self.is_right_dragging = true;
+            self.right_drag_start_pos = Some((px, py));
+            self.right_drag_start_offset =
+                Some((self.config.position_x_offset, self.config.position_y_offset));
+            log::info!(
+                "Right click drag started at offsets: ({}, {})",
+                self.config.position_x_offset,
+                self.config.position_y_offset
+            );
+        }
+
+        if self.is_right_dragging
+            && let Some((start_cx, start_cy)) = self.right_drag_start_pos
+            && let Some((start_ox, start_oy)) = self.right_drag_start_offset
+        {
+            let dx = px - start_cx;
+            let dy = py - start_cy;
+            self.config.position_x_offset = start_ox + dx;
+            self.config.position_y_offset = start_oy + dy;
+
+            if let Some(monitor) = Self::get_target_monitor(&window, self.config.monitor_index) {
+                let mon_size = monitor.size();
+                let mon_pos = monitor.position();
+                let (new_x, new_y) = self.compute_window_position(mon_pos, mon_size);
+                if new_x != self.win_x || new_y != self.win_y {
+                    self.win_x = new_x;
+                    self.win_y = new_y;
+                    window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+                }
+            }
+            window.request_redraw();
+        }
+
         let layout = self.compute_island_layout();
         let dock_bottom = layout.dock_bottom;
         let island_y = layout.island_y;
@@ -1274,7 +1359,7 @@ impl ApplicationHandler for App {
             }
         }
 
-        if self.is_fullscreen_suppressed || self.is_cursor_suppressed {
+        if self.is_cursor_suppressed {
             let _ = window.set_cursor_hittest(false);
         } else {
             let _ = window.set_cursor_hittest(is_hovering_visible || is_on_hidden_handle);
@@ -1527,6 +1612,8 @@ impl ApplicationHandler for App {
             || self.spring_r.velocity.abs() > 0.001
             || self.spring_view.velocity.abs() > 0.001
             || should_periodic_redraw
+            || self.right_press_time.is_some()
+            || self.is_right_dragging
         {
             window.request_redraw();
         }
