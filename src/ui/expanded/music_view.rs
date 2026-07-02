@@ -309,10 +309,10 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         }
     });
 
-    let mut pause_t = PAUSE_ANIM.with(|cell| {
+    let pause_t = PAUSE_ANIM.with(|cell| {
         let mut v = cell.borrow_mut();
         let target = if effective_is_playing { 1.0_f32 } else { 0.0 };
-        let factor = (0.10 * dt).min(1.0);
+        let factor = (0.11 * dt).min(1.0);
         *v += (target - *v) * factor;
         if (*v - target).abs() < 0.003 {
             *v = target;
@@ -714,11 +714,6 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
                 s.velocity *= 0.8;
                 if s.velocity > -0.01 || s.value <= 0.01 {
                     s.velocity = 0.0;
-                    PAUSE_ANIM.with(|anim_cell| {
-                        let target = if effective_is_playing { 1.0_f32 } else { 0.0 };
-                        *anim_cell.borrow_mut() = target;
-                        pause_t = target;
-                    });
                 }
             } else {
                 s.velocity = (1.0 - s.value) * 0.15;
