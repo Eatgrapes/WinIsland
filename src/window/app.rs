@@ -829,7 +829,7 @@ impl ApplicationHandler for App {
                 .with_transparent(true)
                 .with_visible(false)
                 .with_decorations(false)
-                .with_resizable(false)
+                .with_resizable(true)
                 .with_enabled_buttons(WindowButtons::empty())
                 .with_window_level(WindowLevel::AlwaysOnTop)
                 .with_skip_taskbar(true)
