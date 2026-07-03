@@ -58,7 +58,7 @@ impl SettingsApp {
         }
 
         if mx < SIDEBAR_W {
-            let pages = 3;
+            let pages = 4;
             let start_y = 60.0;
             for i in 0..pages {
                 let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
@@ -126,7 +126,8 @@ impl SettingsApp {
                 self.handle_general_click(&items, content_x, content_y, content_w, content_start_y)
             }
             1 => self.handle_music_click(&items, content_x, content_y, content_w, content_start_y),
-            2 => self.handle_about_click(&items, content_x, content_y, content_w, content_start_y),
+            2 => {}
+            3 => self.handle_about_click(&items, content_x, content_y, content_w, content_start_y),
             _ => {}
         }
     }

@@ -640,11 +640,27 @@ impl SettingsApp {
         ]
     }
 
+    fn build_widget_items(&self) -> Vec<SettingsItem> {
+        let theme = self.theme();
+        vec![
+            SettingsItem::PageTitle {
+                text: tr("tab_widgets"),
+            },
+            SettingsItem::Spacer { height: 20.0 },
+            SettingsItem::CenterText {
+                text: tr("widgets_placeholder"),
+                size: 13.0,
+                color: theme.text_sec,
+            },
+        ]
+    }
+
     fn build_current_items(&self) -> Vec<SettingsItem> {
         match self.active_page {
             0 => self.build_general_items(),
             1 => self.build_music_items(),
-            2 => self.build_about_items(),
+            2 => self.build_widget_items(),
+            3 => self.build_about_items(),
             _ => vec![],
         }
     }
@@ -1013,7 +1029,12 @@ impl SettingsApp {
         sep.set_style(skia_safe::paint::Style::Stroke);
         canvas.draw_line((SIDEBAR_W, 0.0), (SIDEBAR_W, self.win_h), &sep);
 
-        let pages = [tr("tab_general"), tr("tab_music"), tr("tab_about")];
+        let pages = [
+            tr("tab_general"),
+            tr("tab_music"),
+            tr("tab_widgets"),
+            tr("tab_about"),
+        ];
         let start_y = 60.0;
 
         for (i, label) in pages.iter().enumerate() {
@@ -1077,6 +1098,39 @@ impl SettingsApp {
                     );
                 }
                 2 => {
+                    icon_bg_paint.set_color(Color::from_rgb(52, 199, 89)); // Green
+                    canvas.draw_round_rect(icon_bg_rect, 5.0, 5.0, &icon_bg_paint);
+
+                    let mut widget_paint = Paint::default();
+                    widget_paint.set_anti_alias(true);
+                    widget_paint.set_color(Color::WHITE);
+                    // Draw a 2x2 grid representing widgets
+                    canvas.draw_round_rect(
+                        Rect::from_xywh(row_x + 12.0, row_y + 10.0, 5.0, 5.0),
+                        1.0,
+                        1.0,
+                        &widget_paint,
+                    );
+                    canvas.draw_round_rect(
+                        Rect::from_xywh(row_x + 19.0, row_y + 10.0, 5.0, 5.0),
+                        1.0,
+                        1.0,
+                        &widget_paint,
+                    );
+                    canvas.draw_round_rect(
+                        Rect::from_xywh(row_x + 12.0, row_y + 17.0, 5.0, 5.0),
+                        1.0,
+                        1.0,
+                        &widget_paint,
+                    );
+                    canvas.draw_round_rect(
+                        Rect::from_xywh(row_x + 19.0, row_y + 17.0, 5.0, 5.0),
+                        1.0,
+                        1.0,
+                        &widget_paint,
+                    );
+                }
+                3 => {
                     icon_bg_paint.set_color(Color::from_rgb(0, 122, 255)); // Royal Blue
                     canvas.draw_round_rect(icon_bg_rect, 5.0, 5.0, &icon_bg_paint);
 
@@ -1451,7 +1505,7 @@ impl ApplicationHandler for SettingsApp {
                                     win.request_redraw();
                                 }
                             }
-                        } else if self.active_page < 2 {
+                        } else if self.active_page < 3 {
                             self.active_page += 1;
                             self.scroll_y = 0.0;
                             self.target_scroll_y = 0.0;
@@ -1502,7 +1556,7 @@ impl ApplicationHandler for SettingsApp {
                     let mut new_hover: i32 = -1;
                     if mx < SIDEBAR_W {
                         let start_y = 60.0;
-                        for i in 0..3 {
+                        for i in 0..4 {
                             let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
                             if my >= row_y
                                 && my <= row_y + SIDEBAR_ROW_H
@@ -1514,7 +1568,7 @@ impl ApplicationHandler for SettingsApp {
                     }
                     if new_hover != self.sidebar_hover {
                         self.sidebar_hover = new_hover;
-                        for idx in 0..3 {
+                        for idx in 0..4 {
                             if idx == new_hover as usize {
                                 self.anim.set(SIDEBAR_KEY_BASE + idx as u64, 1.0);
                             } else {

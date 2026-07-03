@@ -1,7 +1,9 @@
 !lang_name=English
 tab_general=General
 tab_music=Music
+tab_widgets=Widgets
 tab_about=About
+widgets_placeholder=More widgets coming soon...
 section_appearance=APPEARANCE
 section_effects=EFFECTS
 settings_theme=Settings Theme
