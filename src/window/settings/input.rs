@@ -1,6 +1,5 @@
 use super::{
-    CONTENT_START_Y, POPUP_OPACITY_KEY, SIDEBAR_PAD, SIDEBAR_ROW_H, SIDEBAR_W, SUB_TAB_H,
-    SUB_TAB_START_Y,
+    CONTENT_START_Y, POPUP_OPACITY_KEY, SIDEBAR_ROW_H, SIDEBAR_W, SUB_TAB_H, SUB_TAB_START_Y,
 };
 use super::{PopupKind, PopupState, SettingsApp};
 use crate::core::config::{APP_HOMEPAGE, AppConfig, DockPosition};
