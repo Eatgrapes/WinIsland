@@ -80,6 +80,21 @@ impl From<DockPosition> for String {
         value.as_str().to_string()
     }
 }
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WidgetKind {
+    Clock,
+    Status,
+    Weather,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct WidgetSlot {
+    pub slot: usize,
+    pub widget: Option<WidgetKind>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct AppConfig {
     pub global_scale: f32,
@@ -145,6 +160,8 @@ pub struct AppConfig {
     pub update_channel: String,
     #[serde(default = "default_right_click_drag")]
     pub right_click_drag: bool,
+    #[serde(default = "default_widget_layout")]
+    pub widget_layout: Vec<WidgetSlot>,
 }
 
 fn default_right_click_drag() -> bool {
@@ -255,6 +272,49 @@ fn default_update_channel() -> String {
     "stable".to_string()
 }
 
+pub const WIDGET_GRID_SLOTS: usize = 9;
+
+pub fn default_widget_layout() -> Vec<WidgetSlot> {
+    (0..WIDGET_GRID_SLOTS)
+        .map(|slot| WidgetSlot {
+            slot,
+            widget: match slot {
+                0 => Some(WidgetKind::Clock),
+                1 => Some(WidgetKind::Status),
+                _ => None,
+            },
+        })
+        .collect()
+}
+
+pub fn place_widget_in_layout(
+    layout: &mut Vec<WidgetSlot>,
+    widget: WidgetKind,
+    target_slot: usize,
+) {
+    let slot_count = target_slot.max(WIDGET_GRID_SLOTS - 1) + 1;
+    for slot in 0..slot_count {
+        if !layout.iter().any(|entry| entry.slot == slot) {
+            layout.push(WidgetSlot { slot, widget: None });
+        }
+    }
+    layout.sort_by_key(|entry| entry.slot);
+    for entry in layout.iter_mut() {
+        if entry.widget == Some(widget) {
+            entry.widget = None;
+        }
+    }
+    if let Some(entry) = layout.iter_mut().find(|entry| entry.slot == target_slot) {
+        entry.widget = Some(widget);
+    }
+}
+
+pub fn clear_widget_slot(layout: &mut [WidgetSlot], target_slot: usize) {
+    if let Some(entry) = layout.iter_mut().find(|entry| entry.slot == target_slot) {
+        entry.widget = None;
+    }
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -294,6 +354,89 @@ impl Default for AppConfig {
             cover_rotate: false,
             update_channel: "stable".to_string(),
             right_click_drag: false,
+            widget_layout: default_widget_layout(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_has_widget_slots() {
+        let config = AppConfig::default();
+
+        assert_eq!(config.widget_layout.len(), WIDGET_GRID_SLOTS);
+        assert_eq!(config.widget_layout[0].slot, 0);
+        assert_eq!(config.widget_layout[0].widget, Some(WidgetKind::Clock));
+        assert_eq!(config.widget_layout[1].slot, 1);
+        assert_eq!(config.widget_layout[1].widget, Some(WidgetKind::Status));
+        assert_eq!(config.widget_layout[2].slot, 2);
+        assert_eq!(config.widget_layout[2].widget, None);
+        assert_eq!(config.widget_layout[8].slot, 8);
+        assert_eq!(config.widget_layout[8].widget, None);
+    }
+
+    #[test]
+    fn missing_widget_layout_deserializes_to_default_slots() {
+        let config: AppConfig = toml::from_str(
+            r#"
+global_scale = 1.0
+base_width = 120.0
+base_height = 27.0
+expanded_width = 360.0
+expanded_height = 200.0
+adaptive_border = false
+motion_blur = true
+smtc_enabled = true
+smtc_apps = []
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.widget_layout, default_widget_layout());
+    }
+
+    #[test]
+    fn place_widget_in_layout_moves_existing_widget_to_target_slot() {
+        let mut layout = default_widget_layout();
+
+        place_widget_in_layout(&mut layout, WidgetKind::Clock, 2);
+
+        assert_eq!(layout[0].widget, None);
+        assert_eq!(layout[1].widget, Some(WidgetKind::Status));
+        assert_eq!(layout[2].widget, Some(WidgetKind::Clock));
+    }
+
+    #[test]
+    fn place_widget_in_layout_creates_missing_slot() {
+        let mut layout = vec![WidgetSlot {
+            slot: 0,
+            widget: Some(WidgetKind::Clock),
+        }];
+
+        place_widget_in_layout(&mut layout, WidgetKind::Weather, 2);
+
+        assert_eq!(layout.len(), WIDGET_GRID_SLOTS);
+        assert_eq!(layout[0].widget, Some(WidgetKind::Clock));
+        assert_eq!(layout[2].widget, Some(WidgetKind::Weather));
+        for (i, entry) in layout.iter().enumerate() {
+            assert_eq!(entry.slot, i);
+            if i != 0 && i != 2 {
+                assert_eq!(entry.widget, None);
+            }
+        }
+    }
+
+    #[test]
+    fn clear_widget_slot_removes_only_target_slot_widget() {
+        let mut layout = default_widget_layout();
+
+        clear_widget_slot(&mut layout, 0);
+
+        assert_eq!(layout[0].widget, None);
+        assert_eq!(layout[1].widget, Some(WidgetKind::Status));
+        assert_eq!(layout[2].widget, None);
     }
 }

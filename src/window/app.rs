@@ -1213,6 +1213,7 @@ impl ApplicationHandler for App {
                                     cover_rotate: self.config.cover_rotate,
                                     lyrics_delay: self.config.lyrics_delay,
                                     dt,
+                                    widget_layout: &self.config.widget_layout,
                                 },
                                 mini_content,
                             },

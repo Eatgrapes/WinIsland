@@ -1,4 +1,4 @@
-use crate::core::config::AppConfig;
+use crate::core::config::{AppConfig, WidgetKind};
 use crate::core::i18n::tr;
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
@@ -40,6 +40,23 @@ pub(crate) const POPUP_OPACITY_KEY: u64 = 1;
 pub(crate) const SIDEBAR_KEY_BASE: u64 = 1_000;
 pub(crate) const SCROLL_STIFFNESS: f32 = 55.0;
 pub(crate) const SCROLL_DAMPING: f32 = 16.0;
+
+pub(crate) fn widget_drag_move_needs_redraw(
+    dragging: bool,
+    current_slot: Option<usize>,
+    new_slot: Option<usize>,
+) -> bool {
+    dragging || current_slot != new_slot
+}
+
+pub(crate) fn settings_frame_should_continue(
+    has_anim: bool,
+    has_popup: bool,
+    is_scrolling: bool,
+    is_widget_dragging: bool,
+) -> bool {
+    has_anim || has_popup || is_scrolling || is_widget_dragging
+}
 
 #[derive(Clone, PartialEq)]
 pub(crate) enum PopupKind {
@@ -168,6 +185,8 @@ pub struct SettingsApp {
     pub(crate) win_h: f32,
     pub(crate) focused: bool,
     pub(crate) dots_hovered: bool,
+    pub(crate) widget_dragging: Option<WidgetKind>,
+    pub(crate) widget_drag_hover_slot: Option<usize>,
 }
 
 impl SettingsApp {
@@ -217,6 +236,8 @@ impl SettingsApp {
             win_h: WIN_H,
             focused: true,
             dots_hovered: false,
+            widget_dragging: None,
+            widget_drag_hover_slot: None,
         }
     }
 
@@ -489,6 +510,23 @@ impl ApplicationHandler for SettingsApp {
                     || (new_pos.1 - self.last_hover_mouse_pos.1).abs() > 0.5;
                 self.logical_mouse_pos = new_pos;
 
+                if self.widget_dragging.is_some() {
+                    let new_slot = self
+                        .widget_preview_hit_at_mouse()
+                        .and_then(|hit| match hit {
+                            WidgetPreviewHit::Slot(slot) => Some(slot),
+                            _ => None,
+                        });
+                    let needs_redraw =
+                        widget_drag_move_needs_redraw(true, self.widget_drag_hover_slot, new_slot);
+                    if new_slot != self.widget_drag_hover_slot {
+                        self.widget_drag_hover_slot = new_slot;
+                    }
+                    if needs_redraw && let Some(win) = &self.window {
+                        win.request_redraw();
+                    }
+                }
+
                 if let Some(popup) = &mut self.popup {
                     let (mx, my) = self.logical_mouse_pos;
                     let new_hover = popup.hit_test_item(mx, my);
@@ -665,6 +703,10 @@ impl ApplicationHandler for SettingsApp {
                         if let Some(win) = &self.window {
                             let _ = win.drag_window();
                         }
+                    } else if self.handle_widget_drag_press() {
+                        if let Some(win) = &self.window {
+                            win.request_redraw();
+                        }
                     } else {
                         self.handle_click(_el);
                     }
@@ -674,7 +716,13 @@ impl ApplicationHandler for SettingsApp {
                 state: ElementState::Released,
                 button: MouseButton::Left,
                 ..
-            } => {}
+            } => {
+                if self.handle_widget_drag_release()
+                    && let Some(win) = &self.window
+                {
+                    win.request_redraw();
+                }
+            }
             WindowEvent::RedrawRequested => self.draw(),
             _ => (),
         }
@@ -711,12 +759,13 @@ impl ApplicationHandler for SettingsApp {
         let has_anim = self.switch_anim.is_animating() || self.anim.is_animating();
         let has_popup = self.popup.is_some();
         let is_scrolling = (self.target_scroll_y - self.scroll_y).abs() > 0.1;
+        let is_widget_dragging = self.widget_dragging.is_some();
 
-        if !has_anim && !has_popup && !is_scrolling {
+        if !settings_frame_should_continue(has_anim, has_popup, is_scrolling, is_widget_dragging) {
             return;
         }
 
-        let mut redraw = self.switch_anim.tick();
+        let mut redraw = is_widget_dragging || self.switch_anim.tick();
         if self.anim.tick() {
             redraw = true;
         }
@@ -785,5 +834,30 @@ pub(crate) fn resize_surface(
         std::num::NonZeroU32::new(height),
     ) {
         let _ = surface.resize(w, h);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn widget_drag_move_requests_redraw_even_when_hover_slot_is_unchanged() {
+        assert!(widget_drag_move_needs_redraw(true, Some(1), Some(1)));
+    }
+
+    #[test]
+    fn widget_drag_move_requests_redraw_when_hover_slot_changes() {
+        assert!(widget_drag_move_needs_redraw(true, Some(0), Some(1)));
+    }
+
+    #[test]
+    fn widget_drag_move_does_not_request_redraw_when_not_dragging_and_slot_is_unchanged() {
+        assert!(!widget_drag_move_needs_redraw(false, Some(1), Some(1)));
+    }
+
+    #[test]
+    fn settings_frame_continues_while_widget_dragging() {
+        assert!(settings_frame_should_continue(false, false, false, true));
     }
 }

@@ -2,7 +2,9 @@ use super::{
     CONTENT_START_Y, POPUP_OPACITY_KEY, SIDEBAR_ROW_H, SIDEBAR_W, SUB_TAB_H, SUB_TAB_START_Y,
 };
 use super::{PopupKind, PopupState, SettingsApp};
-use crate::core::config::{APP_HOMEPAGE, AppConfig, DockPosition};
+use crate::core::config::{
+    APP_HOMEPAGE, AppConfig, DockPosition, clear_widget_slot, place_widget_in_layout,
+};
 use crate::core::i18n::{available_langs, current_lang, init_i18n, set_lang, tr};
 use crate::core::persistence::save_config;
 use crate::utils::autostart::set_autostart;
@@ -12,6 +14,86 @@ use crate::utils::settings_ui::*;
 use skia_safe::Rect;
 
 impl SettingsApp {
+    fn widget_preview_item_y(&mut self) -> Option<f32> {
+        if self.active_page != 2 {
+            return None;
+        }
+        self.ensure_items_cache();
+        let mut y = 50.0;
+        for item in &self.cached_items {
+            if matches!(item, SettingsItem::WidgetPreview) {
+                return Some(y);
+            }
+            y += item.height();
+        }
+        None
+    }
+
+    pub(crate) fn widget_preview_hit_at_mouse(&mut self) -> Option<WidgetPreviewHit> {
+        let item_y = self.widget_preview_item_y()?;
+        let scale = self
+            .window
+            .as_ref()
+            .map(|w| w.scale_factor() as f32)
+            .unwrap_or(1.0);
+        let width = self.win_w / scale - SIDEBAR_W;
+        let (mx, my) = self.logical_mouse_pos;
+        if mx < SIDEBAR_W {
+            return None;
+        }
+        Some(widget_preview_hit_test(
+            mx - SIDEBAR_W,
+            my + self.scroll_y,
+            item_y,
+            width,
+            self.config.expanded_width,
+            self.config.expanded_height,
+        ))
+    }
+
+    pub(crate) fn handle_widget_drag_press(&mut self) -> bool {
+        let Some(hit) = self.widget_preview_hit_at_mouse() else {
+            return false;
+        };
+        if let WidgetPreviewHit::Source(widget) = hit {
+            self.widget_dragging = Some(widget);
+            self.widget_drag_hover_slot = None;
+            return true;
+        }
+        false
+    }
+
+    pub(crate) fn handle_widget_drag_release(&mut self) -> bool {
+        let Some(widget) = self.widget_dragging.take() else {
+            return false;
+        };
+        let target_slot = self.widget_drag_hover_slot.take();
+        if let Some(slot) = target_slot {
+            place_widget_in_layout(&mut self.config.widget_layout, widget, slot);
+            save_config(&self.config);
+            self.mark_items_dirty();
+        }
+        true
+    }
+
+    fn handle_widget_click(&mut self) -> bool {
+        let Some(WidgetPreviewHit::Slot(slot)) = self.widget_preview_hit_at_mouse() else {
+            return false;
+        };
+        let slot_has_widget = self
+            .config
+            .widget_layout
+            .iter()
+            .any(|entry| entry.slot == slot && entry.widget.is_some());
+        if !slot_has_widget {
+            return false;
+        }
+        clear_widget_slot(&mut self.config.widget_layout, slot);
+        save_config(&self.config);
+        self.mark_items_dirty();
+        true
+    }
+
     pub(super) fn handle_click(&mut self, _el: &winit::event_loop::ActiveEventLoop) {
         let (mx, my) = self.logical_mouse_pos;
 
@@ -125,7 +207,13 @@ impl SettingsApp {
                 self.handle_general_click(&items, content_x, content_y, content_w, content_start_y)
             }
             1 => self.handle_music_click(&items, content_x, content_y, content_w, content_start_y),
-            2 => {}
+            2 => {
+                if self.handle_widget_click()
+                    && let Some(win) = &self.window
+                {
+                    win.request_redraw();
+                }
+            }
             3 => self.handle_about_click(&items, content_x, content_y, content_w, content_start_y),
             _ => {}
         }
@@ -684,6 +772,15 @@ impl SettingsApp {
         let content_w = self.win_w / scale - SIDEBAR_W;
 
         if self.active_page == 0 && (SUB_TAB_START_Y..=SUB_TAB_START_Y + SUB_TAB_H).contains(&my) {
+            return true;
+        }
+
+        if self.widget_dragging.is_some() {
+            return true;
+        }
+        if let Some(hit) = self.widget_preview_hit_at_mouse()
+            && hit != WidgetPreviewHit::None
+        {
             return true;
         }
 

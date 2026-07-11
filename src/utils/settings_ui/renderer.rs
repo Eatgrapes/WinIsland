@@ -1,6 +1,8 @@
 use super::HOVER_ROW_KEY_BASE;
 use super::anim::SwitchAnimator;
+use super::input::{WIDGET_ISLAND_PANEL_H, WIDGET_PREVIEW_H, widget_grid_geom};
 use super::items::*;
+use crate::core::config::{WIDGET_GRID_SLOTS, WidgetKind, WidgetSlot};
 use crate::core::i18n::tr;
 use crate::utils::anim::AnimPool;
 use crate::utils::color::SettingsTheme;
@@ -28,6 +30,21 @@ pub struct DrawItemsParams<'a> {
     pub theme: &'a SettingsTheme,
     pub visible_min_y: f32,
     pub visible_max_y: f32,
+    pub island_style: &'a str,
+    pub adaptive_border: bool,
+    pub expanded_width: f32,
+    pub expanded_height: f32,
+    pub widget_layout: &'a [WidgetSlot],
+    pub widget_dragging: Option<WidgetKind>,
+    pub widget_drag_hover_slot: Option<usize>,
+}
+
+fn widget_label(kind: WidgetKind) -> String {
+    match kind {
+        WidgetKind::Clock => tr("widget_clock"),
+        WidgetKind::Status => tr("widget_status"),
+        WidgetKind::Weather => tr("widget_weather"),
+    }
 }
 
 fn draw_switch(canvas: &Canvas, x: f32, y: f32, pos: f32, enabled: bool, theme: &SettingsTheme) {
@@ -210,6 +227,13 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
     let theme = params.theme;
     let visible_min_y = params.visible_min_y;
     let visible_max_y = params.visible_max_y;
+    let island_style = params.island_style;
+    let adaptive_border = params.adaptive_border;
+    let expanded_width = params.expanded_width;
+    let expanded_height = params.expanded_height;
+    let widget_layout = params.widget_layout;
+    let widget_dragging = params.widget_dragging;
+    let widget_drag_hover_slot = params.widget_drag_hover_slot;
 
     let fm = FontManager::global();
     let mut y = start_y;
@@ -1113,6 +1137,230 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                             );
                         }
                     }
+                }
+            }
+            SettingsItem::WidgetPreview => {
+                let preview_h = WIDGET_PREVIEW_H;
+                let top_pad = (SettingsItem::WidgetPreview.height() - preview_h) / 2.0;
+                let py = y + top_pad;
+                let visible = py + preview_h >= visible_min_y && py <= visible_max_y;
+                if visible {
+                    let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
+                    let preview_w = content_w - GROUP_INNER_PAD * 2.0;
+                    let preview_panel_h = WIDGET_ISLAND_PANEL_H;
+                    let library_panel_y = py + preview_panel_h + 12.0;
+                    let library_panel_h = preview_h - preview_panel_h - 12.0;
+
+                    let mut bg_p = Paint::default();
+                    bg_p.set_anti_alias(true);
+                    bg_p.set_color(theme.card_highlight);
+                    canvas.draw_round_rect(
+                        Rect::from_xywh(row_x, py, preview_w, preview_panel_h),
+                        12.0,
+                        12.0,
+                        &bg_p,
+                    );
+                    bg_p.set_color(Color::from_argb(46, 255, 255, 255));
+                    canvas.draw_round_rect(
+                        Rect::from_xywh(row_x, library_panel_y, preview_w, library_panel_h),
+                        12.0,
+                        12.0,
+                        &bg_p,
+                    );
+
+                    let mut label_p = Paint::default();
+                    label_p.set_anti_alias(true);
+                    label_p.set_color(theme.text_sec);
+                    fm.draw_text_with_default_font(
+                        canvas,
+                        &tr("widget_preview_title"),
+                        (row_x + 14.0, py + 22.0),
+                        11.0,
+                        false,
+                        &label_p,
+                    );
+
+                    let geom = widget_grid_geom(
+                        y,
+                        width,
+                        expanded_width,
+                        expanded_height,
+                    );
+                    let cap_x = geom.cap_x;
+                    let cap_y = geom.cap_y;
+                    let cap_w = geom.cap_w;
+                    let cap_h = geom.cap_h;
+                    let cap_scale = geom.cap_scale;
+
+                    let mut shadow_p = Paint::default();
+                    shadow_p.set_anti_alias(true);
+                    shadow_p.set_color(Color::from_argb(70, 0, 0, 0));
+                    canvas.draw_round_rect(
+                        Rect::from_xywh(cap_x - 1.0, cap_y + 3.0, cap_w + 2.0, cap_h + 2.0),
+                        28.0,
+                        28.0,
+                        &shadow_p,
+                    );
+
+                    let mut cap_bg = Paint::default();
+                    cap_bg.set_anti_alias(true);
+
+                    if island_style == "glass" || island_style == "mica" {
+                        cap_bg.set_color(Color::from_argb(170, 24, 24, 28));
+                        canvas.draw_round_rect(
+                            Rect::from_xywh(cap_x, cap_y, cap_w, cap_h),
+                            28.0,
+                            28.0,
+                            &cap_bg,
+                        );
+                    } else if island_style == "dynamic" {
+                        let colors = [Color::from_rgb(18, 12, 36), Color::from_rgb(8, 24, 48)];
+                        #[allow(deprecated)]
+                        if let Some(shader) = skia_safe::gradient_shader::linear(
+                            (
+                                skia_safe::Point::new(cap_x, cap_y),
+                                skia_safe::Point::new(cap_x + cap_w, cap_y + cap_h),
+                            ),
+                            &colors[..],
+                            None,
+                            skia_safe::TileMode::Clamp,
+                            None,
+                            None,
+                        ) {
+                            cap_bg.set_shader(Some(shader));
+                        } else {
+                            cap_bg.set_color(Color::from_rgb(12, 12, 16));
+                        }
+                        canvas.draw_round_rect(
+                            Rect::from_xywh(cap_x, cap_y, cap_w, cap_h),
+                            28.0,
+                            28.0,
+                            &cap_bg,
+                        );
+                        cap_bg.set_shader(None);
+                    } else {
+                        cap_bg.set_color(Color::from_rgb(10, 10, 10));
+                        canvas.draw_round_rect(
+                            Rect::from_xywh(cap_x, cap_y, cap_w, cap_h),
+                            28.0,
+                            28.0,
+                            &cap_bg,
+                        );
+                    }
+
+                    let dragging = widget_dragging.is_some();
+                    let slot_radius = 12.0 * cap_scale;
+                    for slot in 0..WIDGET_GRID_SLOTS {
+                        let (slot_x, slot_y, slot_w, slot_h) = geom.slot_rect(slot);
+                        let slot_widget = widget_layout
+                            .iter()
+                            .find(|entry| entry.slot == slot)
+                            .and_then(|entry| entry.widget);
+                        let is_hover = widget_drag_hover_slot == Some(slot);
+
+                        if dragging {
+                            let mut slot_p = Paint::default();
+                            slot_p.set_anti_alias(true);
+                            slot_p.set_color(if is_hover {
+                                Color::from_argb(
+                                    110,
+                                    theme.accent.r(),
+                                    theme.accent.g(),
+                                    theme.accent.b(),
+                                )
+                            } else if slot_widget.is_some() {
+                                Color::from_argb(46, 255, 255, 255)
+                            } else {
+                                Color::from_argb(18, 255, 255, 255)
+                            });
+                            canvas.draw_round_rect(
+                                Rect::from_xywh(slot_x, slot_y, slot_w, slot_h),
+                                slot_radius,
+                                slot_radius,
+                                &slot_p,
+                            );
+
+                            let mut slot_border = Paint::default();
+                            slot_border.set_anti_alias(true);
+                            slot_border.set_style(skia_safe::paint::Style::Stroke);
+                            slot_border.set_stroke_width(if is_hover { 2.0 } else { 1.0 });
+                            slot_border.set_color(if is_hover {
+                                theme.accent
+                            } else {
+                                Color::from_argb(55, 255, 255, 255)
+                            });
+                            canvas.draw_round_rect(
+                                Rect::from_xywh(slot_x, slot_y, slot_w, slot_h),
+                                slot_radius,
+                                slot_radius,
+                                &slot_border,
+                            );
+                        } else if slot_widget.is_some() {
+                            let mut slot_p = Paint::default();
+                            slot_p.set_anti_alias(true);
+                            slot_p.set_color(Color::from_argb(38, 255, 255, 255));
+                            canvas.draw_round_rect(
+                                Rect::from_xywh(slot_x, slot_y, slot_w, slot_h),
+                                slot_radius,
+                                slot_radius,
+                                &slot_p,
+                            );
+                        }
+
+                        if let Some(kind) = slot_widget {
+                            label_p.set_color(Color::WHITE);
+                            fm.draw_text_in_rect(DrawTextInRectParams {
+                                canvas,
+                                text: &widget_label(kind),
+                                x: slot_x,
+                                y: slot_y + slot_h / 2.0 + 4.0 * cap_scale,
+                                w: slot_w,
+                                size: 10.5 * cap_scale,
+                                bold: true,
+                                paint: &label_p,
+                            });
+
+                            if dragging {
+                                label_p.set_color(Color::from_argb(170, 255, 255, 255));
+                                fm.draw_text_in_rect(DrawTextInRectParams {
+                                    canvas,
+                                    text: "x",
+                                    x: slot_x + slot_w - 15.0 * cap_scale,
+                                    y: slot_y + 12.0 * cap_scale,
+                                    w: 12.0 * cap_scale,
+                                    size: 9.0 * cap_scale,
+                                    bold: true,
+                                    paint: &label_p,
+                                });
+                            }
+                        }
+                    }
+
+                    let mut border_p = Paint::default();
+                    border_p.set_anti_alias(true);
+                    border_p.set_style(skia_safe::paint::Style::Stroke);
+                    border_p.set_stroke_width(1.0);
+                    if adaptive_border {
+                        border_p.set_color(Color::from_argb(120, 255, 255, 255));
+                    } else {
+                        border_p.set_color(Color::from_argb(40, 255, 255, 255));
+                    }
+                    canvas.draw_round_rect(
+                        Rect::from_xywh(cap_x, cap_y, cap_w, cap_h),
+                        28.0,
+                        28.0,
+                        &border_p,
+                    );
+
+                    label_p.set_color(theme.text_sec);
+                    fm.draw_text_with_default_font(
+                        canvas,
+                        &tr("tab_widgets"),
+                        (row_x + 14.0, library_panel_y + 20.0),
+                        11.0,
+                        false,
+                        &label_p,
+                    );
                 }
             }
         }

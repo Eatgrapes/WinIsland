@@ -88,6 +88,7 @@ pub enum SettingsItem {
     FontPreview {
         has_custom_font: bool,
     },
+    WidgetPreview,
 }
 
 impl SettingsItem {
@@ -100,6 +101,7 @@ impl SettingsItem {
             SettingsItem::CenterText { .. } => 35.0,
             SettingsItem::Spacer { height } => *height,
             SettingsItem::FontPreview { .. } => 70.0,
+            SettingsItem::WidgetPreview => 440.0,
             SettingsItem::RowFolderPicker { current_path, .. } => {
                 if current_path.as_ref().is_some_and(|p| !p.is_empty()) {
                     64.0

@@ -1,6 +1,7 @@
+use crate::core::config::WidgetKind;
 use crate::core::i18n::tr;
 use crate::utils::color::SettingsTheme;
-use crate::utils::font::{DrawTextCachedParams, FontManager};
+use crate::utils::font::{DrawTextCachedParams, DrawTextInRectParams, FontManager};
 use crate::utils::settings_ui::items::*;
 use crate::utils::settings_ui::*;
 use skia_safe::{Canvas, Color, Paint, Rect, surfaces};
@@ -119,6 +120,13 @@ impl SettingsApp {
                 theme: &theme,
                 visible_min_y: self.scroll_y,
                 visible_max_y: self.scroll_y + win_h,
+                island_style: &self.config.island_style,
+                adaptive_border: self.config.adaptive_border,
+                expanded_width: self.config.expanded_width,
+                expanded_height: self.config.expanded_height,
+                widget_layout: &self.config.widget_layout,
+                widget_dragging: self.widget_dragging,
+                widget_drag_hover_slot: self.widget_drag_hover_slot,
             });
             canvas.restore();
 
@@ -139,6 +147,7 @@ impl SettingsApp {
             }
 
             self.draw_popup(canvas, &theme);
+            self.draw_widget_drag_overlay(canvas, &theme, win_w, win_h);
             canvas.restore();
 
             // Draw a subtle rounded border around the window
@@ -155,6 +164,57 @@ impl SettingsApp {
         }
 
         self.surface = Some(surface);
+    }
+
+    fn draw_widget_drag_overlay(
+        &self,
+        canvas: &Canvas,
+        theme: &SettingsTheme,
+        win_w: f32,
+        win_h: f32,
+    ) {
+        let Some(widget) = self.widget_dragging else {
+            return;
+        };
+        let label = match widget {
+            WidgetKind::Clock => tr("widget_clock"),
+            WidgetKind::Status => tr("widget_status"),
+            WidgetKind::Weather => tr("widget_weather"),
+        };
+        let (mx, my) = self.logical_mouse_pos;
+        let w = 92.0;
+        let h = 42.0;
+        let x = (mx + 14.0).clamp(8.0, win_w - w - 8.0);
+        let y = (my + 14.0).clamp(8.0, win_h - h - 8.0);
+
+        let mut shadow = Paint::default();
+        shadow.set_anti_alias(true);
+        shadow.set_color(Color::from_argb(80, 0, 0, 0));
+        canvas.draw_round_rect(Rect::from_xywh(x, y + 3.0, w, h), 8.0, 8.0, &shadow);
+
+        let mut bg = Paint::default();
+        bg.set_anti_alias(true);
+        bg.set_color(Color::from_argb(
+            235,
+            theme.accent.r(),
+            theme.accent.g(),
+            theme.accent.b(),
+        ));
+        canvas.draw_round_rect(Rect::from_xywh(x, y, w, h), 8.0, 8.0, &bg);
+
+        let mut paint = Paint::default();
+        paint.set_anti_alias(true);
+        paint.set_color(Color::WHITE);
+        FontManager::global().draw_text_in_rect(DrawTextInRectParams {
+            canvas,
+            text: &label,
+            x,
+            y: y + 26.0,
+            w,
+            size: 12.0,
+            bold: true,
+            paint: &paint,
+        });
     }
 
     pub(crate) fn draw_sub_tabs(&self, canvas: &Canvas, theme: &SettingsTheme, content_w: f32) {
