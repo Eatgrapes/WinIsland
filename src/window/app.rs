@@ -43,6 +43,10 @@ use winit::window::{Window, WindowButtons, WindowId, WindowLevel};
 
 type InstallResult = Result<(PluginManifest, PathBuf, Vec<String>), String>;
 
+fn should_show_widget_view(smtc_enabled: bool, has_media: bool, is_playing: bool) -> bool {
+    !(smtc_enabled && has_media && is_playing)
+}
+
 pub struct App {
     window: Option<Arc<Window>>,
     context: Option<Context<Arc<Window>>>,
@@ -629,6 +633,12 @@ impl App {
                     self.spring_hide.velocity = -0.45;
                     self.idle_timer = Instant::now();
                 } else {
+                    let media = self.smtc.get_info();
+                    self.widget_view = should_show_widget_view(
+                        self.config.smtc_enabled,
+                        !media.title.is_empty(),
+                        media.is_playing,
+                    );
                     self.expanded = true;
                 }
             } else if self.spring_hide.value > 0.3 {
@@ -1369,7 +1379,6 @@ impl ApplicationHandler for App {
         let mut music_active = false;
         let media = self.smtc.get_info();
         if self.config.smtc_enabled && !media.title.is_empty() {
-            self.last_media_playing = media.is_playing;
             music_active = true;
             if media.title != self.last_media_title {
                 log::info!(
@@ -1381,6 +1390,15 @@ impl ApplicationHandler for App {
                 self.last_media_title = media.title.clone();
                 crate::ui::expanded::music_view::trigger_cover_flip();
                 crate::utils::backdrop::clear_blurred_cover_cache();
+                window.request_redraw();
+            }
+        }
+
+        let music_is_playing = music_active && media.is_playing;
+        if music_is_playing != self.last_media_playing {
+            self.last_media_playing = music_is_playing;
+            if self.expanded {
+                self.widget_view = !music_is_playing;
                 window.request_redraw();
             }
         }
@@ -1623,5 +1641,18 @@ impl ApplicationHandler for App {
         if elapsed < target_frame_time {
             std::thread::sleep(target_frame_time - elapsed);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_show_widget_view;
+
+    #[test]
+    fn expanded_view_follows_music_playback_state() {
+        assert!(!should_show_widget_view(true, true, true));
+        assert!(should_show_widget_view(true, true, false));
+        assert!(should_show_widget_view(true, false, false));
+        assert!(should_show_widget_view(false, true, true));
     }
 }
