@@ -1,9 +1,6 @@
 use super::items::*;
 use crate::core::config::{WIDGET_GRID_SLOTS, WidgetKind};
-
-/// Widgets are laid out in a fixed 3x3 grid.
-pub const WIDGET_GRID_COLS: usize = 3;
-pub const WIDGET_GRID_ROWS: usize = 3;
+use crate::ui::widget::{WidgetGridLayout, widget_grid_layout};
 
 pub const WIDGET_PREVIEW_H: f32 = 420.0;
 pub const WIDGET_ISLAND_PANEL_H: f32 = 300.0;
@@ -35,8 +32,6 @@ fn in_rect(mx: f32, my: f32, x: f32, y: f32, w: f32, h: f32) -> bool {
     mx >= x && mx <= x + w && my >= y && my <= y + h
 }
 
-/// Geometry of the island preview and its 3x3 placement grid, shared by the
-/// renderer and hit tester so drawn slots and click targets stay aligned.
 #[derive(Debug, Clone, Copy)]
 pub struct WidgetGridGeom {
     pub cap_x: f32,
@@ -44,21 +39,27 @@ pub struct WidgetGridGeom {
     pub cap_w: f32,
     pub cap_h: f32,
     pub cap_scale: f32,
-    slot_w: f32,
-    slot_h: f32,
-    gap: f32,
-    grid_x: f32,
-    grid_y: f32,
+    layout: WidgetGridLayout,
 }
 
 impl WidgetGridGeom {
     pub fn slot_rect(&self, slot: usize) -> (f32, f32, f32, f32) {
-        let col = (slot % WIDGET_GRID_COLS) as f32;
-        let row = (slot / WIDGET_GRID_COLS) as f32;
-        let x = self.grid_x + col * (self.slot_w + self.gap);
-        let y = self.grid_y + row * (self.slot_h + self.gap);
-        (x, y, self.slot_w, self.slot_h)
+        self.layout.slot_rect(slot)
     }
+
+    pub fn footprint_rect(&self, widget: WidgetKind, slot: usize) -> (f32, f32, f32, f32) {
+        self.layout.footprint_rect(widget, slot)
+    }
+}
+
+pub fn widget_delete_button_center(x: f32, y: f32, w: f32, scale: f32) -> (f32, f32) {
+    (x + w - 10.0 * scale, y + 10.0 * scale)
+}
+
+pub fn widget_delete_button_hit(mx: f32, my: f32, x: f32, y: f32, w: f32, scale: f32) -> bool {
+    let (cx, cy) = widget_delete_button_center(x, y, w, scale);
+    let radius = (7.0 * scale).max(6.0);
+    (mx - cx).powi(2) + (my - cy).powi(2) <= radius.powi(2)
 }
 
 pub fn widget_grid_geom(
@@ -88,16 +89,7 @@ pub fn widget_grid_geom(
     let cap_x = row_x + (preview_w - cap_w) / 2.0;
     let cap_y = py + 44.0;
 
-    let inset = 12.0 * cap_scale;
-    let gap = 7.0 * cap_scale;
-    let inner_w = cap_w - inset * 2.0;
-    let inner_h = cap_h - inset * 2.0;
-    let slot_w = (inner_w - gap * (WIDGET_GRID_COLS as f32 - 1.0)) / WIDGET_GRID_COLS as f32;
-    let slot_h = (inner_h - gap * (WIDGET_GRID_ROWS as f32 - 1.0)) / WIDGET_GRID_ROWS as f32;
-    let grid_w = slot_w * WIDGET_GRID_COLS as f32 + gap * (WIDGET_GRID_COLS as f32 - 1.0);
-    let grid_h = slot_h * WIDGET_GRID_ROWS as f32 + gap * (WIDGET_GRID_ROWS as f32 - 1.0);
-    let grid_x = cap_x + (cap_w - grid_w) / 2.0;
-    let grid_y = cap_y + (cap_h - grid_h) / 2.0;
+    let layout = widget_grid_layout(cap_x, cap_y, cap_w, cap_h, cap_scale);
 
     WidgetGridGeom {
         cap_x,
@@ -105,11 +97,7 @@ pub fn widget_grid_geom(
         cap_w,
         cap_h,
         cap_scale,
-        slot_w,
-        slot_h,
-        gap,
-        grid_x,
-        grid_y,
+        layout,
     }
 }
 
@@ -126,10 +114,10 @@ pub fn widget_preview_hit_test(
     let library_panel_y = py + WIDGET_ISLAND_PANEL_H + 12.0;
 
     let source_y = library_panel_y + 32.0;
-    let source_w = 84.0;
-    let source_h = 38.0;
+    let source_w = 108.0;
+    let source_h = 46.0;
     let source_gap = 12.0;
-    let sources = [WidgetKind::Clock, WidgetKind::Status, WidgetKind::Weather];
+    let sources = [WidgetKind::Clock];
     for (idx, kind) in sources.iter().enumerate() {
         let source_x = row_x + idx as f32 * (source_w + source_gap);
         if in_rect(mx, my, source_x, source_y, source_w, source_h) {
@@ -291,6 +279,22 @@ mod tests {
     }
 
     #[test]
+    fn widget_preview_uses_the_island_grid_proportions() {
+        let geom = widget_grid_geom(ITEM_Y, WIDTH, EXP_W, EXP_H);
+        let layout = widget_grid_layout(
+            geom.cap_x,
+            geom.cap_y,
+            geom.cap_w,
+            geom.cap_h,
+            geom.cap_scale,
+        );
+
+        for slot in 0..WIDGET_GRID_SLOTS {
+            assert_eq!(geom.slot_rect(slot), layout.slot_rect(slot));
+        }
+    }
+
+    #[test]
     fn widget_preview_hit_test_detects_sources() {
         let geom = widget_grid_geom(ITEM_Y, WIDTH, EXP_W, EXP_H);
         let py = ITEM_Y + (SettingsItem::WidgetPreview.height() - WIDGET_PREVIEW_H) / 2.0;
@@ -302,14 +306,6 @@ mod tests {
             widget_preview_hit_test(row_x + 40.0, source_y, ITEM_Y, WIDTH, EXP_W, EXP_H),
             WidgetPreviewHit::Source(WidgetKind::Clock)
         );
-        assert_eq!(
-            widget_preview_hit_test(row_x + 136.0, source_y, ITEM_Y, WIDTH, EXP_W, EXP_H),
-            WidgetPreviewHit::Source(WidgetKind::Status)
-        );
-        assert_eq!(
-            widget_preview_hit_test(row_x + 232.0, source_y, ITEM_Y, WIDTH, EXP_W, EXP_H),
-            WidgetPreviewHit::Source(WidgetKind::Weather)
-        );
     }
 
     #[test]
@@ -318,5 +314,22 @@ mod tests {
             widget_preview_hit_test(4.0, 90.0, ITEM_Y, WIDTH, EXP_W, EXP_H),
             WidgetPreviewHit::None
         );
+    }
+
+    #[test]
+    fn widget_delete_button_does_not_include_the_widget_body() {
+        let geom = widget_grid_geom(ITEM_Y, WIDTH, EXP_W, EXP_H);
+        let (x, y, w, h) = geom.footprint_rect(WidgetKind::Clock, 0);
+        let (cx, cy) = widget_delete_button_center(x, y, w, geom.cap_scale);
+
+        assert!(widget_delete_button_hit(cx, cy, x, y, w, geom.cap_scale));
+        assert!(!widget_delete_button_hit(
+            x + w / 2.0,
+            y + h / 2.0,
+            x,
+            y,
+            w,
+            geom.cap_scale
+        ));
     }
 }

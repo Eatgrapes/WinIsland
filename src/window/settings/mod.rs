@@ -187,6 +187,7 @@ pub struct SettingsApp {
     pub(crate) dots_hovered: bool,
     pub(crate) widget_dragging: Option<WidgetKind>,
     pub(crate) widget_drag_hover_slot: Option<usize>,
+    pub(crate) widget_preview_hover_slot: Option<usize>,
 }
 
 impl SettingsApp {
@@ -238,6 +239,7 @@ impl SettingsApp {
             dots_hovered: false,
             widget_dragging: None,
             widget_drag_hover_slot: None,
+            widget_preview_hover_slot: None,
         }
     }
 
@@ -524,6 +526,19 @@ impl ApplicationHandler for SettingsApp {
                     }
                     if needs_redraw && let Some(win) = &self.window {
                         win.request_redraw();
+                    }
+                } else if self.active_page == 2 {
+                    let new_slot = self
+                        .widget_preview_hit_at_mouse()
+                        .and_then(|hit| match hit {
+                            WidgetPreviewHit::Slot(slot) => Some(slot),
+                            _ => None,
+                        });
+                    if new_slot != self.widget_preview_hover_slot {
+                        self.widget_preview_hover_slot = new_slot;
+                        if let Some(win) = &self.window {
+                            win.request_redraw();
+                        }
                     }
                 }
 

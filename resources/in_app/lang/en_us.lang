@@ -5,6 +5,7 @@ tab_widgets=Widgets
 tab_about=About
 widget_preview_title=Widget Preview
 widget_clock=Clock
+widget_time=Time
 widget_status=Status
 widget_weather=Weather
 widget_now=Now

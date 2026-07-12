@@ -77,18 +77,36 @@ impl SettingsApp {
     }
 
     fn handle_widget_click(&mut self) -> bool {
-        let Some(WidgetPreviewHit::Slot(slot)) = self.widget_preview_hit_at_mouse() else {
+        let Some(item_y) = self.widget_preview_item_y() else {
             return false;
         };
-        let slot_has_widget = self
-            .config
-            .widget_layout
-            .iter()
-            .any(|entry| entry.slot == slot && entry.widget.is_some());
-        if !slot_has_widget {
+        let scale = self
+            .window
+            .as_ref()
+            .map(|w| w.scale_factor() as f32)
+            .unwrap_or(1.0);
+        let width = self.win_w / scale - SIDEBAR_W;
+        let (mx, my) = self.logical_mouse_pos;
+        if mx < SIDEBAR_W {
             return false;
         }
-        clear_widget_slot(&mut self.config.widget_layout, slot);
+        let geom = widget_grid_geom(
+            item_y,
+            width,
+            self.config.expanded_width,
+            self.config.expanded_height,
+        );
+        let anchor = self.config.widget_layout.iter().find_map(|entry| {
+            let widget = entry.widget?;
+            let (x, y, w, _) = geom.footprint_rect(widget, entry.slot);
+            widget_delete_button_hit(mx - SIDEBAR_W, my + self.scroll_y, x, y, w, geom.cap_scale)
+                .then_some(entry.slot)
+        });
+        let Some(anchor) = anchor else {
+            return false;
+        };
+
+        clear_widget_slot(&mut self.config.widget_layout, anchor);
         save_config(&self.config);
         self.mark_items_dirty();
         true

@@ -1,9 +1,12 @@
 use super::HOVER_ROW_KEY_BASE;
 use super::anim::SwitchAnimator;
-use super::input::{WIDGET_ISLAND_PANEL_H, WIDGET_PREVIEW_H, widget_grid_geom};
+use super::input::{
+    WIDGET_ISLAND_PANEL_H, WIDGET_PREVIEW_H, widget_delete_button_center, widget_grid_geom,
+};
 use super::items::*;
-use crate::core::config::{WIDGET_GRID_SLOTS, WidgetKind, WidgetSlot};
+use crate::core::config::{WIDGET_GRID_SLOTS, WidgetKind, WidgetSlot, widget_footprint};
 use crate::core::i18n::tr;
+use crate::ui::widget::{draw_mini_card, draw_widget};
 use crate::utils::anim::AnimPool;
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, DrawTextInRectParams, FontManager};
@@ -37,14 +40,7 @@ pub struct DrawItemsParams<'a> {
     pub widget_layout: &'a [WidgetSlot],
     pub widget_dragging: Option<WidgetKind>,
     pub widget_drag_hover_slot: Option<usize>,
-}
-
-fn widget_label(kind: WidgetKind) -> String {
-    match kind {
-        WidgetKind::Clock => tr("widget_clock"),
-        WidgetKind::Status => tr("widget_status"),
-        WidgetKind::Weather => tr("widget_weather"),
-    }
+    pub widget_preview_hover_slot: Option<usize>,
 }
 
 fn draw_switch(canvas: &Canvas, x: f32, y: f32, pos: f32, enabled: bool, theme: &SettingsTheme) {
@@ -234,6 +230,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
     let widget_layout = params.widget_layout;
     let widget_dragging = params.widget_dragging;
     let widget_drag_hover_slot = params.widget_drag_hover_slot;
+    let widget_preview_hover_slot = params.widget_preview_hover_slot;
 
     let fm = FontManager::global();
     let mut y = start_y;
@@ -1153,14 +1150,13 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
 
                     let mut bg_p = Paint::default();
                     bg_p.set_anti_alias(true);
-                    bg_p.set_color(theme.card_highlight);
+                    bg_p.set_color(theme.sidebar_bg);
                     canvas.draw_round_rect(
                         Rect::from_xywh(row_x, py, preview_w, preview_panel_h),
                         12.0,
                         12.0,
                         &bg_p,
                     );
-                    bg_p.set_color(Color::from_argb(46, 255, 255, 255));
                     canvas.draw_round_rect(
                         Rect::from_xywh(row_x, library_panel_y, preview_w, library_panel_h),
                         12.0,
@@ -1180,12 +1176,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         &label_p,
                     );
 
-                    let geom = widget_grid_geom(
-                        y,
-                        width,
-                        expanded_width,
-                        expanded_height,
-                    );
+                    let geom = widget_grid_geom(y, width, expanded_width, expanded_height);
                     let cap_x = geom.cap_x;
                     let cap_y = geom.cap_y;
                     let cap_w = geom.cap_w;
@@ -1250,89 +1241,78 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
 
                     let dragging = widget_dragging.is_some();
                     let slot_radius = 12.0 * cap_scale;
-                    for slot in 0..WIDGET_GRID_SLOTS {
-                        let (slot_x, slot_y, slot_w, slot_h) = geom.slot_rect(slot);
-                        let slot_widget = widget_layout
-                            .iter()
-                            .find(|entry| entry.slot == slot)
-                            .and_then(|entry| entry.widget);
-                        let is_hover = widget_drag_hover_slot == Some(slot);
 
-                        if dragging {
+                    let drop_cells: Vec<usize> = match (widget_dragging, widget_drag_hover_slot) {
+                        (Some(widget), Some(slot)) => widget_footprint(widget, slot),
+                        _ => Vec::new(),
+                    };
+
+                    if dragging {
+                        for slot in 0..WIDGET_GRID_SLOTS {
+                            let (sx, sy, sw, sh) = geom.slot_rect(slot);
+                            let is_target = drop_cells.contains(&slot);
                             let mut slot_p = Paint::default();
                             slot_p.set_anti_alias(true);
-                            slot_p.set_color(if is_hover {
+                            slot_p.set_color(if is_target {
                                 Color::from_argb(
                                     110,
                                     theme.accent.r(),
                                     theme.accent.g(),
                                     theme.accent.b(),
                                 )
-                            } else if slot_widget.is_some() {
-                                Color::from_argb(46, 255, 255, 255)
                             } else {
                                 Color::from_argb(18, 255, 255, 255)
                             });
                             canvas.draw_round_rect(
-                                Rect::from_xywh(slot_x, slot_y, slot_w, slot_h),
+                                Rect::from_xywh(sx, sy, sw, sh),
                                 slot_radius,
                                 slot_radius,
                                 &slot_p,
                             );
-
                             let mut slot_border = Paint::default();
                             slot_border.set_anti_alias(true);
                             slot_border.set_style(skia_safe::paint::Style::Stroke);
-                            slot_border.set_stroke_width(if is_hover { 2.0 } else { 1.0 });
-                            slot_border.set_color(if is_hover {
+                            slot_border.set_stroke_width(if is_target { 2.0 } else { 1.0 });
+                            slot_border.set_color(if is_target {
                                 theme.accent
                             } else {
                                 Color::from_argb(55, 255, 255, 255)
                             });
                             canvas.draw_round_rect(
-                                Rect::from_xywh(slot_x, slot_y, slot_w, slot_h),
+                                Rect::from_xywh(sx, sy, sw, sh),
                                 slot_radius,
                                 slot_radius,
                                 &slot_border,
                             );
-                        } else if slot_widget.is_some() {
-                            let mut slot_p = Paint::default();
-                            slot_p.set_anti_alias(true);
-                            slot_p.set_color(Color::from_argb(38, 255, 255, 255));
-                            canvas.draw_round_rect(
-                                Rect::from_xywh(slot_x, slot_y, slot_w, slot_h),
-                                slot_radius,
-                                slot_radius,
-                                &slot_p,
-                            );
                         }
+                    }
 
-                        if let Some(kind) = slot_widget {
+                    for entry in widget_layout.iter() {
+                        let Some(kind) = entry.widget else { continue };
+                        let (tx, ty, tw, th) = geom.footprint_rect(kind, entry.slot);
+
+                        draw_widget(canvas, kind, tx, ty, tw, th, cap_scale, 255, Color::WHITE);
+
+                        let hovered = widget_preview_hover_slot
+                            .map(|s| widget_footprint(kind, entry.slot).contains(&s))
+                            .unwrap_or(false);
+                        if dragging || hovered {
+                            let (bx, by) = widget_delete_button_center(tx, ty, tw, cap_scale);
+                            let mut xbg = Paint::default();
+                            xbg.set_anti_alias(true);
+                            xbg.set_color(Color::from_argb(150, 0, 0, 0));
+                            canvas.draw_circle((bx, by), 7.0 * cap_scale, &xbg);
                             label_p.set_color(Color::WHITE);
                             fm.draw_text_in_rect(DrawTextInRectParams {
                                 canvas,
-                                text: &widget_label(kind),
-                                x: slot_x,
-                                y: slot_y + slot_h / 2.0 + 4.0 * cap_scale,
-                                w: slot_w,
-                                size: 10.5 * cap_scale,
+                                text: "x",
+                                x: bx - 5.0 * cap_scale,
+                                y: by + 3.5 * cap_scale,
+                                w: 10.0 * cap_scale,
+                                size: 9.0 * cap_scale,
                                 bold: true,
                                 paint: &label_p,
                             });
-
-                            if dragging {
-                                label_p.set_color(Color::from_argb(170, 255, 255, 255));
-                                fm.draw_text_in_rect(DrawTextInRectParams {
-                                    canvas,
-                                    text: "x",
-                                    x: slot_x + slot_w - 15.0 * cap_scale,
-                                    y: slot_y + 12.0 * cap_scale,
-                                    w: 12.0 * cap_scale,
-                                    size: 9.0 * cap_scale,
-                                    bold: true,
-                                    paint: &label_p,
-                                });
-                            }
                         }
                     }
 
@@ -1361,6 +1341,20 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         false,
                         &label_p,
                     );
+
+                    let source_y = library_panel_y + 32.0;
+                    let source_w = 108.0;
+                    let source_h = 46.0;
+                    let source_gap = 12.0;
+                    let sources = [WidgetKind::Clock];
+                    for (idx, kind) in sources.iter().enumerate() {
+                        let placed = widget_layout.iter().any(|e| e.widget == Some(*kind));
+                        if widget_dragging == Some(*kind) || placed {
+                            continue;
+                        }
+                        let source_x = row_x + idx as f32 * (source_w + source_gap);
+                        draw_mini_card(canvas, *kind, source_x, source_y, source_w, source_h);
+                    }
                 }
             }
         }

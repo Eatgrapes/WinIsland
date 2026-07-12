@@ -5,6 +5,7 @@ tab_widgets=小组件
 tab_about=关于
 widget_preview_title=小组件预览
 widget_clock=时钟
+widget_time=时间
 widget_status=状态
 widget_weather=天气
 widget_now=现在

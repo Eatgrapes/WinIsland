@@ -1,7 +1,7 @@
-use crate::core::config::WidgetKind;
 use crate::core::i18n::tr;
+use crate::ui::widget::draw_mini_card;
 use crate::utils::color::SettingsTheme;
-use crate::utils::font::{DrawTextCachedParams, DrawTextInRectParams, FontManager};
+use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::settings_ui::items::*;
 use crate::utils::settings_ui::*;
 use skia_safe::{Canvas, Color, Paint, Rect, surfaces};
@@ -127,6 +127,7 @@ impl SettingsApp {
                 widget_layout: &self.config.widget_layout,
                 widget_dragging: self.widget_dragging,
                 widget_drag_hover_slot: self.widget_drag_hover_slot,
+                widget_preview_hover_slot: self.widget_preview_hover_slot,
             });
             canvas.restore();
 
@@ -166,55 +167,61 @@ impl SettingsApp {
         self.surface = Some(surface);
     }
 
+    fn widget_preview_item_y_cached(&self) -> Option<f32> {
+        if self.active_page != 2 {
+            return None;
+        }
+        let mut y = 50.0;
+        for item in &self.cached_items {
+            if matches!(item, SettingsItem::WidgetPreview) {
+                return Some(y);
+            }
+            y += item.height();
+        }
+        None
+    }
+
     fn draw_widget_drag_overlay(
         &self,
         canvas: &Canvas,
-        theme: &SettingsTheme,
+        _theme: &SettingsTheme,
         win_w: f32,
         win_h: f32,
     ) {
         let Some(widget) = self.widget_dragging else {
             return;
         };
-        let label = match widget {
-            WidgetKind::Clock => tr("widget_clock"),
-            WidgetKind::Status => tr("widget_status"),
-            WidgetKind::Weather => tr("widget_weather"),
-        };
+
+        let (w, h) = self
+            .widget_preview_item_y_cached()
+            .map(|item_y| {
+                let scale = self
+                    .window
+                    .as_ref()
+                    .map(|w| w.scale_factor() as f32)
+                    .unwrap_or(1.0);
+                let width = self.win_w / scale - SIDEBAR_W;
+                let geom = widget_grid_geom(
+                    item_y,
+                    width,
+                    self.config.expanded_width,
+                    self.config.expanded_height,
+                );
+                let (_, _, w, h) = geom.footprint_rect(widget, 0);
+                (w.max(60.0), h.max(48.0))
+            })
+            .unwrap_or((96.0, 96.0));
+
         let (mx, my) = self.logical_mouse_pos;
-        let w = 92.0;
-        let h = 42.0;
-        let x = (mx + 14.0).clamp(8.0, win_w - w - 8.0);
-        let y = (my + 14.0).clamp(8.0, win_h - h - 8.0);
+        let x = (mx - w / 2.0).clamp(8.0, win_w - w - 8.0);
+        let y = (my - h / 2.0).clamp(8.0, win_h - h - 8.0);
 
         let mut shadow = Paint::default();
         shadow.set_anti_alias(true);
-        shadow.set_color(Color::from_argb(80, 0, 0, 0));
-        canvas.draw_round_rect(Rect::from_xywh(x, y + 3.0, w, h), 8.0, 8.0, &shadow);
+        shadow.set_color(Color::from_argb(90, 0, 0, 0));
+        canvas.draw_round_rect(Rect::from_xywh(x, y + 4.0, w, h), 12.0, 12.0, &shadow);
 
-        let mut bg = Paint::default();
-        bg.set_anti_alias(true);
-        bg.set_color(Color::from_argb(
-            235,
-            theme.accent.r(),
-            theme.accent.g(),
-            theme.accent.b(),
-        ));
-        canvas.draw_round_rect(Rect::from_xywh(x, y, w, h), 8.0, 8.0, &bg);
-
-        let mut paint = Paint::default();
-        paint.set_anti_alias(true);
-        paint.set_color(Color::WHITE);
-        FontManager::global().draw_text_in_rect(DrawTextInRectParams {
-            canvas,
-            text: &label,
-            x,
-            y: y + 26.0,
-            w,
-            size: 12.0,
-            bold: true,
-            paint: &paint,
-        });
+        draw_mini_card(canvas, widget, x, y, w, h);
     }
 
     pub(crate) fn draw_sub_tabs(&self, canvas: &Canvas, theme: &SettingsTheme, content_w: f32) {
