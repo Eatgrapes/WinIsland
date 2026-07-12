@@ -317,6 +317,18 @@ pub fn widget_anchor_slot(widget: WidgetKind, target_slot: usize) -> usize {
         .unwrap_or(&target_slot)
 }
 
+pub fn widget_covering_slot(
+    layout: &[WidgetSlot],
+    target_slot: usize,
+) -> Option<(usize, WidgetKind)> {
+    layout.iter().find_map(|entry| {
+        let widget = entry.widget?;
+        widget_footprint(widget, entry.slot)
+            .contains(&target_slot)
+            .then_some((entry.slot, widget))
+    })
+}
+
 pub fn default_widget_layout() -> Vec<WidgetSlot> {
     (0..WIDGET_GRID_SLOTS)
         .map(|slot| WidgetSlot { slot, widget: None })
@@ -501,6 +513,22 @@ smtc_apps = []
         clear_widget_slot(&mut layout, 0);
 
         assert!(layout.iter().all(|e| e.widget.is_none()));
+    }
+
+    #[test]
+    fn widget_covering_slot_finds_multi_cell_widgets() {
+        let mut layout = default_widget_layout();
+        place_widget_in_layout(&mut layout, WidgetKind::Calendar, 1);
+
+        assert_eq!(
+            widget_covering_slot(&layout, 1),
+            Some((1, WidgetKind::Calendar))
+        );
+        assert_eq!(
+            widget_covering_slot(&layout, 4),
+            Some((1, WidgetKind::Calendar))
+        );
+        assert_eq!(widget_covering_slot(&layout, 0), None);
     }
 
     #[test]

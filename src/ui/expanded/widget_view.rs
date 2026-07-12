@@ -49,7 +49,7 @@ pub fn draw_widget_page(
     if alpha > 0 {
         draw_arrow_left(
             canvas,
-            ox + 12.0 * scale,
+            ox + 7.5 * scale,
             oy + h / 2.0,
             alpha,
             scale,
@@ -60,7 +60,7 @@ pub fn draw_widget_page(
     if alpha > 30 {
         let gear_size = 12.0 * scale;
         let gear_x = ox + w - 28.0 * scale;
-        let gear_y = oy + h - 28.0 * scale;
+        let gear_y = oy + h - 16.0 * scale;
         let mut gear_paint = Paint::default();
         gear_paint.set_anti_alias(true);
         gear_paint.set_color(Color::from_argb(

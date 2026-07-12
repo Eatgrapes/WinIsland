@@ -570,7 +570,7 @@ impl App {
 
             if view_val > 0.5 {
                 let gear_x = offset_x + w - 28.0 * scale + w - page_shift;
-                let gear_y = island_y + h - 28.0 * scale;
+                let gear_y = island_y + h - 16.0 * scale;
                 let dist_sq = (rel_x as f64 - gear_x).powi(2) + (rel_y as f64 - gear_y).powi(2);
                 if dist_sq <= (20.0 * scale).powi(2) {
                     if let Ok(exe) = std::env::current_exe() {
@@ -579,22 +579,22 @@ impl App {
                     return;
                 }
 
-                let arrow_x = offset_x + 12.0 * scale + w - page_shift;
+                let arrow_x = offset_x + 7.5 * scale + w - page_shift;
                 let arrow_y = island_y + h / 2.0;
                 let adx = rel_x as f64 - arrow_x;
                 let ady = rel_y as f64 - arrow_y;
-                if adx * adx + ady * ady <= (20.0 * scale).powi(2) {
+                if adx * adx + ady * ady <= (12.0 * scale).powi(2) {
                     self.widget_view = false;
                     return;
                 }
             }
 
             if view_val < 0.5 {
-                let arrow_x = offset_x + w - 12.0 * scale;
+                let arrow_x = offset_x + w - 7.5 * scale;
                 let arrow_y = island_y + h / 2.0;
                 let adx = rel_x as f64 - arrow_x;
                 let ady = rel_y as f64 - arrow_y;
-                if adx * adx + ady * ady <= (20.0 * scale).powi(2) {
+                if adx * adx + ady * ady <= (12.0 * scale).powi(2) {
                     self.widget_view = true;
                     return;
                 }

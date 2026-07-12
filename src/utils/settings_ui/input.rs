@@ -1,5 +1,5 @@
 use super::items::*;
-use crate::core::config::{AVAILABLE_WIDGETS, WIDGET_GRID_SLOTS, WidgetKind};
+use crate::core::config::{AVAILABLE_WIDGETS, WIDGET_GRID_SLOTS, WidgetKind, WidgetSlot};
 use crate::ui::widget::{WidgetGridLayout, widget_grid_layout};
 
 pub const WIDGET_PREVIEW_H: f32 = 420.0;
@@ -76,6 +76,22 @@ pub fn widget_source_rect(
     (source_x, source_y, source_w, source_h)
 }
 
+pub fn widget_library_items(
+    widget_layout: &[WidgetSlot],
+    dragging: Option<WidgetKind>,
+) -> Vec<WidgetKind> {
+    AVAILABLE_WIDGETS
+        .iter()
+        .copied()
+        .filter(|kind| {
+            Some(*kind) != dragging
+                && !widget_layout
+                    .iter()
+                    .any(|entry| entry.widget == Some(*kind))
+        })
+        .collect()
+}
+
 pub fn widget_grid_geom(
     item_y: f32,
     width: f32,
@@ -115,6 +131,7 @@ pub fn widget_grid_geom(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn widget_preview_hit_test(
     mx: f32,
     my: f32,
@@ -122,13 +139,18 @@ pub fn widget_preview_hit_test(
     width: f32,
     expanded_width: f32,
     expanded_height: f32,
+    widget_layout: &[WidgetSlot],
+    dragging: Option<WidgetKind>,
 ) -> WidgetPreviewHit {
     let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
     let py = item_y + (SettingsItem::WidgetPreview.height() - WIDGET_PREVIEW_H) / 2.0;
     let library_panel_y = py + WIDGET_ISLAND_PANEL_H + 12.0;
 
     let source_y = library_panel_y + 32.0;
-    for (idx, kind) in AVAILABLE_WIDGETS.iter().enumerate() {
+    for (idx, kind) in widget_library_items(widget_layout, dragging)
+        .iter()
+        .enumerate()
+    {
         let (source_x, source_y, source_w, source_h) =
             widget_source_rect(row_x, source_y, idx, *kind);
         if in_rect(mx, my, source_x, source_y, source_w, source_h) {
@@ -256,6 +278,7 @@ pub fn hover_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::config::{default_widget_layout, place_widget_in_layout};
 
     const ITEM_Y: f32 = 80.0;
     const WIDTH: f32 = 486.0;
@@ -264,13 +287,14 @@ mod tests {
 
     #[test]
     fn widget_preview_hit_test_detects_all_nine_slots() {
+        let layout = default_widget_layout();
         let geom = widget_grid_geom(ITEM_Y, WIDTH, EXP_W, EXP_H);
         for slot in 0..WIDGET_GRID_SLOTS {
             let (x, y, w, h) = geom.slot_rect(slot);
             let cx = x + w / 2.0;
             let cy = y + h / 2.0;
             assert_eq!(
-                widget_preview_hit_test(cx, cy, ITEM_Y, WIDTH, EXP_W, EXP_H),
+                widget_preview_hit_test(cx, cy, ITEM_Y, WIDTH, EXP_W, EXP_H, &layout, None),
                 WidgetPreviewHit::Slot(slot),
                 "center of slot {slot} should hit that slot"
             );
@@ -307,6 +331,7 @@ mod tests {
 
     #[test]
     fn widget_preview_hit_test_detects_sources() {
+        let layout = default_widget_layout();
         let geom = widget_grid_geom(ITEM_Y, WIDTH, EXP_W, EXP_H);
         let py = ITEM_Y + (SettingsItem::WidgetPreview.height() - WIDGET_PREVIEW_H) / 2.0;
         let library_panel_y = py + WIDGET_ISLAND_PANEL_H + 12.0;
@@ -314,19 +339,65 @@ mod tests {
         let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
         assert!(source_y > geom.cap_y + geom.cap_h);
         assert_eq!(
-            widget_preview_hit_test(row_x + 40.0, source_y, ITEM_Y, WIDTH, EXP_W, EXP_H),
+            widget_preview_hit_test(
+                row_x + 40.0,
+                source_y,
+                ITEM_Y,
+                WIDTH,
+                EXP_W,
+                EXP_H,
+                &layout,
+                None,
+            ),
             WidgetPreviewHit::Source(WidgetKind::Clock)
         );
         assert_eq!(
-            widget_preview_hit_test(row_x + 160.0, source_y, ITEM_Y, WIDTH, EXP_W, EXP_H),
+            widget_preview_hit_test(
+                row_x + 160.0,
+                source_y,
+                ITEM_Y,
+                WIDTH,
+                EXP_W,
+                EXP_H,
+                &layout,
+                None,
+            ),
+            WidgetPreviewHit::Source(WidgetKind::Calendar)
+        );
+    }
+
+    #[test]
+    fn widget_library_compacts_after_a_widget_is_placed() {
+        let mut layout = default_widget_layout();
+        place_widget_in_layout(&mut layout, WidgetKind::Clock, 0);
+        let py = ITEM_Y + (SettingsItem::WidgetPreview.height() - WIDGET_PREVIEW_H) / 2.0;
+        let source_y = py + WIDGET_ISLAND_PANEL_H + 12.0 + 32.0 + 36.0;
+        let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
+
+        assert_eq!(
+            widget_library_items(&layout, None),
+            vec![WidgetKind::Calendar]
+        );
+        assert_eq!(
+            widget_preview_hit_test(
+                row_x + 30.0,
+                source_y,
+                ITEM_Y,
+                WIDTH,
+                EXP_W,
+                EXP_H,
+                &layout,
+                None,
+            ),
             WidgetPreviewHit::Source(WidgetKind::Calendar)
         );
     }
 
     #[test]
     fn widget_preview_hit_test_ignores_points_outside_interactive_regions() {
+        let layout = default_widget_layout();
         assert_eq!(
-            widget_preview_hit_test(4.0, 90.0, ITEM_Y, WIDTH, EXP_W, EXP_H),
+            widget_preview_hit_test(4.0, 90.0, ITEM_Y, WIDTH, EXP_W, EXP_H, &layout, None,),
             WidgetPreviewHit::None
         );
     }

@@ -4,6 +4,7 @@ use super::{
 use super::{PopupKind, PopupState, SettingsApp};
 use crate::core::config::{
     APP_HOMEPAGE, AppConfig, DockPosition, clear_widget_slot, place_widget_in_layout,
+    widget_covering_slot,
 };
 use crate::core::i18n::{available_langs, current_lang, init_i18n, set_lang, tr};
 use crate::core::persistence::save_config;
@@ -48,6 +49,8 @@ impl SettingsApp {
             width,
             self.config.expanded_width,
             self.config.expanded_height,
+            &self.config.widget_layout,
+            self.widget_dragging,
         ))
     }
 
@@ -55,12 +58,47 @@ impl SettingsApp {
         let Some(hit) = self.widget_preview_hit_at_mouse() else {
             return false;
         };
-        if let WidgetPreviewHit::Source(widget) = hit {
-            self.widget_dragging = Some(widget);
-            self.widget_drag_hover_slot = None;
-            return true;
-        }
-        false
+        let widget = match hit {
+            WidgetPreviewHit::Source(widget) => widget,
+            WidgetPreviewHit::Slot(slot) => {
+                let Some((anchor, widget)) = widget_covering_slot(&self.config.widget_layout, slot)
+                else {
+                    return false;
+                };
+                let Some(item_y) = self.widget_preview_item_y() else {
+                    return false;
+                };
+                let scale = self
+                    .window
+                    .as_ref()
+                    .map(|w| w.scale_factor() as f32)
+                    .unwrap_or(1.0);
+                let width = self.win_w / scale - SIDEBAR_W;
+                let geom = widget_grid_geom(
+                    item_y,
+                    width,
+                    self.config.expanded_width,
+                    self.config.expanded_height,
+                );
+                let (x, y, w, _) = geom.footprint_rect(widget, anchor);
+                let (mx, my) = self.logical_mouse_pos;
+                if widget_delete_button_hit(
+                    mx - SIDEBAR_W,
+                    my + self.scroll_y,
+                    x,
+                    y,
+                    w,
+                    geom.cap_scale,
+                ) {
+                    return false;
+                }
+                widget
+            }
+            WidgetPreviewHit::None => return false,
+        };
+        self.widget_dragging = Some(widget);
+        self.widget_drag_hover_slot = None;
+        true
     }
 
     pub(crate) fn handle_widget_drag_release(&mut self) -> bool {

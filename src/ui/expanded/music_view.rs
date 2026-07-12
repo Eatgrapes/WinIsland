@@ -282,7 +282,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
     if arrow_alpha > 0 {
         draw_arrow_right(
             canvas,
-            ox + w - 12.0 * scale,
+            ox + w - 7.5 * scale,
             oy + h / 2.0,
             arrow_alpha,
             scale,
