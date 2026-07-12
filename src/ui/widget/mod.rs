@@ -1,7 +1,9 @@
+pub mod calendar;
 pub mod time;
 
 use crate::core::config::{WIDGET_GRID_COLS, WIDGET_GRID_ROWS, WidgetKind, widget_footprint};
-use skia_safe::{Canvas, Color};
+use crate::utils::font::FontManager;
+use skia_safe::{Canvas, Color, Paint, Rect};
 
 #[derive(Debug, Clone, Copy)]
 pub struct WidgetGridLayout {
@@ -50,8 +52,40 @@ pub fn widget_grid_layout(x: f32, y: f32, w: f32, h: f32, scale: f32) -> WidgetG
     }
 }
 
+pub(crate) fn draw_widget_pill_background(
+    canvas: &Canvas,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    alpha: u8,
+) {
+    let mut background = Paint::default();
+    background.set_anti_alias(true);
+    background.set_color(Color::from_argb((alpha as f32 * 0.94) as u8, 28, 28, 30));
+    let radius = w.min(h) * 0.5;
+    canvas.draw_round_rect(Rect::from_xywh(x, y, w, h), radius, radius, &background);
+}
+
+pub(crate) fn draw_widget_text_centered(
+    canvas: &Canvas,
+    text: &str,
+    bounds: Rect,
+    size: f32,
+    bold: bool,
+    paint: &Paint,
+) {
+    let font = FontManager::global().get_font(size, bold);
+    let (_, glyph_bounds) = font.measure_str(text, None);
+    let text_x =
+        bounds.left() + (bounds.width() - glyph_bounds.width()) / 2.0 - glyph_bounds.left();
+    let baseline_y =
+        bounds.top() + (bounds.height() - glyph_bounds.height()) / 2.0 - glyph_bounds.top();
+    canvas.draw_str(text, (text_x, baseline_y), &font, paint);
+}
+
 pub fn widget_animates(kind: WidgetKind) -> bool {
-    matches!(kind, WidgetKind::Clock)
+    matches!(kind, WidgetKind::Clock | WidgetKind::Calendar)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -68,6 +102,9 @@ pub fn draw_widget(
 ) {
     match kind {
         WidgetKind::Clock => time::draw_time_widget(canvas, x, y, w, h, scale, alpha, text_color),
+        WidgetKind::Calendar => {
+            calendar::draw_calendar_widget(canvas, x, y, w, h, scale, alpha, text_color)
+        }
     }
 }
 

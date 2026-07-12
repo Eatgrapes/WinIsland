@@ -85,12 +85,14 @@ impl From<DockPosition> for String {
 #[serde(rename_all = "snake_case")]
 pub enum WidgetKind {
     Clock,
+    Calendar,
 }
 
 impl WidgetKind {
     pub const fn span(&self) -> (usize, usize) {
         match self {
             WidgetKind::Clock => (1, 1),
+            WidgetKind::Calendar => (1, 2),
         }
     }
 }
@@ -109,6 +111,7 @@ where
     let raw = Option::<String>::deserialize(deserializer)?;
     Ok(raw.and_then(|s| match s.as_str() {
         "clock" => Some(WidgetKind::Clock),
+        "calendar" => Some(WidgetKind::Calendar),
         _ => None,
     }))
 }
@@ -293,6 +296,7 @@ fn default_update_channel() -> String {
 pub const WIDGET_GRID_COLS: usize = 3;
 pub const WIDGET_GRID_ROWS: usize = 3;
 pub const WIDGET_GRID_SLOTS: usize = WIDGET_GRID_COLS * WIDGET_GRID_ROWS;
+pub const AVAILABLE_WIDGETS: [WidgetKind; 2] = [WidgetKind::Clock, WidgetKind::Calendar];
 
 pub fn widget_footprint(widget: WidgetKind, anchor_slot: usize) -> Vec<usize> {
     let (cols, rows) = widget.span();
@@ -428,11 +432,14 @@ mod tests {
     }
 
     #[test]
-    fn clock_is_a_one_by_one_widget() {
+    fn widgets_use_their_expected_footprints() {
         assert_eq!(WidgetKind::Clock.span(), (1, 1));
+        assert_eq!(WidgetKind::Calendar.span(), (1, 2));
         assert_eq!(widget_footprint(WidgetKind::Clock, 0), vec![0]);
         assert_eq!(widget_footprint(WidgetKind::Clock, 8), vec![8]);
         assert_eq!(widget_anchor_slot(WidgetKind::Clock, 8), 8);
+        assert_eq!(widget_footprint(WidgetKind::Calendar, 8), vec![5, 8]);
+        assert_eq!(widget_anchor_slot(WidgetKind::Calendar, 8), 5);
     }
 
     #[test]
@@ -502,5 +509,7 @@ smtc_apps = []
         assert_eq!(slot.widget, None);
         let slot: WidgetSlot = toml::from_str("slot = 1\nwidget = \"clock\"\n").unwrap();
         assert_eq!(slot.widget, Some(WidgetKind::Clock));
+        let slot: WidgetSlot = toml::from_str("slot = 2\nwidget = \"calendar\"\n").unwrap();
+        assert_eq!(slot.widget, Some(WidgetKind::Calendar));
     }
 }

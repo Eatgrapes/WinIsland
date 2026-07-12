@@ -2,9 +2,12 @@ use super::HOVER_ROW_KEY_BASE;
 use super::anim::SwitchAnimator;
 use super::input::{
     WIDGET_ISLAND_PANEL_H, WIDGET_PREVIEW_H, widget_delete_button_center, widget_grid_geom,
+    widget_source_rect,
 };
 use super::items::*;
-use crate::core::config::{WIDGET_GRID_SLOTS, WidgetKind, WidgetSlot, widget_footprint};
+use crate::core::config::{
+    AVAILABLE_WIDGETS, WIDGET_GRID_SLOTS, WidgetKind, WidgetSlot, widget_footprint,
+};
 use crate::core::i18n::tr;
 use crate::ui::widget::{draw_mini_card, draw_widget};
 use crate::utils::anim::AnimPool;
@@ -1343,16 +1346,13 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     );
 
                     let source_y = library_panel_y + 32.0;
-                    let source_w = 108.0;
-                    let source_h = 46.0;
-                    let source_gap = 12.0;
-                    let sources = [WidgetKind::Clock];
-                    for (idx, kind) in sources.iter().enumerate() {
+                    for (idx, kind) in AVAILABLE_WIDGETS.iter().enumerate() {
                         let placed = widget_layout.iter().any(|e| e.widget == Some(*kind));
                         if widget_dragging == Some(*kind) || placed {
                             continue;
                         }
-                        let source_x = row_x + idx as f32 * (source_w + source_gap);
+                        let (source_x, source_y, source_w, source_h) =
+                            widget_source_rect(row_x, source_y, idx, *kind);
                         draw_mini_card(canvas, *kind, source_x, source_y, source_w, source_h);
                     }
                 }

@@ -1,4 +1,4 @@
-use crate::utils::font::{DrawTextInRectParams, FontManager};
+use super::{draw_widget_pill_background, draw_widget_text_centered};
 use skia_safe::{Canvas, Color, Paint, Rect};
 
 #[allow(clippy::too_many_arguments)]
@@ -12,15 +12,11 @@ pub fn draw_time_widget(
     alpha: u8,
     text_color: Color,
 ) {
-    let fm = FontManager::global();
     // SAFETY: GetLocalTime writes a SYSTEMTIME value and has no preconditions.
     let local_time = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
     let time = format!("{:02}:{:02}", local_time.wHour, local_time.wMinute);
 
-    let mut background = Paint::default();
-    background.set_anti_alias(true);
-    background.set_color(Color::from_argb((alpha as f32 * 0.94) as u8, 28, 28, 30));
-    canvas.draw_round_rect(Rect::from_xywh(x, y, w, h), h * 0.5, h * 0.5, &background);
+    draw_widget_pill_background(canvas, x, y, w, h, alpha);
 
     let size = (h * 0.60).min(w * 0.31).max(13.0 * scale);
 
@@ -33,14 +29,12 @@ pub fn draw_time_widget(
         text_color.b(),
     ));
 
-    fm.draw_text_in_rect(DrawTextInRectParams {
+    draw_widget_text_centered(
         canvas,
-        text: &time,
-        x,
-        y: y + h * 0.5 + size * 0.35,
-        w,
+        &time,
+        Rect::from_xywh(x, y, w, h),
         size,
-        bold: true,
-        paint: &paint,
-    });
+        true,
+        &paint,
+    );
 }

@@ -1,5 +1,5 @@
 use super::items::*;
-use crate::core::config::{WIDGET_GRID_SLOTS, WidgetKind};
+use crate::core::config::{AVAILABLE_WIDGETS, WIDGET_GRID_SLOTS, WidgetKind};
 use crate::ui::widget::{WidgetGridLayout, widget_grid_layout};
 
 pub const WIDGET_PREVIEW_H: f32 = 420.0;
@@ -62,6 +62,20 @@ pub fn widget_delete_button_hit(mx: f32, my: f32, x: f32, y: f32, w: f32, scale:
     (mx - cx).powi(2) + (my - cy).powi(2) <= radius.powi(2)
 }
 
+pub fn widget_source_rect(
+    row_x: f32,
+    source_y: f32,
+    index: usize,
+    kind: WidgetKind,
+) -> (f32, f32, f32, f32) {
+    let source_x = row_x + index as f32 * 120.0;
+    let (source_w, source_h) = match kind {
+        WidgetKind::Clock => (108.0, 46.0),
+        WidgetKind::Calendar => (66.0, 72.0),
+    };
+    (source_x, source_y, source_w, source_h)
+}
+
 pub fn widget_grid_geom(
     item_y: f32,
     width: f32,
@@ -114,12 +128,9 @@ pub fn widget_preview_hit_test(
     let library_panel_y = py + WIDGET_ISLAND_PANEL_H + 12.0;
 
     let source_y = library_panel_y + 32.0;
-    let source_w = 108.0;
-    let source_h = 46.0;
-    let source_gap = 12.0;
-    let sources = [WidgetKind::Clock];
-    for (idx, kind) in sources.iter().enumerate() {
-        let source_x = row_x + idx as f32 * (source_w + source_gap);
+    for (idx, kind) in AVAILABLE_WIDGETS.iter().enumerate() {
+        let (source_x, source_y, source_w, source_h) =
+            widget_source_rect(row_x, source_y, idx, *kind);
         if in_rect(mx, my, source_x, source_y, source_w, source_h) {
             return WidgetPreviewHit::Source(*kind);
         }
@@ -305,6 +316,10 @@ mod tests {
         assert_eq!(
             widget_preview_hit_test(row_x + 40.0, source_y, ITEM_Y, WIDTH, EXP_W, EXP_H),
             WidgetPreviewHit::Source(WidgetKind::Clock)
+        );
+        assert_eq!(
+            widget_preview_hit_test(row_x + 160.0, source_y, ITEM_Y, WIDTH, EXP_W, EXP_H),
+            WidgetPreviewHit::Source(WidgetKind::Calendar)
         );
     }
 
