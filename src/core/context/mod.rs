@@ -86,6 +86,23 @@ impl ContextManager {
         None
     }
 
+    /// 返回所有可显示在 mini 的插件上下文（按优先级与时间倒序）
+    pub fn mini_candidates(&self) -> Vec<PluginContext> {
+        let mut candidates: Vec<_> = self
+            .plugin_contexts
+            .iter()
+            .filter(|context| context.mini_render)
+            .cloned()
+            .collect();
+        candidates.sort_by(|left, right| {
+            right
+                .priority
+                .cmp(&left.priority)
+                .then_with(|| right.created_at.cmp(&left.created_at))
+        });
+        candidates
+    }
+
     pub fn tick(&mut self) {
         let now = Instant::now();
 

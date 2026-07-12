@@ -10,8 +10,8 @@ use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::glass::get_glass_background;
 use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
-    ClipOp, Color, FilterMode, ISize, MipmapMode, Paint, RRect, Rect, SamplingOptions,
-    Surface as SkSurface, image_filters, surfaces,
+    ClipOp, Color, Data, FilterMode, Image, ISize, MipmapMode, Paint, PathBuilder, RRect, Rect,
+    SamplingOptions, Surface as SkSurface, image_filters, surfaces,
 };
 use softbuffer::Surface;
 use std::cell::RefCell;
@@ -74,15 +74,428 @@ pub struct StyleParams<'a> {
     pub dt: f32,
 }
 
-use crate::core::context::MiniContent;
+use crate::core::context::{MiniContent, PluginContext};
+use crate::core::multitask::{MultitaskFrame, MultitaskTransitionKind};
 
 pub struct DrawIslandParams<'a> {
     pub layout: LayoutParams,
     pub media: MediaParams<'a>,
     pub lyrics: LyricsParams<'a>,
     pub mini_content: Option<MiniContent>,
+    pub secondary_mini_content: Option<MiniContent>,
+    pub outgoing_secondary_mini_content: Option<MiniContent>,
+    pub multitask_frame: MultitaskFrame,
+    pub multitask_hover_progress: f32,
     pub window: WindowParams,
     pub style: StyleParams<'a>,
+}
+
+#[derive(Clone, Copy)]
+pub struct MultitaskGroupLayoutParams {
+    pub base_h: f32,
+    pub global_scale: f32,
+    pub dock_position: DockPosition,
+    pub frame: MultitaskFrame,
+    pub hover_progress: f32,
+}
+
+pub fn get_multitask_group_shift(params: MultitaskGroupLayoutParams) -> f32 {
+    if params.dock_position.is_left() || params.dock_position.is_right() {
+        return 0.0;
+    }
+    let frame = params.frame;
+    let occupancy = match frame.kind {
+        MultitaskTransitionKind::Split => frame.secondary_scale * frame.secondary_alpha,
+        MultitaskTransitionKind::Merge => {
+            frame.outgoing_secondary_scale * frame.outgoing_secondary_alpha
+        }
+        MultitaskTransitionKind::Promote => 0.0,
+        MultitaskTransitionKind::Replace | MultitaskTransitionKind::Swap => 1.0,
+        MultitaskTransitionKind::Stable => {
+            frame.secondary_scale.max(frame.outgoing_secondary_scale)
+        }
+    }
+    .clamp(0.0, 1.0);
+    if occupancy <= 0.0 {
+        return 0.0;
+    }
+    let hover_scale = 1.0 + params.hover_progress.clamp(0.0, 1.0) * 0.06;
+    let diameter = params.base_h.max(27.0 * params.global_scale) * occupancy * hover_scale;
+    let gap = 7.0 * params.global_scale * frame.gap_progress * occupancy;
+    -(diameter + gap) / 2.0
+}
+
+pub struct MultitaskLayoutParams {
+    pub offset_x: f32,
+    pub offset_y: f32,
+    pub current_w: f32,
+    pub current_h: f32,
+    pub base_h: f32,
+    pub global_scale: f32,
+    pub dock_position: DockPosition,
+    pub frame: MultitaskFrame,
+    pub hover_progress: f32,
+}
+
+pub fn get_multitask_secondary_rect(params: MultitaskLayoutParams) -> (f32, f32, f32, f32) {
+    let MultitaskLayoutParams {
+        offset_x,
+        offset_y,
+        current_w,
+        current_h,
+        base_h,
+        global_scale,
+        dock_position,
+        frame,
+        hover_progress,
+    } = params;
+    let hover_progress = hover_progress.clamp(0.0, 1.0);
+    let task_scale = frame
+        .secondary_scale
+        .max(frame.outgoing_secondary_scale)
+        .clamp(0.0, 1.08);
+    let scale = task_scale * (1.0 + hover_progress * 0.06);
+    let diameter = base_h.max(27.0 * global_scale) * scale;
+    let width = diameter;
+    let height = diameter;
+    let gap = 7.0 * global_scale * frame.gap_progress;
+    let center_y = offset_y + current_h / 2.0;
+    let y = center_y - height / 2.0;
+    let main_right = offset_x + current_w;
+    let slide = frame.secondary_slide_units * global_scale;
+    let x = if dock_position.is_right() {
+        offset_x - gap - width - slide
+    } else {
+        main_right + gap + slide
+    };
+    (x, y, width, height)
+}
+
+struct MultitaskSecondaryParams<'a> {
+    content: Option<&'a MiniContent>,
+    outgoing_content: Option<&'a MiniContent>,
+    media: &'a MediaInfo,
+    offset_x: f32,
+    offset_y: f32,
+    current_w: f32,
+    current_h: f32,
+    base_h: f32,
+    global_scale: f32,
+    dock_position: DockPosition,
+    frame: MultitaskFrame,
+    hover_progress: f32,
+}
+
+fn draw_multitask_secondary(canvas: &skia_safe::Canvas, params: MultitaskSecondaryParams<'_>) {
+    let MultitaskSecondaryParams {
+        content,
+        outgoing_content,
+        media,
+        offset_x,
+        offset_y,
+        current_w,
+        current_h,
+        base_h,
+        global_scale,
+        dock_position,
+        frame,
+        hover_progress,
+    } = params;
+    if frame.secondary_alpha <= 0.01 && frame.outgoing_secondary_alpha <= 0.01 {
+        return;
+    }
+    if let Some(outgoing) = outgoing_content {
+        let outgoing_frame = MultitaskFrame {
+            secondary_scale: frame.outgoing_secondary_scale,
+            secondary_alpha: frame.outgoing_secondary_alpha,
+            secondary_content_alpha: frame.outgoing_secondary_alpha,
+            secondary_slide_units: 0.0,
+            ..frame
+        };
+        draw_secondary_task(
+            canvas,
+            outgoing,
+            media,
+            MultitaskLayoutParams {
+                offset_x,
+                offset_y,
+                current_w,
+                current_h,
+                base_h,
+                global_scale,
+                dock_position,
+                frame: outgoing_frame,
+                hover_progress: 0.0,
+            },
+        );
+    }
+    if let Some(content) = content {
+        draw_secondary_task(
+            canvas,
+            content,
+            media,
+            MultitaskLayoutParams {
+                offset_x,
+                offset_y,
+                current_w,
+                current_h,
+                base_h,
+                global_scale,
+                dock_position,
+                frame,
+                hover_progress,
+            },
+        );
+    }
+}
+
+fn draw_secondary_task(
+    canvas: &skia_safe::Canvas,
+    content: &MiniContent,
+    media: &MediaInfo,
+    params: MultitaskLayoutParams,
+) {
+    let global_scale = params.global_scale;
+    let dock_position = params.dock_position;
+    let alpha_f = params.frame.secondary_alpha.clamp(0.0, 1.0);
+    let content_alpha_f = (alpha_f * params.frame.secondary_content_alpha).clamp(0.0, 1.0);
+    let (x, y, w, h) = get_multitask_secondary_rect(params);
+    if w <= 0.1 || alpha_f <= 0.01 {
+        return;
+    }
+    let alpha = (alpha_f * 255.0) as u8;
+    let content_alpha = (content_alpha_f * 255.0) as u8;
+    let center = (x + w / 2.0, y + h / 2.0);
+    let radius = w / 2.0;
+
+    let mut shadow_paint = Paint::default();
+    shadow_paint.set_anti_alias(true);
+    shadow_paint.set_color(Color::from_argb((alpha_f * 75.0) as u8, 0, 0, 0));
+    shadow_paint.set_image_filter(image_filters::blur(
+        (5.0 * global_scale, 5.0 * global_scale),
+        None,
+        None,
+        None,
+    ));
+    let shadow_margin = 8.0 * global_scale;
+    let shadow_clip = if dock_position.is_right() {
+        Rect::from_xywh(
+            x - shadow_margin,
+            y - shadow_margin,
+            w + shadow_margin,
+            h + shadow_margin * 2.0,
+        )
+    } else {
+        Rect::from_xywh(
+            x,
+            y - shadow_margin,
+            w + shadow_margin,
+            h + shadow_margin * 2.0,
+        )
+    };
+    canvas.save();
+    canvas.clip_rect(shadow_clip, ClipOp::Intersect, true);
+    canvas.draw_circle((center.0, center.1 + 2.0 * global_scale), radius, &shadow_paint);
+    canvas.restore();
+
+    canvas.save();
+    canvas.clip_rrect(
+        RRect::new_rect_xy(Rect::from_xywh(x, y, w, h), radius, radius),
+        ClipOp::Intersect,
+        true,
+    );
+    let mut background_paint = Paint::default();
+    background_paint.set_anti_alias(true);
+    background_paint.set_color(Color::from_argb(alpha, 7, 7, 9));
+    canvas.draw_circle(center, radius, &background_paint);
+
+    let icon_size = h * 0.68;
+    let icon_rect = Rect::from_xywh(
+        center.0 - icon_size / 2.0,
+        center.1 - icon_size / 2.0,
+        icon_size,
+        icon_size,
+    );
+    match content {
+        MiniContent::Plugin(ctx) => {
+            if let Some(icon) = notification_icon(ctx) {
+                let mut icon_paint = Paint::default();
+                icon_paint.set_anti_alias(true);
+                icon_paint.set_alpha_f(content_alpha_f);
+                canvas.save();
+                canvas.clip_rrect(
+                    RRect::new_rect_xy(icon_rect, icon_size * 0.24, icon_size * 0.24),
+                    ClipOp::Intersect,
+                    true,
+                );
+                canvas.draw_image_rect_with_sampling_options(
+                    &icon,
+                    None,
+                    icon_rect,
+                    SamplingOptions::new(FilterMode::Linear, MipmapMode::Linear),
+                    &icon_paint,
+                );
+                canvas.restore();
+            } else {
+                let mut icon_paint = Paint::default();
+                icon_paint.set_anti_alias(true);
+                icon_paint.set_color(Color::from_argb(content_alpha, 93, 92, 222));
+                canvas.draw_circle(
+                    (icon_rect.center_x(), icon_rect.center_y()),
+                    icon_size / 2.0,
+                    &icon_paint,
+                );
+                let label = ctx
+                    .title
+                    .chars()
+                    .next()
+                    .map(|character| character.to_string())
+                    .unwrap_or_else(|| "?".to_string());
+                let size = icon_size * 0.54;
+                let label_w = FontManager::global()
+                    .measure_text_cached(&label, size, skia_safe::FontStyle::bold());
+                let mut label_paint = Paint::default();
+                label_paint.set_anti_alias(true);
+                label_paint.set_color(Color::from_argb(content_alpha, 255, 255, 255));
+                draw_text_cached(DrawTextCachedParams {
+                    canvas,
+                    text: &label,
+                    x: icon_rect.center_x() - label_w / 2.0,
+                    y: icon_rect.center_y() + size * 0.35,
+                    size,
+                    bold: true,
+                    paint: &label_paint,
+                });
+            }
+        }
+        MiniContent::Music => {
+            if let Some(image) = get_cached_media_image(media) {
+                let mut image_paint = Paint::default();
+                image_paint.set_anti_alias(true);
+                image_paint.set_alpha_f(content_alpha_f);
+                canvas.save();
+                canvas.clip_rrect(
+                    RRect::new_rect_xy(icon_rect, icon_size * 0.24, icon_size * 0.24),
+                    ClipOp::Intersect,
+                    true,
+                );
+                canvas.draw_image_rect_with_sampling_options(
+                    &image,
+                    None,
+                    icon_rect,
+                    SamplingOptions::new(FilterMode::Linear, MipmapMode::Linear),
+                    &image_paint,
+                );
+                canvas.restore();
+            } else {
+                let palette = get_media_palette(media);
+                draw_visualizer(DrawVisualizerParams {
+                    canvas,
+                    x: icon_rect.center_x(),
+                    y: icon_rect.center_y(),
+                    alpha: content_alpha,
+                    is_playing: media.is_playing,
+                    palette: &palette,
+                    spectrum: &media.spectrum,
+                    w_scale: 0.55 * global_scale,
+                    h_scale: 0.55 * global_scale,
+                    smooth_factors: (0.6, 0.08),
+                });
+            }
+        }
+    }
+    canvas.restore();
+}
+
+fn draw_multitask_bridge(canvas: &skia_safe::Canvas, params: MultitaskLayoutParams) {
+    let MultitaskLayoutParams {
+        offset_x,
+        offset_y,
+        current_w,
+        current_h,
+        base_h,
+        global_scale,
+        dock_position,
+        frame,
+        hover_progress: _,
+    } = params;
+    let strength = frame.bridge_progress.max(frame.mask_alpha * 4.0);
+    if strength <= 0.01 {
+        return;
+    }
+    let diameter = base_h.max(27.0 * global_scale);
+    let radius = diameter / 2.0;
+    let center_y = offset_y + current_h / 2.0;
+    let gap = 7.0 * global_scale * frame.gap_progress;
+    let main_edge = if dock_position.is_right() {
+        offset_x
+    } else {
+        offset_x + current_w
+    };
+    let secondary_center = if dock_position.is_right() {
+        main_edge - gap - radius
+    } else {
+        main_edge + gap + radius
+    };
+    let direction = if dock_position.is_right() { -1.0 } else { 1.0 };
+    let secondary_edge = secondary_center - direction * radius;
+    let neck = radius * (0.18 + 0.34 * strength);
+    let shoulder = current_h * (0.20 + 0.12 * strength);
+    let mut path = PathBuilder::new();
+    path.move_to((main_edge, center_y - shoulder));
+    path.cubic_to(
+        (
+            main_edge + direction * radius * 0.35,
+            center_y - shoulder,
+        ),
+        (
+            secondary_edge - direction * radius * 0.35,
+            center_y - neck,
+        ),
+        (secondary_edge, center_y - neck),
+    );
+    path.line_to((secondary_edge, center_y + neck));
+    path.cubic_to(
+        (
+            secondary_edge - direction * radius * 0.35,
+            center_y + neck,
+        ),
+        (
+            main_edge + direction * radius * 0.35,
+            center_y + shoulder,
+        ),
+        (main_edge, center_y + shoulder),
+    );
+    path.close();
+
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    let alpha = ((frame.mask_alpha + frame.bridge_progress * 0.08).clamp(0.0, 0.12) * 255.0) as u8;
+    paint.set_color(Color::from_argb(alpha, 0, 0, 0));
+    canvas.draw_path(&path.snapshot(), &paint);
+}
+
+thread_local! {
+    static SECONDARY_ICON_CACHE: RefCell<Option<(String, Image)>> = const { RefCell::new(None) };
+}
+
+fn notification_icon(ctx: &PluginContext) -> Option<Image> {
+    let cache_id = ctx.id.uuid.clone();
+    let bytes = ctx.icon.as_slice();
+    if bytes.is_empty() {
+        return None;
+    }
+    SECONDARY_ICON_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some((id, image)) = cache.as_ref()
+            && id == &cache_id
+        {
+            return Some(image.clone());
+        }
+        let image = Image::from_encoded(Data::new_copy(bytes))?;
+        *cache = Some((cache_id, image.clone()));
+        Some(image)
+    })
 }
 
 pub fn draw_island(
@@ -94,6 +507,10 @@ pub fn draw_island(
         media,
         lyrics,
         mini_content,
+        secondary_mini_content,
+        outgoing_secondary_mini_content,
+        multitask_frame,
+        multitask_hover_progress,
         window,
         style,
     } = params;
@@ -112,6 +529,37 @@ pub fn draw_island(
         dock_position,
         base_h,
     } = layout;
+    let compact_animation = (1.0 - expansion_progress * 2.0).clamp(0.0, 1.0);
+    let width_scale = 1.0
+        + (multitask_frame.main_width_scale * multitask_frame.breath_scale - 1.0)
+            * compact_animation;
+    let radius_scale = 1.0
+        + (multitask_frame.main_radius_scale * multitask_frame.breath_scale - 1.0)
+            * compact_animation;
+    let promote_progress = if multitask_frame.kind == MultitaskTransitionKind::Promote {
+        multitask_frame.promote_progress * compact_animation + (1.0 - compact_animation)
+    } else {
+        1.0
+    };
+    let compact_diameter = base_h.max(27.0 * global_scale);
+    let target_w = current_w;
+    let target_h = current_h;
+    let target_r = current_r;
+    let current_w = if promote_progress < 1.0 {
+        compact_diameter + (target_w * width_scale - compact_diameter) * promote_progress
+    } else {
+        target_w * width_scale
+    };
+    let current_h = if promote_progress < 1.0 {
+        compact_diameter + (target_h - compact_diameter) * promote_progress
+    } else {
+        target_h * (1.0 + (multitask_frame.breath_scale - 1.0) * compact_animation)
+    };
+    let current_r = if promote_progress < 1.0 {
+        compact_diameter / 2.0 + (target_r * radius_scale - compact_diameter / 2.0) * promote_progress
+    } else {
+        target_r * radius_scale
+    };
     let MediaParams {
         media,
         music_active,
@@ -160,13 +608,31 @@ pub fn draw_island(
     canvas.clear(Color::TRANSPARENT);
 
     let dock_bottom = dock_position.is_bottom();
-    let offset_x = if dock_position.is_left() {
+    let centered_offset_x = if dock_position.is_left() {
         PADDING / 2.0
     } else if dock_position.is_right() {
-        (os_w as f32 - PADDING / 2.0 - current_w).max(0.0)
+        (os_w as f32 - PADDING / 2.0 - target_w).max(0.0)
     } else {
-        (os_w as f32 - current_w) / 2.0
+        (os_w as f32 - target_w) / 2.0
     };
+    let group_shift = get_multitask_group_shift(MultitaskGroupLayoutParams {
+        base_h,
+        global_scale,
+        dock_position,
+        frame: multitask_frame,
+        hover_progress: multitask_hover_progress,
+    }) * compact_animation;
+    let promote_start_x = if dock_position.is_right() {
+        centered_offset_x - 7.0 * global_scale - compact_diameter
+    } else {
+        centered_offset_x + target_w + 7.0 * global_scale
+    };
+    let offset_x = if promote_progress < 1.0 {
+        promote_start_x + (centered_offset_x - promote_start_x) * promote_progress
+    } else {
+        centered_offset_x
+    } + group_shift
+        + multitask_frame.main_offset_units * global_scale * compact_animation;
     let base_y = if dock_bottom {
         os_h as f32 - PADDING / 2.0 - current_h
     } else {
@@ -353,7 +819,9 @@ pub fn draw_island(
     }
 
     let expanded_alpha_f = (expansion_progress.powf(2.0)).clamp(0.0, 1.0) * (1.0 - hide_progress);
-    let mini_alpha_f = (1.0 - expansion_progress * 1.5).clamp(0.0, 1.0) * (1.0 - hide_progress);
+    let mini_alpha_f = (1.0 - expansion_progress * 1.5).clamp(0.0, 1.0)
+        * (1.0 - hide_progress)
+        * multitask_frame.main_alpha;
 
     let palette = if expanded_alpha_f > 0.01 || mini_alpha_f > 0.01 {
         get_media_palette(media)
@@ -738,6 +1206,44 @@ pub fn draw_island(
         }
     }
     canvas.restore();
+
+    draw_multitask_bridge(
+        canvas,
+        MultitaskLayoutParams {
+            offset_x,
+            offset_y,
+            current_w,
+            current_h,
+            base_h,
+            global_scale,
+            dock_position,
+            frame: multitask_frame,
+            hover_progress: multitask_hover_progress,
+        },
+    );
+
+    draw_multitask_secondary(
+        canvas,
+        MultitaskSecondaryParams {
+            content: secondary_mini_content.as_ref(),
+            outgoing_content: outgoing_secondary_mini_content.as_ref(),
+            media,
+            offset_x,
+            offset_y,
+            current_w,
+            current_h,
+            base_h,
+            global_scale,
+            dock_position,
+            frame: MultitaskFrame {
+                secondary_alpha: multitask_frame.secondary_alpha * (1.0 - expansion_progress),
+                outgoing_secondary_alpha: multitask_frame.outgoing_secondary_alpha
+                    * (1.0 - expansion_progress),
+                ..multitask_frame
+            },
+            hover_progress: multitask_hover_progress,
+        },
+    );
 
     {
         let mut border_paint = Paint::default();

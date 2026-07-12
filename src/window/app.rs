@@ -1,8 +1,11 @@
 use crate::core::audio::AudioProcessor;
 use crate::core::config::{AppConfig, PADDING, TOP_OFFSET, WINDOW_TITLE};
-use crate::core::context::ContextManager;
+use crate::core::context::{ContextManager, MiniContent, Priority};
+use crate::core::multitask::{
+    MultitaskController, MultitaskTask, MultitaskTaskId, MultitaskTransitionKind,
+};
 use crate::core::persistence::load_config;
-use crate::core::render::draw_island;
+use crate::core::render::{draw_island, get_multitask_secondary_rect, MultitaskLayoutParams};
 use crate::core::smtc::SmtcListener;
 use crate::plugin::PluginManager;
 use crate::plugin::zip_loader;
@@ -102,6 +105,9 @@ pub struct App {
     is_right_dragging: bool,
     right_drag_start_pos: Option<(i32, i32)>,
     right_drag_start_offset: Option<(i32, i32)>,
+    multitask: MultitaskController,
+    spring_multitask_hover: Spring,
+    music_task_started_at: Option<Instant>,
 }
 
 impl Default for App {
@@ -170,6 +176,9 @@ impl Default for App {
             is_right_dragging: false,
             right_drag_start_pos: None,
             right_drag_start_offset: None,
+            multitask: MultitaskController::default(),
+            spring_multitask_hover: Spring::new(0.0),
+            music_task_started_at: None,
         }
     }
 }
@@ -460,11 +469,56 @@ impl App {
         }
     }
 
+    fn multitask_secondary_rect(&self, layout: &IslandLayout) -> Option<(f32, f32, f32, f32)> {
+        let now = Instant::now();
+        let frame = self.multitask.frame(now);
+        if self.multitask.secondary().is_none()
+            && self.multitask.outgoing_secondary().is_none()
+            && frame.secondary_alpha <= 0.01
+        {
+            return None;
+        }
+        Some(get_multitask_secondary_rect(MultitaskLayoutParams {
+            offset_x: layout.offset_x as f32,
+            offset_y: layout.current_island_y as f32,
+            current_w: self.spring_w.value,
+            current_h: self.spring_h.value,
+            base_h: self.config.base_height * self.config.global_scale,
+            global_scale: self.config.global_scale,
+            dock_position: self.config.dock_position,
+            frame,
+            hover_progress: self.spring_multitask_hover.value,
+        }))
+    }
+
+    fn multitask_secondary_hit(&self, rel_x: i32, rel_y: i32, layout: &IslandLayout) -> bool {
+        let Some((x, y, w, h)) = self.multitask_secondary_rect(layout) else {
+            return false;
+        };
+        if self.multitask.transition_kind() != MultitaskTransitionKind::Stable
+            || self.multitask.secondary().is_none()
+        {
+            return false;
+        }
+        let center_x = x + w / 2.0;
+        let center_y = y + h / 2.0;
+        let radius = w.min(h) / 2.0 + 3.0 * self.config.global_scale;
+        let dx = rel_x as f32 - center_x;
+        let dy = rel_y as f32 - center_y;
+        dx * dx + dy * dy <= radius * radius
+    }
+
     fn handle_press(&mut self, rel_x: i32, rel_y: i32, layout: &IslandLayout) {
         let island_y = layout.island_y;
         let offset_x = layout.offset_x;
         let current_island_y = layout.current_island_y;
-
+        if !self.expanded && self.multitask_secondary_hit(rel_x, rel_y, layout) {
+            if self.multitask.swap(Instant::now()) {
+                self.spring_multitask_hover.velocity = 0.12;
+                self.idle_timer = Instant::now();
+            }
+            return;
+        }
         let is_hovering_visible = is_point_in_rect(
             rel_x as f64,
             rel_y as f64,
@@ -1166,7 +1220,56 @@ impl ApplicationHandler for App {
                         self.ctx_mgr.set_smtc_active(music_active);
                         crate::plugin::manager::drain_pending_contexts(&mut self.ctx_mgr);
                         self.ctx_mgr.tick();
-                        let mini_content = self.ctx_mgr.current_mini();
+                        if music_active {
+                            self.music_task_started_at.get_or_insert(Instant::now());
+                        } else {
+                            self.music_task_started_at = None;
+                        }
+                        let mut candidates: Vec<_> = self
+                            .ctx_mgr
+                            .mini_candidates()
+                            .into_iter()
+                            .map(|context| MultitaskTask {
+                                id: MultitaskTaskId::Plugin(context.id.clone()),
+                                priority: context.priority,
+                                created_at: context.created_at,
+                                content: MiniContent::Plugin(Box::new(context)),
+                            })
+                            .collect();
+                        if let Some(created_at) = self.music_task_started_at {
+                            candidates.push(MultitaskTask {
+                                id: MultitaskTaskId::Music,
+                                content: MiniContent::Music,
+                                priority: Priority::Low,
+                                created_at,
+                            });
+                        }
+                        candidates.sort_by(|left, right| {
+                            right
+                                .priority
+                                .cmp(&left.priority)
+                                .then_with(|| right.created_at.cmp(&left.created_at))
+                        });
+                        if self.multitask.primary().is_none()
+                            && let Some(music_index) =
+                                candidates.iter().position(|task| task.id == MultitaskTaskId::Music)
+                        {
+                            let music = candidates.remove(music_index);
+                            candidates.insert(0, music);
+                        }
+                        self.multitask.reconcile(&candidates, Instant::now());
+
+                        let (mini_content, secondary_mini_content, outgoing_secondary_mini_content) = {
+                            let (primary, secondary) = self.multitask.display_tasks(Instant::now());
+                            (
+                                primary.map(|task| task.content),
+                                secondary.map(|task| task.content),
+                                self.multitask
+                                    .outgoing_secondary()
+                                    .map(|task| task.content.clone()),
+                            )
+                        };
+                        let multitask_frame = self.multitask.frame(Instant::now());
 
                         let widget_animating = draw_island(
                             surface,
@@ -1215,6 +1318,10 @@ impl ApplicationHandler for App {
                                     dt,
                                 },
                                 mini_content,
+                                secondary_mini_content,
+                                outgoing_secondary_mini_content,
+                                multitask_frame,
+                                multitask_hover_progress: self.spring_multitask_hover.value,
                             },
                         );
                         if widget_animating && let Some(win) = &self.window {
@@ -1592,6 +1699,17 @@ impl ApplicationHandler for App {
         self.spring_h.update_dt(target_h, 0.10, 0.68, dt);
         self.spring_r.update_dt(target_r, 0.10, 0.68, dt);
         self.spring_view.update_dt(target_view, 0.12, 0.68, dt);
+
+        let layout = self.compute_island_layout();
+        let multitask_hover_target = if !self.expanded
+            && self.multitask_secondary_hit(rel_x, rel_y, &layout)
+        {
+            1.0
+        } else {
+            0.0
+        };
+        self.spring_multitask_hover
+            .update_dt(multitask_hover_target, 0.16, 0.66, dt);
 
         let is_glass_or_mica = self.config.island_style == "glass"
             || self.config.island_style == "dynamic"
