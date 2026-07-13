@@ -494,12 +494,7 @@ impl ApplicationHandler for SettingsApp {
                     if let Some(win) = &self.window {
                         win.set_minimized(true);
                     }
-                } else if is_on_green {
-                    if let Some(win) = &self.window {
-                        let maximized = win.is_maximized();
-                        win.set_maximized(!maximized);
-                    }
-                } else {
+                } else if !is_on_green {
                     let is_in_sidebar_title = mx < SIDEBAR_W && my < 60.0;
                     let is_in_content_title =
                         mx >= SIDEBAR_W && my < 50.0 && self.page_navigation_at(mx, my).is_none();

@@ -16,24 +16,28 @@ impl SettingsApp {
         canvas.draw_rect(Rect::from_xywh(0.0, 0.0, SIDEBAR_W, self.win_h), &paint);
 
         // Draw Apple-style Window Control Dots
-        let (red_color, yellow_color, green_color) = if self.focused {
+        let (red_color, yellow_color) = if self.focused {
             (
                 Color::from_rgb(0xFF, 0x5F, 0x56),
                 Color::from_rgb(0xFF, 0xBD, 0x2E),
-                Color::from_rgb(0x27, 0xC9, 0x3F),
             )
         } else if self.is_light {
             (
                 Color::from_rgb(0xD4, 0x8A, 0x84),
                 Color::from_rgb(0xD1, 0xB0, 0x78),
-                Color::from_rgb(0x81, 0xB4, 0x89),
             )
         } else {
             (
                 Color::from_rgb(0x4D, 0x4D, 0x4D),
                 Color::from_rgb(0x4D, 0x4D, 0x4D),
-                Color::from_rgb(0x4D, 0x4D, 0x4D),
             )
+        };
+        let disabled_control = if self.focused {
+            Color::from_rgb(142, 142, 147)
+        } else if self.is_light {
+            Color::from_rgb(190, 190, 195)
+        } else {
+            Color::from_rgb(77, 77, 77)
         };
 
         let radius = 6.0;
@@ -47,7 +51,7 @@ impl SettingsApp {
         paint.set_color(yellow_color);
         canvas.draw_circle(yellow_center, radius, &paint);
 
-        paint.set_color(green_color);
+        paint.set_color(disabled_control);
         canvas.draw_circle(green_center, radius, &paint);
 
         if self.dots_hovered {
@@ -65,10 +69,6 @@ impl SettingsApp {
             sym_paint.set_color(Color::from_rgb(0x5C, 0x3E, 0x00));
             canvas.draw_line((36.5, 24.0), (43.5, 24.0), &sym_paint);
 
-            // Green Maximize plus: +
-            sym_paint.set_color(Color::from_rgb(0x00, 0x4D, 0x02));
-            canvas.draw_line((57.0, 24.0), (63.0, 24.0), &sym_paint);
-            canvas.draw_line((60.0, 21.0), (60.0, 27.0), &sym_paint);
         }
 
         let mut sep = Paint::default();
