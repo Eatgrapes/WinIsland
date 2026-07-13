@@ -1,5 +1,10 @@
 # Changelog
 
+### v1.2.2
+- Add configurable time, calendar, and settings widgets
+- Support drag-and-drop placement with a square snapping grid
+- Select the default expanded page based on music playback state
+
 ### v1.2.1
 - Add optional right-click long-press drag to reposition the island (#92)
 - Enable window resizability to allow dynamic scale updates (#94)
