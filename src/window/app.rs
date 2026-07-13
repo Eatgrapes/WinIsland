@@ -1,5 +1,5 @@
 use crate::core::audio::AudioProcessor;
-use crate::core::config::{AppConfig, PADDING, TOP_OFFSET, WINDOW_TITLE};
+use crate::core::config::{AppConfig, PADDING, TOP_OFFSET, WINDOW_TITLE, WidgetKind};
 use crate::core::context::ContextManager;
 use crate::core::persistence::load_config;
 use crate::core::render::draw_island;
@@ -12,6 +12,7 @@ use crate::ui::expanded::music_view::{
     set_progress_dragging, set_progress_hover, trigger_cover_flip, trigger_next_click,
     trigger_pause_click, trigger_prev_click,
 };
+use crate::ui::widget::widget_grid_layout;
 use crate::utils::blur::calculate_blur_sigmas;
 use crate::utils::color::get_island_border_weights;
 use crate::utils::icon::get_app_icon;
@@ -42,6 +43,10 @@ use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowButtons, WindowId, WindowLevel};
 
 type InstallResult = Result<(PluginManifest, PathBuf, Vec<String>), String>;
+
+fn should_show_widget_view(smtc_enabled: bool, has_media: bool, is_playing: bool) -> bool {
+    !(smtc_enabled && has_media && is_playing)
+}
 
 pub struct App {
     window: Option<Arc<Window>>,
@@ -569,32 +574,53 @@ impl App {
             }
 
             if view_val > 0.5 {
-                let gear_x = offset_x + w - 28.0 * scale + w - page_shift;
-                let gear_y = island_y + h - 28.0 * scale;
-                let dist_sq = (rel_x as f64 - gear_x).powi(2) + (rel_y as f64 - gear_y).powi(2);
-                if dist_sq <= (20.0 * scale).powi(2) {
+                let settings_hit = self
+                    .config
+                    .widget_layout
+                    .iter()
+                    .find(|entry| entry.widget == Some(WidgetKind::Settings))
+                    .is_some_and(|entry| {
+                        let layout = widget_grid_layout(
+                            offset_x as f32,
+                            island_y as f32,
+                            w as f32,
+                            h as f32,
+                            self.config.global_scale,
+                        );
+                        let (x, y, width, height) =
+                            layout.footprint_rect(WidgetKind::Settings, entry.slot);
+                        is_point_in_rect(
+                            rel_x as f64,
+                            rel_y as f64,
+                            x as f64 + w - page_shift,
+                            y as f64,
+                            width as f64,
+                            height as f64,
+                        )
+                    });
+                if settings_hit {
                     if let Ok(exe) = std::env::current_exe() {
                         let _ = std::process::Command::new(exe).arg("--settings").spawn();
                     }
                     return;
                 }
 
-                let arrow_x = offset_x + 12.0 * scale + w - page_shift;
+                let arrow_x = offset_x + 7.5 * scale + w - page_shift;
                 let arrow_y = island_y + h / 2.0;
                 let adx = rel_x as f64 - arrow_x;
                 let ady = rel_y as f64 - arrow_y;
-                if adx * adx + ady * ady <= (20.0 * scale).powi(2) {
+                if adx * adx + ady * ady <= (12.0 * scale).powi(2) {
                     self.widget_view = false;
                     return;
                 }
             }
 
             if view_val < 0.5 {
-                let arrow_x = offset_x + w - 12.0 * scale;
+                let arrow_x = offset_x + w - 7.5 * scale;
                 let arrow_y = island_y + h / 2.0;
                 let adx = rel_x as f64 - arrow_x;
                 let ady = rel_y as f64 - arrow_y;
-                if adx * adx + ady * ady <= (20.0 * scale).powi(2) {
+                if adx * adx + ady * ady <= (12.0 * scale).powi(2) {
                     self.widget_view = true;
                     return;
                 }
@@ -629,6 +655,12 @@ impl App {
                     self.spring_hide.velocity = -0.45;
                     self.idle_timer = Instant::now();
                 } else {
+                    let media = self.smtc.get_info();
+                    self.widget_view = should_show_widget_view(
+                        self.config.smtc_enabled,
+                        !media.title.is_empty(),
+                        media.is_playing,
+                    );
                     self.expanded = true;
                 }
             } else if self.spring_hide.value > 0.3 {
@@ -1213,6 +1245,7 @@ impl ApplicationHandler for App {
                                     cover_rotate: self.config.cover_rotate,
                                     lyrics_delay: self.config.lyrics_delay,
                                     dt,
+                                    widget_layout: &self.config.widget_layout,
                                 },
                                 mini_content,
                             },
@@ -1368,7 +1401,6 @@ impl ApplicationHandler for App {
         let mut music_active = false;
         let media = self.smtc.get_info();
         if self.config.smtc_enabled && !media.title.is_empty() {
-            self.last_media_playing = media.is_playing;
             music_active = true;
             if media.title != self.last_media_title {
                 log::info!(
@@ -1380,6 +1412,15 @@ impl ApplicationHandler for App {
                 self.last_media_title = media.title.clone();
                 crate::ui::expanded::music_view::trigger_cover_flip();
                 crate::utils::backdrop::clear_blurred_cover_cache();
+                window.request_redraw();
+            }
+        }
+
+        let music_is_playing = music_active && media.is_playing;
+        if music_is_playing != self.last_media_playing {
+            self.last_media_playing = music_is_playing;
+            if self.expanded {
+                self.widget_view = !music_is_playing;
                 window.request_redraw();
             }
         }
@@ -1622,5 +1663,18 @@ impl ApplicationHandler for App {
         if elapsed < target_frame_time {
             std::thread::sleep(target_frame_time - elapsed);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_show_widget_view;
+
+    #[test]
+    fn expanded_view_follows_music_playback_state() {
+        assert!(!should_show_widget_view(true, true, true));
+        assert!(should_show_widget_view(true, true, false));
+        assert!(should_show_widget_view(true, false, false));
+        assert!(should_show_widget_view(false, true, true));
     }
 }

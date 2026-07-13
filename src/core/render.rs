@@ -1,4 +1,4 @@
-use crate::core::config::{DockPosition, PADDING, TOP_OFFSET};
+use crate::core::config::{DockPosition, PADDING, TOP_OFFSET, WidgetSlot};
 use crate::core::smtc::MediaInfo;
 use crate::ui::expanded::music_view::{
     DrawMusicPageParams, DrawVisualizerParams, draw_music_page, draw_text_cached, draw_visualizer,
@@ -72,6 +72,7 @@ pub struct StyleParams<'a> {
 
     pub lyrics_delay: f64,
     pub dt: f32,
+    pub widget_layout: &'a [WidgetSlot],
 }
 
 use crate::core::context::MiniContent;
@@ -141,6 +142,7 @@ pub fn draw_island(
 
         lyrics_delay,
         dt,
+        widget_layout,
     } = style;
     let mut buffer = surface.buffer_mut().unwrap();
     let mut sk_surface = SK_SURFACE.with(|cell| {
@@ -418,6 +420,7 @@ pub fn draw_island(
             font_size,
             lyrics_delay,
             dt,
+            widget_layout,
             text_color,
         );
         canvas.restore();

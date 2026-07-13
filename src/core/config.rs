@@ -80,6 +80,45 @@ impl From<DockPosition> for String {
         value.as_str().to_string()
     }
 }
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WidgetKind {
+    Clock,
+    Calendar,
+    Settings,
+}
+
+impl WidgetKind {
+    pub const fn span(&self) -> (usize, usize) {
+        match self {
+            WidgetKind::Clock => (2, 1),
+            WidgetKind::Calendar => (2, 2),
+            WidgetKind::Settings => (1, 1),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct WidgetSlot {
+    pub slot: usize,
+    #[serde(default, deserialize_with = "deserialize_widget_kind")]
+    pub widget: Option<WidgetKind>,
+}
+
+fn deserialize_widget_kind<'de, D>(deserializer: D) -> Result<Option<WidgetKind>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = Option::<String>::deserialize(deserializer)?;
+    Ok(raw.and_then(|s| match s.as_str() {
+        "clock" => Some(WidgetKind::Clock),
+        "calendar" => Some(WidgetKind::Calendar),
+        "settings" => Some(WidgetKind::Settings),
+        _ => None,
+    }))
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct AppConfig {
     pub global_scale: f32,
@@ -145,6 +184,8 @@ pub struct AppConfig {
     pub update_channel: String,
     #[serde(default = "default_right_click_drag")]
     pub right_click_drag: bool,
+    #[serde(default = "default_widget_layout")]
+    pub widget_layout: Vec<WidgetSlot>,
 }
 
 fn default_right_click_drag() -> bool {
@@ -255,6 +296,150 @@ fn default_update_channel() -> String {
     "stable".to_string()
 }
 
+pub const WIDGET_GRID_COLS: usize = 6;
+pub const WIDGET_GRID_ROWS: usize = 3;
+pub const WIDGET_GRID_SLOTS: usize = WIDGET_GRID_COLS * WIDGET_GRID_ROWS;
+pub const AVAILABLE_WIDGETS: [WidgetKind; 2] = [WidgetKind::Clock, WidgetKind::Calendar];
+
+pub fn widget_footprint(widget: WidgetKind, anchor_slot: usize) -> Vec<usize> {
+    let (cols, rows) = widget.span();
+    let anchor_col = (anchor_slot % WIDGET_GRID_COLS).min(WIDGET_GRID_COLS - cols);
+    let anchor_row = (anchor_slot / WIDGET_GRID_COLS).min(WIDGET_GRID_ROWS - rows);
+    let mut cells = Vec::with_capacity(cols * rows);
+    for dr in 0..rows {
+        for dc in 0..cols {
+            cells.push((anchor_row + dr) * WIDGET_GRID_COLS + (anchor_col + dc));
+        }
+    }
+    cells
+}
+
+pub fn widget_anchor_slot(widget: WidgetKind, target_slot: usize) -> usize {
+    *widget_footprint(widget, target_slot)
+        .first()
+        .unwrap_or(&target_slot)
+}
+
+pub fn widget_covering_slot(
+    layout: &[WidgetSlot],
+    target_slot: usize,
+) -> Option<(usize, WidgetKind)> {
+    layout.iter().find_map(|entry| {
+        let widget = entry.widget?;
+        widget_footprint(widget, entry.slot)
+            .contains(&target_slot)
+            .then_some((entry.slot, widget))
+    })
+}
+
+pub fn default_widget_layout() -> Vec<WidgetSlot> {
+    let mut layout: Vec<WidgetSlot> = (0..WIDGET_GRID_SLOTS)
+        .map(|slot| WidgetSlot { slot, widget: None })
+        .collect();
+    layout[WIDGET_GRID_SLOTS - 1].widget = Some(WidgetKind::Settings);
+    layout
+}
+
+fn ensure_widget_slots(layout: &mut Vec<WidgetSlot>) {
+    for slot in 0..WIDGET_GRID_SLOTS {
+        if !layout.iter().any(|entry| entry.slot == slot) {
+            layout.push(WidgetSlot { slot, widget: None });
+        }
+    }
+    layout.sort_by_key(|entry| entry.slot);
+}
+
+pub fn ensure_settings_widget(layout: &mut Vec<WidgetSlot>) -> bool {
+    ensure_widget_slots(layout);
+    let settings_slots: Vec<usize> = layout
+        .iter()
+        .filter(|entry| entry.widget == Some(WidgetKind::Settings))
+        .map(|entry| entry.slot)
+        .collect();
+    if let Some(keep) = settings_slots
+        .iter()
+        .copied()
+        .find(|slot| *slot < WIDGET_GRID_SLOTS)
+    {
+        let changed = settings_slots.len() != 1;
+        for entry in layout.iter_mut() {
+            if entry.widget == Some(WidgetKind::Settings) && entry.slot != keep {
+                entry.widget = None;
+            }
+        }
+        return changed;
+    }
+    for entry in layout.iter_mut() {
+        if entry.widget == Some(WidgetKind::Settings) {
+            entry.widget = None;
+        }
+    }
+
+    let slot = (0..WIDGET_GRID_SLOTS)
+        .rev()
+        .find(|slot| widget_covering_slot(layout, *slot).is_none())
+        .unwrap_or(WIDGET_GRID_SLOTS - 1);
+    if let Some(entry) = layout.iter_mut().find(|entry| entry.slot == slot) {
+        entry.widget = Some(WidgetKind::Settings);
+    }
+    true
+}
+
+fn clear_cells(layout: &mut [WidgetSlot], cells: &[usize]) {
+    let occupants: Vec<usize> = layout
+        .iter()
+        .filter_map(|entry| entry.widget.map(|w| (entry.slot, w)))
+        .filter(|(anchor, w)| {
+            widget_footprint(*w, *anchor)
+                .iter()
+                .any(|cell| cells.contains(cell))
+        })
+        .map(|(anchor, _)| anchor)
+        .collect();
+    for anchor in occupants {
+        if let Some(entry) = layout.iter_mut().find(|entry| entry.slot == anchor) {
+            entry.widget = None;
+        }
+    }
+}
+
+pub fn place_widget_in_layout(
+    layout: &mut Vec<WidgetSlot>,
+    widget: WidgetKind,
+    target_slot: usize,
+) {
+    ensure_settings_widget(layout);
+    let anchor = widget_anchor_slot(widget, target_slot);
+    if widget != WidgetKind::Settings {
+        let target_cells = widget_footprint(widget, anchor);
+        let settings_slot = layout
+            .iter()
+            .find(|entry| entry.widget == Some(WidgetKind::Settings))
+            .map(|entry| entry.slot);
+        if settings_slot.is_some_and(|slot| target_cells.contains(&slot)) {
+            return;
+        }
+    }
+    for entry in layout.iter_mut() {
+        if entry.widget == Some(widget) {
+            entry.widget = None;
+        }
+    }
+    clear_cells(layout, &widget_footprint(widget, anchor));
+    if let Some(entry) = layout.iter_mut().find(|entry| entry.slot == anchor) {
+        entry.widget = Some(widget);
+    }
+}
+
+pub fn clear_widget_slot(layout: &mut [WidgetSlot], target_slot: usize) {
+    if widget_covering_slot(layout, target_slot)
+        .is_some_and(|(_, widget)| widget == WidgetKind::Settings)
+    {
+        return;
+    }
+    clear_cells(layout, &[target_slot]);
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -294,6 +479,183 @@ impl Default for AppConfig {
             cover_rotate: false,
             update_channel: "stable".to_string(),
             right_click_drag: false,
+            widget_layout: default_widget_layout(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_has_required_settings_widget() {
+        let config = AppConfig::default();
+
+        assert_eq!(config.widget_layout.len(), WIDGET_GRID_SLOTS);
+        assert_eq!(
+            config.widget_layout[WIDGET_GRID_SLOTS - 1].widget,
+            Some(WidgetKind::Settings)
+        );
+        assert!(
+            config.widget_layout[..WIDGET_GRID_SLOTS - 1]
+                .iter()
+                .all(|slot| slot.widget.is_none())
+        );
+        for (i, entry) in config.widget_layout.iter().enumerate() {
+            assert_eq!(entry.slot, i);
+        }
+    }
+
+    #[test]
+    fn widgets_use_their_expected_footprints() {
+        assert_eq!(WidgetKind::Clock.span(), (2, 1));
+        assert_eq!(WidgetKind::Calendar.span(), (2, 2));
+        assert_eq!(WidgetKind::Settings.span(), (1, 1));
+        assert_eq!(widget_footprint(WidgetKind::Clock, 0), vec![0, 1]);
+        assert_eq!(widget_footprint(WidgetKind::Clock, 17), vec![16, 17]);
+        assert_eq!(widget_anchor_slot(WidgetKind::Clock, 17), 16);
+        assert_eq!(
+            widget_footprint(WidgetKind::Calendar, 17),
+            vec![10, 11, 16, 17]
+        );
+        assert_eq!(widget_anchor_slot(WidgetKind::Calendar, 17), 10);
+    }
+
+    #[test]
+    fn missing_widget_layout_deserializes_to_default_slots() {
+        let config: AppConfig = toml::from_str(
+            r#"
+global_scale = 1.0
+base_width = 120.0
+base_height = 27.0
+expanded_width = 360.0
+expanded_height = 200.0
+adaptive_border = false
+motion_blur = true
+smtc_enabled = true
+smtc_apps = []
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.widget_layout, default_widget_layout());
+    }
+
+    #[test]
+    fn place_widget_in_layout_moves_existing_widget_to_target_slot() {
+        let mut layout = default_widget_layout();
+        place_widget_in_layout(&mut layout, WidgetKind::Clock, 0);
+
+        place_widget_in_layout(&mut layout, WidgetKind::Clock, 3);
+
+        assert_eq!(layout[0].widget, None);
+        assert_eq!(layout[3].widget, Some(WidgetKind::Clock));
+        assert_eq!(
+            layout
+                .iter()
+                .filter(|e| e.widget == Some(WidgetKind::Clock))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn place_widget_in_layout_creates_missing_slot() {
+        let mut layout: Vec<WidgetSlot> = Vec::new();
+
+        place_widget_in_layout(&mut layout, WidgetKind::Clock, 3);
+
+        assert_eq!(layout.len(), WIDGET_GRID_SLOTS);
+        assert_eq!(layout[3].widget, Some(WidgetKind::Clock));
+        for (i, entry) in layout.iter().enumerate() {
+            assert_eq!(entry.slot, i);
+        }
+    }
+
+    #[test]
+    fn clear_widget_slot_removes_widget_covering_target_slot() {
+        let mut layout = default_widget_layout();
+        place_widget_in_layout(&mut layout, WidgetKind::Clock, 0);
+
+        clear_widget_slot(&mut layout, 0);
+
+        assert!(
+            layout
+                .iter()
+                .all(|entry| entry.widget != Some(WidgetKind::Clock))
+        );
+        assert_eq!(
+            layout[WIDGET_GRID_SLOTS - 1].widget,
+            Some(WidgetKind::Settings)
+        );
+    }
+
+    #[test]
+    fn settings_widget_is_required_and_protected() {
+        let mut layout = vec![WidgetSlot {
+            slot: 0,
+            widget: None,
+        }];
+        assert!(ensure_settings_widget(&mut layout));
+        let settings_slot = layout
+            .iter()
+            .find(|entry| entry.widget == Some(WidgetKind::Settings))
+            .map(|entry| entry.slot)
+            .unwrap();
+
+        clear_widget_slot(&mut layout, settings_slot);
+        assert_eq!(
+            widget_covering_slot(&layout, settings_slot),
+            Some((settings_slot, WidgetKind::Settings))
+        );
+
+        place_widget_in_layout(&mut layout, WidgetKind::Clock, settings_slot);
+        assert!(
+            layout
+                .iter()
+                .all(|entry| entry.widget != Some(WidgetKind::Clock))
+        );
+
+        place_widget_in_layout(&mut layout, WidgetKind::Settings, 0);
+        assert_eq!(
+            widget_covering_slot(&layout, 0),
+            Some((0, WidgetKind::Settings))
+        );
+        assert_eq!(
+            layout
+                .iter()
+                .filter(|entry| entry.widget == Some(WidgetKind::Settings))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn widget_covering_slot_finds_multi_cell_widgets() {
+        let mut layout = default_widget_layout();
+        place_widget_in_layout(&mut layout, WidgetKind::Calendar, 1);
+
+        assert_eq!(
+            widget_covering_slot(&layout, 1),
+            Some((1, WidgetKind::Calendar))
+        );
+        assert_eq!(
+            widget_covering_slot(&layout, 8),
+            Some((1, WidgetKind::Calendar))
+        );
+        assert_eq!(widget_covering_slot(&layout, 0), None);
+    }
+
+    #[test]
+    fn removed_widget_kinds_deserialize_to_empty_slot() {
+        let slot: WidgetSlot = toml::from_str("slot = 0\nwidget = \"status\"\n").unwrap();
+        assert_eq!(slot.widget, None);
+        let slot: WidgetSlot = toml::from_str("slot = 1\nwidget = \"clock\"\n").unwrap();
+        assert_eq!(slot.widget, Some(WidgetKind::Clock));
+        let slot: WidgetSlot = toml::from_str("slot = 2\nwidget = \"calendar\"\n").unwrap();
+        assert_eq!(slot.widget, Some(WidgetKind::Calendar));
+        let slot: WidgetSlot = toml::from_str("slot = 3\nwidget = \"settings\"\n").unwrap();
+        assert_eq!(slot.widget, Some(WidgetKind::Settings));
     }
 }

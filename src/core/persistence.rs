@@ -1,4 +1,4 @@
-use crate::core::config::AppConfig;
+use crate::core::config::{AppConfig, ensure_settings_widget};
 use std::fs;
 use std::path::PathBuf;
 pub fn get_config_path() -> PathBuf {
@@ -28,6 +28,9 @@ pub fn load_config() -> AppConfig {
     config.base_height = config.base_height.clamp(15.0, 200.0);
     config.expanded_width = config.expanded_width.clamp(200.0, 2000.0);
     config.expanded_height = config.expanded_height.clamp(100.0, 1000.0);
+    if ensure_settings_widget(&mut config.widget_layout) {
+        save_config(&config);
+    }
     config
 }
 pub fn save_config(config: &AppConfig) {
