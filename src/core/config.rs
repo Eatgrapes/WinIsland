@@ -91,8 +91,8 @@ pub enum WidgetKind {
 impl WidgetKind {
     pub const fn span(&self) -> (usize, usize) {
         match self {
-            WidgetKind::Clock => (1, 1),
-            WidgetKind::Calendar => (1, 2),
+            WidgetKind::Clock => (2, 1),
+            WidgetKind::Calendar => (2, 2),
         }
     }
 }
@@ -293,7 +293,7 @@ fn default_update_channel() -> String {
     "stable".to_string()
 }
 
-pub const WIDGET_GRID_COLS: usize = 3;
+pub const WIDGET_GRID_COLS: usize = 6;
 pub const WIDGET_GRID_ROWS: usize = 3;
 pub const WIDGET_GRID_SLOTS: usize = WIDGET_GRID_COLS * WIDGET_GRID_ROWS;
 pub const AVAILABLE_WIDGETS: [WidgetKind; 2] = [WidgetKind::Clock, WidgetKind::Calendar];
@@ -445,13 +445,16 @@ mod tests {
 
     #[test]
     fn widgets_use_their_expected_footprints() {
-        assert_eq!(WidgetKind::Clock.span(), (1, 1));
-        assert_eq!(WidgetKind::Calendar.span(), (1, 2));
-        assert_eq!(widget_footprint(WidgetKind::Clock, 0), vec![0]);
-        assert_eq!(widget_footprint(WidgetKind::Clock, 8), vec![8]);
-        assert_eq!(widget_anchor_slot(WidgetKind::Clock, 8), 8);
-        assert_eq!(widget_footprint(WidgetKind::Calendar, 8), vec![5, 8]);
-        assert_eq!(widget_anchor_slot(WidgetKind::Calendar, 8), 5);
+        assert_eq!(WidgetKind::Clock.span(), (2, 1));
+        assert_eq!(WidgetKind::Calendar.span(), (2, 2));
+        assert_eq!(widget_footprint(WidgetKind::Clock, 0), vec![0, 1]);
+        assert_eq!(widget_footprint(WidgetKind::Clock, 17), vec![16, 17]);
+        assert_eq!(widget_anchor_slot(WidgetKind::Clock, 17), 16);
+        assert_eq!(
+            widget_footprint(WidgetKind::Calendar, 17),
+            vec![10, 11, 16, 17]
+        );
+        assert_eq!(widget_anchor_slot(WidgetKind::Calendar, 17), 10);
     }
 
     #[test]
@@ -525,7 +528,7 @@ smtc_apps = []
             Some((1, WidgetKind::Calendar))
         );
         assert_eq!(
-            widget_covering_slot(&layout, 4),
+            widget_covering_slot(&layout, 8),
             Some((1, WidgetKind::Calendar))
         );
         assert_eq!(widget_covering_slot(&layout, 0), None);

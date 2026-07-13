@@ -38,8 +38,13 @@ pub fn widget_grid_layout(x: f32, y: f32, w: f32, h: f32, scale: f32) -> WidgetG
     let gap = 7.0 * scale;
     let inner_w = (w - inset * 2.0).max(0.0);
     let inner_h = (h - inset * 2.0).max(0.0);
-    let slot_w = (inner_w - gap * (WIDGET_GRID_COLS as f32 - 1.0)) / WIDGET_GRID_COLS as f32;
-    let slot_h = (inner_h - gap * (WIDGET_GRID_ROWS as f32 - 1.0)) / WIDGET_GRID_ROWS as f32;
+    let slot_from_width =
+        (inner_w - gap * (WIDGET_GRID_COLS as f32 - 1.0)) / WIDGET_GRID_COLS as f32;
+    let slot_from_height =
+        (inner_h - gap * (WIDGET_GRID_ROWS as f32 - 1.0)) / WIDGET_GRID_ROWS as f32;
+    let slot_size = slot_from_width.min(slot_from_height).max(0.0);
+    let slot_w = slot_size;
+    let slot_h = slot_size;
     let grid_w = slot_w * WIDGET_GRID_COLS as f32 + gap * (WIDGET_GRID_COLS as f32 - 1.0);
     let grid_h = slot_h * WIDGET_GRID_ROWS as f32 + gap * (WIDGET_GRID_ROWS as f32 - 1.0);
 
@@ -52,19 +57,29 @@ pub fn widget_grid_layout(x: f32, y: f32, w: f32, h: f32, scale: f32) -> WidgetG
     }
 }
 
-pub(crate) fn draw_widget_pill_background(
+pub(crate) fn draw_widget_rounded_background(
     canvas: &Canvas,
     x: f32,
     y: f32,
     w: f32,
     h: f32,
+    scale: f32,
     alpha: u8,
 ) {
     let mut background = Paint::default();
     background.set_anti_alias(true);
-    background.set_color(Color::from_argb((alpha as f32 * 0.94) as u8, 28, 28, 30));
-    let radius = w.min(h) * 0.5;
-    canvas.draw_round_rect(Rect::from_xywh(x, y, w, h), radius, radius, &background);
+    background.set_color(Color::from_argb((alpha as f32 * 0.05) as u8, 28, 28, 30));
+    let rect = Rect::from_xywh(x, y, w, h);
+    let radius_ratio = if w >= h * 1.5 { 0.28 } else { 0.20 };
+    let radius = w.min(h) * radius_ratio;
+    canvas.draw_round_rect(rect, radius, radius, &background);
+
+    let mut border = Paint::default();
+    border.set_anti_alias(true);
+    border.set_style(skia_safe::paint::Style::Stroke);
+    border.set_stroke_width(1.0 * scale);
+    border.set_color(Color::from_argb((alpha as f32 * 0.16) as u8, 255, 255, 255));
+    canvas.draw_round_rect(rect, radius, radius, &border);
 }
 
 pub(crate) fn draw_widget_text_centered(

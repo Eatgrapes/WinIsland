@@ -1,4 +1,4 @@
-use super::{draw_widget_pill_background, draw_widget_text_centered};
+use super::{draw_widget_rounded_background, draw_widget_text_centered};
 use skia_safe::{Canvas, Color, Paint, Rect};
 
 #[allow(clippy::too_many_arguments)]
@@ -16,7 +16,7 @@ pub fn draw_time_widget(
     let local_time = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
     let time = format!("{:02}:{:02}", local_time.wHour, local_time.wMinute);
 
-    draw_widget_pill_background(canvas, x, y, w, h, alpha);
+    draw_widget_rounded_background(canvas, x, y, w, h, scale, alpha);
 
     let size = (h * 0.60).min(w * 0.31).max(13.0 * scale);
 

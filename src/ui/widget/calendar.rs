@@ -1,4 +1,4 @@
-use super::{draw_widget_pill_background, draw_widget_text_centered};
+use super::{draw_widget_rounded_background, draw_widget_text_centered};
 use crate::core::i18n::tr;
 use skia_safe::{Canvas, Color, Paint, Rect};
 
@@ -48,7 +48,7 @@ pub fn draw_calendar_widget(
     let day = local_time.wDay.to_string();
     let weekday = weekday_name(local_time.wDayOfWeek);
 
-    draw_widget_pill_background(canvas, x, y, w, h, alpha);
+    draw_widget_rounded_background(canvas, x, y, w, h, scale, alpha);
 
     let mut month_paint = Paint::default();
     month_paint.set_anti_alias(true);

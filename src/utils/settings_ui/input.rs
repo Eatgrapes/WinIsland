@@ -70,8 +70,8 @@ pub fn widget_source_rect(
 ) -> (f32, f32, f32, f32) {
     let source_x = row_x + index as f32 * 120.0;
     let (source_w, source_h) = match kind {
-        WidgetKind::Clock => (108.0, 46.0),
-        WidgetKind::Calendar => (66.0, 72.0),
+        WidgetKind::Clock => (108.0, 50.0),
+        WidgetKind::Calendar => (72.0, 72.0),
     };
     (source_x, source_y, source_w, source_h)
 }
@@ -278,7 +278,7 @@ pub fn hover_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::config::{default_widget_layout, place_widget_in_layout};
+    use crate::core::config::{WIDGET_GRID_COLS, default_widget_layout, place_widget_in_layout};
 
     const ITEM_Y: f32 = 80.0;
     const WIDTH: f32 = 486.0;
@@ -286,7 +286,7 @@ mod tests {
     const EXP_H: f32 = 200.0;
 
     #[test]
-    fn widget_preview_hit_test_detects_all_nine_slots() {
+    fn widget_preview_hit_test_detects_all_slots() {
         let layout = default_widget_layout();
         let geom = widget_grid_geom(ITEM_Y, WIDTH, EXP_W, EXP_H);
         for slot in 0..WIDGET_GRID_SLOTS {
@@ -306,11 +306,11 @@ mod tests {
         let geom = widget_grid_geom(ITEM_Y, WIDTH, EXP_W, EXP_H);
         let (x0, y0, _, _) = geom.slot_rect(0);
         let (x1, y1, _, _) = geom.slot_rect(1);
-        let (x3, y3, _, _) = geom.slot_rect(3);
+        let (x6, y6, _, _) = geom.slot_rect(WIDGET_GRID_COLS);
         assert!(x1 > x0);
         assert!((y1 - y0).abs() < 0.01);
-        assert!(y3 > y0);
-        assert!((x3 - x0).abs() < 0.01);
+        assert!(y6 > y0);
+        assert!((x6 - x0).abs() < 0.01);
     }
 
     #[test]
@@ -326,6 +326,8 @@ mod tests {
 
         for slot in 0..WIDGET_GRID_SLOTS {
             assert_eq!(geom.slot_rect(slot), layout.slot_rect(slot));
+            let (_, _, w, h) = geom.slot_rect(slot);
+            assert!((w - h).abs() < 0.01);
         }
     }
 
