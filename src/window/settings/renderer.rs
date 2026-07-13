@@ -5,7 +5,10 @@ use crate::utils::settings_ui::items::*;
 use crate::utils::settings_ui::*;
 use skia_safe::{Canvas, Color, Paint, Rect, surfaces};
 
-use super::{POPUP_MENU_R, POPUP_OPACITY_KEY, SIDEBAR_W, SettingsApp};
+use super::{
+    PAGE_NAV_GAP, PAGE_NAV_SIZE, PAGE_NAV_X, PAGE_NAV_Y, POPUP_MENU_R, POPUP_OPACITY_KEY,
+    SIDEBAR_W, SettingsApp,
+};
 
 impl SettingsApp {
     pub(crate) fn draw(&mut self) {
@@ -81,6 +84,7 @@ impl SettingsApp {
             canvas.draw_rect(win_rect, &bg_paint);
 
             self.draw_sidebar(canvas, &theme);
+            self.draw_page_navigation(canvas, &theme);
 
             let content_w = win_w - SIDEBAR_W;
 
@@ -217,6 +221,53 @@ impl SettingsApp {
         canvas.draw_round_rect(Rect::from_xywh(x, y + 4.0, w, h), 12.0, 12.0, &shadow);
 
         draw_mini_card(canvas, widget, x, y, w, h);
+    }
+
+    fn draw_page_navigation(&self, canvas: &Canvas, theme: &SettingsTheme) {
+        let mut paint = Paint::default();
+        paint.set_anti_alias(true);
+        paint.set_style(skia_safe::paint::Style::Stroke);
+        paint.set_stroke_width(1.8);
+        paint.set_stroke_cap(skia_safe::paint::Cap::Round);
+        paint.set_stroke_join(skia_safe::paint::Join::Round);
+
+        let back_center_x = PAGE_NAV_X + PAGE_NAV_SIZE / 2.0;
+        let forward_center_x = back_center_x + PAGE_NAV_SIZE + PAGE_NAV_GAP;
+        let center_y = PAGE_NAV_Y + PAGE_NAV_SIZE / 2.0;
+
+        paint.set_color(if self.active_page > 0 {
+            theme.text_pri
+        } else {
+            theme.disabled
+        });
+        if let Some(path) = skia_safe::Path::from_svg(format!(
+            "M {} {} L {} {} L {} {}",
+            back_center_x + 2.5,
+            center_y - 5.0,
+            back_center_x - 2.5,
+            center_y,
+            back_center_x + 2.5,
+            center_y + 5.0,
+        )) {
+            canvas.draw_path(&path, &paint);
+        }
+
+        paint.set_color(if self.active_page < 3 {
+            theme.text_pri
+        } else {
+            theme.disabled
+        });
+        if let Some(path) = skia_safe::Path::from_svg(format!(
+            "M {} {} L {} {} L {} {}",
+            forward_center_x - 2.5,
+            center_y - 5.0,
+            forward_center_x + 2.5,
+            center_y,
+            forward_center_x - 2.5,
+            center_y + 5.0,
+        )) {
+            canvas.draw_path(&path, &paint);
+        }
     }
 
     pub(crate) fn draw_popup(&self, canvas: &Canvas, theme: &SettingsTheme) {

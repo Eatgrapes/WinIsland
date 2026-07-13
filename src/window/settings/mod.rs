@@ -32,6 +32,10 @@ pub(crate) const WIN_W: f32 = 666.0;
 pub(crate) const WIN_H: f32 = 666.0;
 pub(crate) const SIDEBAR_W: f32 = 180.0;
 pub(crate) const SIDEBAR_ROW_H: f32 = 32.0;
+pub(crate) const PAGE_NAV_X: f32 = SIDEBAR_W + 20.0;
+pub(crate) const PAGE_NAV_Y: f32 = 12.0;
+pub(crate) const PAGE_NAV_SIZE: f32 = 28.0;
+pub(crate) const PAGE_NAV_GAP: f32 = 4.0;
 
 pub(crate) const POPUP_OPACITY_KEY: u64 = 1;
 pub(crate) const SIDEBAR_KEY_BASE: u64 = 1_000;

@@ -2,7 +2,10 @@ use crate::utils::settings_ui::items::SIDEBAR_PAD;
 use crate::utils::settings_ui::{WidgetPreviewHit, hover_test};
 
 use super::pages::PageInput;
-use super::{POPUP_OPACITY_KEY, SIDEBAR_ROW_H, SIDEBAR_W, SettingsApp};
+use super::{
+    PAGE_NAV_GAP, PAGE_NAV_SIZE, PAGE_NAV_X, PAGE_NAV_Y, POPUP_OPACITY_KEY, SIDEBAR_ROW_H,
+    SIDEBAR_W, SettingsApp,
+};
 
 impl SettingsApp {
     pub(super) fn handle_click(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
@@ -41,6 +44,12 @@ impl SettingsApp {
                     return;
                 }
             }
+            return;
+        }
+
+        if let Some(page) = self.page_navigation_target(mouse_x, mouse_y) {
+            self.active_page = page;
+            self.reset_scroll();
             return;
         }
 
@@ -90,6 +99,10 @@ impl SettingsApp {
             .iter()
             .any(|&(x, y)| (mouse_x - x).powi(2) + (mouse_y - y).powi(2) <= 36.0);
         if over_window_control {
+            return true;
+        }
+
+        if self.page_navigation_target(mouse_x, mouse_y).is_some() {
             return true;
         }
 
@@ -143,5 +156,22 @@ impl SettingsApp {
             start_y,
             content_width,
         )
+    }
+
+    fn page_navigation_target(&self, mouse_x: f32, mouse_y: f32) -> Option<usize> {
+        if !(PAGE_NAV_Y..=PAGE_NAV_Y + PAGE_NAV_SIZE).contains(&mouse_y) {
+            return None;
+        }
+
+        if (PAGE_NAV_X..=PAGE_NAV_X + PAGE_NAV_SIZE).contains(&mouse_x) {
+            return self.active_page.checked_sub(1);
+        }
+
+        let forward_x = PAGE_NAV_X + PAGE_NAV_SIZE + PAGE_NAV_GAP;
+        if (forward_x..=forward_x + PAGE_NAV_SIZE).contains(&mouse_x) {
+            return (self.active_page < 3).then_some(self.active_page + 1);
+        }
+
+        None
     }
 }
