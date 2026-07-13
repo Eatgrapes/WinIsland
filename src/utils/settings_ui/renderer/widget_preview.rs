@@ -64,12 +64,6 @@ pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
         bg_p.set_anti_alias(true);
         bg_p.set_color(theme.sidebar_bg);
         canvas.draw_round_rect(
-            Rect::from_xywh(row_x, py, preview_w, preview_panel_h),
-            12.0,
-            12.0,
-            &bg_p,
-        );
-        canvas.draw_round_rect(
             Rect::from_xywh(row_x, library_panel_y, preview_w, library_panel_h),
             12.0,
             12.0,
@@ -78,16 +72,6 @@ pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
 
         let mut label_p = Paint::default();
         label_p.set_anti_alias(true);
-        label_p.set_color(theme.text_sec);
-        fm.draw_text_with_default_font(
-            canvas,
-            &tr("widget_preview_title"),
-            (row_x + 14.0, py + 22.0),
-            11.0,
-            false,
-            &label_p,
-        );
-
         let geom = widget_grid_geom(y, width, expanded_width, expanded_height);
         let cap_x = geom.cap_x;
         let cap_y = geom.cap_y;

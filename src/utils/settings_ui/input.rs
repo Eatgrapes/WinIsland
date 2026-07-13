@@ -165,7 +165,7 @@ pub fn widget_grid_geom(
     }
 
     let cap_x = row_x + (preview_w - cap_w) / 2.0;
-    let cap_y = py + 44.0;
+    let cap_y = py + (WIDGET_ISLAND_PANEL_H - cap_h) / 2.0;
 
     let layout = widget_grid_layout(cap_x, cap_y, cap_w, cap_h, cap_scale);
 
