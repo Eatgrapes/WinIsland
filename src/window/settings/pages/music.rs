@@ -51,8 +51,15 @@ impl SettingsApp {
             SettingsItem::RowSourceSelect {
                 label: tr("lyrics_source"),
                 options: vec![
-                    ("163".to_string(), self.config.lyrics_source == "163"),
-                    ("LRCLIB".to_string(), self.config.lyrics_source == "lrclib"),
+                    (tr("lyrics_source_163"), self.config.lyrics_source == "163"),
+                    (
+                        tr("lyrics_source_kugou"),
+                        self.config.lyrics_source == "kugou",
+                    ),
+                    (
+                        tr("lyrics_source_lrclib"),
+                        self.config.lyrics_source == "lrclib",
+                    ),
                 ],
                 enabled: show_lyrics,
             },
@@ -245,9 +252,16 @@ impl SettingsApp {
         let popup = PopupState::new(
             select_lyrics_source,
             input.popup_button_rect(&page, item_index, self.scroll_y),
-            vec!["163".to_string(), "LRCLIB".to_string()],
-            vec!["163".to_string(), "lrclib".to_string()],
-            usize::from(self.config.lyrics_source != "163"),
+            vec![
+                tr("lyrics_source_163"),
+                tr("lyrics_source_kugou"),
+                tr("lyrics_source_lrclib"),
+            ],
+            vec!["163".to_string(), "kugou".to_string(), "lrclib".to_string()],
+            ["163", "kugou", "lrclib"]
+                .iter()
+                .position(|source| *source == self.config.lyrics_source)
+                .unwrap_or_default(),
             self.win_w / scale,
             self.win_h / scale,
         );

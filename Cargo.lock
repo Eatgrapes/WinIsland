@@ -6,6 +6,7 @@ version = 4
 name = "WinIsland"
 version = "1.2.2"
 dependencies = [
+ "base64",
  "bytemuck",
  "cpal",
  "dirs",

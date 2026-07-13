@@ -7,6 +7,7 @@ edition = "2024"
 members = ["crates/winisland-plugin-api"]
 
 [dependencies]
+base64 = "0.22"
 cpal = "0.18.1"
 realfft = "3.3"
 bytemuck = "1.25.0"
