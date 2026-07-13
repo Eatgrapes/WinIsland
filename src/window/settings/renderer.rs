@@ -32,7 +32,7 @@ impl SettingsApp {
         let theme = self.theme();
         let win_w = self.win_w / scale;
         let win_h = self.win_h / scale;
-        let anim = self.get_page_anim();
+        let anim = self.switch_anim.clone();
 
         let mut surface = match self.surface.take() {
             Some(s) => s,
@@ -435,19 +435,6 @@ impl SettingsApp {
                     &sep,
                 );
             }
-        }
-    }
-
-    pub(crate) fn get_page_anim(&self) -> SwitchAnimator {
-        match self.active_page {
-            0 => match self.active_sub_page {
-                0 => SwitchAnimator::new(&[]),
-                1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[0, 1, 2]),
-                2 => SwitchAnimator::new_with_anims(&self.switch_anim, &[3, 4, 5, 6]),
-                _ => SwitchAnimator::new(&[]),
-            },
-            1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[7, 8, 9, 10]),
-            _ => SwitchAnimator::new(&[]),
         }
     }
 }

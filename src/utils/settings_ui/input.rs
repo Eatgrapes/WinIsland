@@ -22,6 +22,39 @@ pub enum ClickResult {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepDirection {
+    Decrement,
+    Increment,
+}
+
+impl ClickResult {
+    pub fn item_index(&self) -> Option<usize> {
+        match self {
+            ClickResult::None => None,
+            ClickResult::Switch(index)
+            | ClickResult::StepperDec(index)
+            | ClickResult::StepperInc(index)
+            | ClickResult::FontSelect(index)
+            | ClickResult::FontReset(index)
+            | ClickResult::CenterLink(index)
+            | ClickResult::SourceButton(index)
+            | ClickResult::RowButton(index)
+            | ClickResult::AppItem(index)
+            | ClickResult::FolderSelect(index)
+            | ClickResult::FolderClear(index) => Some(*index),
+        }
+    }
+
+    pub fn step_direction(&self) -> Option<StepDirection> {
+        match self {
+            ClickResult::StepperDec(_) => Some(StepDirection::Decrement),
+            ClickResult::StepperInc(_) => Some(StepDirection::Increment),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WidgetPreviewHit {
     None,
     Source(WidgetKind),
@@ -183,7 +216,6 @@ pub fn widget_preview_hit_test(
 
 pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f32) -> ClickResult {
     let mut y = start_y;
-    let mut switch_idx = 0;
     let content_w = width - CONTENT_PADDING * 2.0;
 
     for (idx, item) in items.iter().enumerate() {
@@ -205,9 +237,8 @@ pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f
                 let toggle_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - TOGGLE_W;
                 let toggle_y = cy - TOGGLE_H / 2.0;
                 if in_rect(mx, my, toggle_x, toggle_y, TOGGLE_W, TOGGLE_H) {
-                    return ClickResult::Switch(switch_idx);
+                    return ClickResult::Switch(idx);
                 }
-                switch_idx += 1;
             }
             SettingsItem::RowFontPicker { reset_label, .. } => {
                 let cy = y + ROW_HEIGHT / 2.0;

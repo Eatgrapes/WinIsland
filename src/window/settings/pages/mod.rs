@@ -1,4 +1,103 @@
+use skia_safe::Rect;
+
+use crate::utils::settings_ui::items::{
+    CONTENT_PADDING, GROUP_INNER_PAD, POPUP_BTN_H, POPUP_BTN_W, ROW_HEIGHT, SettingsItem,
+};
+use crate::utils::settings_ui::{ClickResult, hit_test};
+
+use super::{SIDEBAR_W, SettingsApp};
+
 pub mod about;
 pub mod general;
 pub mod music;
 pub mod widgets;
+
+pub(crate) struct SettingsPage<A> {
+    items: Vec<SettingsItem>,
+    actions: Vec<Option<A>>,
+}
+
+impl<A> SettingsPage<A> {
+    pub(crate) fn new() -> Self {
+        Self {
+            items: Vec::new(),
+            actions: Vec::new(),
+        }
+    }
+
+    pub(crate) fn push(&mut self, item: SettingsItem) {
+        self.items.push(item);
+        self.actions.push(None);
+    }
+
+    pub(crate) fn push_action(&mut self, item: SettingsItem, action: A) {
+        self.items.push(item);
+        self.actions.push(Some(action));
+    }
+
+    pub(crate) fn items(&self) -> &[SettingsItem] {
+        &self.items
+    }
+
+    pub(crate) fn action(&self, result: &ClickResult) -> Option<&A> {
+        result
+            .item_index()
+            .and_then(|index| self.actions.get(index))
+            .and_then(Option::as_ref)
+    }
+
+    pub(crate) fn into_items(self) -> Vec<SettingsItem> {
+        self.items
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct PageInput {
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+    pub(crate) width: f32,
+    pub(crate) start_y: f32,
+}
+
+impl PageInput {
+    pub(crate) fn hit_test<A>(&self, page: &SettingsPage<A>) -> ClickResult {
+        hit_test(page.items(), self.x, self.y, self.start_y, self.width)
+    }
+
+    pub(crate) fn popup_button_rect<A>(
+        &self,
+        page: &SettingsPage<A>,
+        item_index: usize,
+        scroll_y: f32,
+    ) -> Rect {
+        let item_y = self.start_y
+            + page
+                .items()
+                .iter()
+                .take(item_index)
+                .map(SettingsItem::height)
+                .sum::<f32>();
+        let button_x = SIDEBAR_W + CONTENT_PADDING + self.width - GROUP_INNER_PAD - POPUP_BTN_W;
+        let button_y = item_y + (ROW_HEIGHT - POPUP_BTN_H) / 2.0 - scroll_y;
+        Rect::from_xywh(button_x, button_y, POPUP_BTN_W, POPUP_BTN_H)
+    }
+}
+
+impl SettingsApp {
+    pub(crate) fn show_popup(&mut self, popup: super::PopupState) {
+        self.popup = Some(popup);
+        self.anim
+            .set_with_speed(super::POPUP_OPACITY_KEY, 1.0, 0.25);
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    pub(crate) fn persist_settings_change(&mut self) {
+        self.mark_items_dirty();
+        crate::core::persistence::save_config(&self.config);
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+}

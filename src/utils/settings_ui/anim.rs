@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub struct SwitchAnimator {
     positions: Vec<f32>,
     targets: Vec<f32>,
@@ -12,22 +13,17 @@ impl SwitchAnimator {
         }
     }
 
-    pub fn new_with_anims(source: &SwitchAnimator, indices: &[usize]) -> Self {
-        let positions: Vec<f32> = indices.iter().map(|&i| source.get(i)).collect();
-        let targets: Vec<f32> = indices
-            .iter()
-            .map(|&i| source.targets.get(i).copied().unwrap_or(0.0))
-            .collect();
-        Self { positions, targets }
-    }
-
     pub fn get(&self, idx: usize) -> f32 {
         self.positions.get(idx).copied().unwrap_or(0.0)
     }
 
-    pub fn set_target(&mut self, idx: usize, on: bool) {
-        if idx < self.targets.len() {
-            self.targets[idx] = if on { 1.0 } else { 0.0 };
+    pub fn len(&self) -> usize {
+        self.positions.len()
+    }
+
+    pub fn set_targets(&mut self, states: &[bool]) {
+        for (target, &state) in self.targets.iter_mut().zip(states) {
+            *target = if state { 1.0 } else { 0.0 };
         }
     }
 

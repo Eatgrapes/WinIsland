@@ -39,7 +39,6 @@ pub enum SettingsItem {
     },
     RowSwitch {
         label: String,
-        #[allow(dead_code)]
         on: bool,
         enabled: bool,
     },

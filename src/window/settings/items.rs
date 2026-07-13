@@ -16,6 +16,23 @@ impl SettingsApp {
 
     pub(crate) fn rebuild_items_cache(&mut self) {
         self.cached_items = self.build_current_items();
+        let switch_states: Vec<bool> = self
+            .cached_items
+            .iter()
+            .filter_map(|item| match item {
+                SettingsItem::RowSwitch { on, .. } => Some(*on),
+                _ => None,
+            })
+            .collect();
+        let switch_context = (self.active_page, self.active_sub_page);
+        if self.switch_anim_context != switch_context
+            || self.switch_anim.len() != switch_states.len()
+        {
+            self.switch_anim = crate::utils::settings_ui::SwitchAnimator::new(&switch_states);
+            self.switch_anim_context = switch_context;
+        } else {
+            self.switch_anim.set_targets(&switch_states);
+        }
         let content_start_y = if self.active_page == 0 {
             SUB_TAB_START_Y + SUB_TAB_H + CONTENT_START_Y
         } else {

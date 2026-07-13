@@ -2,11 +2,9 @@ use crate::core::config::{AppConfig, WidgetKind};
 use crate::core::i18n::tr;
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
-use crate::utils::font::FontManager;
 use crate::utils::icon::get_app_icon;
 use crate::utils::settings_ui::items::*;
 use crate::utils::settings_ui::*;
-use skia_safe::Rect;
 use softbuffer::{Context, Surface};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -25,8 +23,11 @@ use winit::window::{Window, WindowId};
 pub mod input;
 pub mod items;
 pub mod pages;
+mod popup;
 pub mod renderer;
 pub mod sidebar;
+
+pub(crate) use popup::PopupState;
 
 pub(crate) const WIN_W: f32 = 666.0;
 pub(crate) const WIN_H: f32 = 666.0;
@@ -58,101 +59,6 @@ pub(crate) fn settings_frame_should_continue(
     has_anim || has_popup || is_scrolling || is_widget_dragging
 }
 
-#[derive(Clone, PartialEq)]
-pub(crate) enum PopupKind {
-    LyricsSource,
-    Language,
-    Monitor,
-    IslandStyle,
-    DockPositionPopup,
-    SettingsTheme,
-    UpdateChannel,
-}
-
-pub(crate) struct PopupState {
-    pub(crate) kind: PopupKind,
-    #[allow(dead_code)]
-    pub(crate) button_rect: Rect,
-    pub(crate) menu_rect: Rect,
-    pub(crate) options: Vec<String>,
-    pub(crate) values: Vec<String>,
-    pub(crate) selected_idx: usize,
-    pub(crate) hover_idx: Option<usize>,
-}
-
-impl PopupState {
-    pub(crate) fn new(
-        kind: PopupKind,
-        button_rect: Rect,
-        options: Vec<String>,
-        values: Vec<String>,
-        selected_idx: usize,
-        win_w: f32,
-        win_h: f32,
-    ) -> Self {
-        let mut max_w: f32 = 120.0;
-        let fm = FontManager::global();
-        for opt in &options {
-            let w = fm.measure_text_cached(opt, 12.0, skia_safe::FontStyle::normal());
-            if w > max_w {
-                max_w = w;
-            }
-        }
-        let menu_w = max_w + 36.0;
-        let menu_h = options.len() as f32 * POPUP_ITEM_H + POPUP_MENU_PAD * 2.0;
-        let menu_x = (button_rect.right - menu_w).clamp(0.0, win_w - menu_w - 10.0);
-        let menu_y = (button_rect.bottom + 4.0).clamp(0.0, win_h - menu_h - 10.0);
-        let menu_rect = Rect::from_xywh(menu_x, menu_y, menu_w, menu_h);
-
-        Self {
-            kind,
-            button_rect,
-            menu_rect,
-            options,
-            values,
-            selected_idx,
-            hover_idx: None,
-        }
-    }
-
-    pub(crate) fn menu_rect(&self) -> Rect {
-        self.menu_rect
-    }
-
-    pub(crate) fn item_rect(&self, idx: usize) -> Rect {
-        let inner_top = self.menu_rect.top + POPUP_MENU_PAD;
-        let y = inner_top + idx as f32 * POPUP_ITEM_H;
-        Rect::from_xywh(
-            self.menu_rect.left + POPUP_MENU_PAD,
-            y,
-            self.menu_rect.width() - POPUP_MENU_PAD * 2.0,
-            POPUP_ITEM_H,
-        )
-    }
-
-    pub(crate) fn hit_test_item(&self, mx: f32, my: f32) -> Option<usize> {
-        let menu = self.menu_rect;
-        if mx < menu.left || mx > menu.right || my < menu.top || my > menu.bottom {
-            return None;
-        }
-        let inner_top = menu.top + POPUP_MENU_PAD;
-        let inner_bottom = menu.bottom - POPUP_MENU_PAD;
-        if my < inner_top || my > inner_bottom {
-            return None;
-        }
-        let rel_y = my - inner_top;
-        let idx = (rel_y / POPUP_ITEM_H).floor() as i32;
-        if idx < 0 {
-            return None;
-        }
-        let idx = idx as usize;
-        if idx >= self.options.len() {
-            return None;
-        }
-        Some(idx)
-    }
-}
-
 pub struct SettingsApp {
     pub(crate) window: Option<Arc<Window>>,
     pub(crate) surface: Option<Surface<Arc<Window>, Arc<Window>>>,
@@ -161,6 +67,7 @@ pub struct SettingsApp {
     pub(crate) active_sub_page: usize,
     pub(crate) sub_tab_hover: i32,
     pub(crate) switch_anim: SwitchAnimator,
+    pub(crate) switch_anim_context: (usize, usize),
     pub(crate) anim: AnimPool,
     pub(crate) logical_mouse_pos: (f32, f32),
     pub(crate) last_hover_mouse_pos: (f32, f32),
@@ -192,19 +99,7 @@ pub struct SettingsApp {
 
 impl SettingsApp {
     pub fn new(config: AppConfig) -> Self {
-        let switch_anim = SwitchAnimator::new(&[
-            config.adaptive_border,
-            config.motion_blur,
-            config.cover_rotate,
-            config.auto_start,
-            config.auto_hide,
-            config.right_click_drag,
-            config.check_for_updates,
-            config.smtc_enabled,
-            config.show_lyrics,
-            config.lyrics_fallback,
-            config.lyrics_scroll,
-        ]);
+        let switch_anim = SwitchAnimator::new(&[]);
         Self {
             window: None,
             surface: None,
@@ -213,6 +108,7 @@ impl SettingsApp {
             active_sub_page: 0,
             sub_tab_hover: -1,
             switch_anim,
+            switch_anim_context: (usize::MAX, usize::MAX),
             anim: AnimPool::new(),
             logical_mouse_pos: (0.0, 0.0),
             last_hover_mouse_pos: (-1.0, -1.0),
@@ -335,31 +231,6 @@ impl SettingsApp {
             monitors.push("Primary".to_string());
         }
         monitors
-    }
-
-    pub(crate) fn sync_switch_targets(&mut self) {
-        self.switch_anim.set_target(0, self.config.adaptive_border);
-        self.switch_anim.set_target(1, self.config.motion_blur);
-        self.switch_anim.set_target(2, self.config.cover_rotate);
-        self.switch_anim.set_target(3, self.config.auto_start);
-        self.switch_anim.set_target(4, self.config.auto_hide);
-        self.switch_anim.set_target(5, self.config.right_click_drag);
-        self.switch_anim
-            .set_target(6, self.config.check_for_updates);
-        self.switch_anim.set_target(7, self.config.smtc_enabled);
-        self.switch_anim.set_target(8, self.config.show_lyrics);
-        let fb_on = if self.config.show_lyrics {
-            self.config.lyrics_fallback
-        } else {
-            false
-        };
-        self.switch_anim.set_target(9, fb_on);
-        let fw_on = if self.config.show_lyrics {
-            self.config.lyrics_scroll
-        } else {
-            false
-        };
-        self.switch_anim.set_target(10, fw_on);
     }
 
     pub(crate) fn update_detected_apps(&mut self) {
