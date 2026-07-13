@@ -125,7 +125,7 @@ pub(super) fn draw_pill_btn(params: PillBtnParams<'_>) {
         y: params.y + 17.0,
         w: params.w,
         size: 12.0,
-        bold: true,
+        bold: false,
         paint: &paint,
     });
 }

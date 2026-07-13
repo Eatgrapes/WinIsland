@@ -71,14 +71,14 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
             SettingsItem::SectionHeader { label } => {
                 let h = item.height();
                 if y + h >= visible_min_y && y <= visible_max_y {
-                    paint.set_color(theme.text_sec);
+                    paint.set_color(theme.text_pri);
                     fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
                         text: label,
                         x: CONTENT_PADDING + 4.0,
                         y: y + 22.0,
-                        size: 12.0,
-                        bold: false,
+                        size: 13.0,
+                        bold: true,
                         paint: &paint,
                     });
                 }
@@ -544,8 +544,8 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         x: btn_x + 4.0,
                         y: btn_y + 17.0,
                         w: text_w,
-                        size: 12.0,
-                        bold: true,
+                        size: 13.0,
+                        bold: false,
                         paint: &p,
                     });
 

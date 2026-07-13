@@ -211,7 +211,7 @@ impl SettingsApp {
                 x: row_x + 36.0,
                 y: row_y + 21.0,
                 size: 13.0,
-                bold: false,
+                bold: true,
                 paint: &paint,
             });
         }
