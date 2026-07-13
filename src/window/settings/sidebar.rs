@@ -50,8 +50,7 @@ impl SettingsApp {
         paint.set_color(green_color);
         canvas.draw_circle(green_center, radius, &paint);
 
-        // Draw symbols if hovered and focused
-        if self.dots_hovered && self.focused {
+        if self.dots_hovered {
             let mut sym_paint = Paint::default();
             sym_paint.set_anti_alias(true);
             sym_paint.set_style(skia_safe::paint::Style::Stroke);

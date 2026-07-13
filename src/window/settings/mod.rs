@@ -345,6 +345,15 @@ impl ApplicationHandler for SettingsApp {
                     || (new_pos.1 - self.last_hover_mouse_pos.1).abs() > 0.5;
                 self.logical_mouse_pos = new_pos;
 
+                let dots_hovered =
+                    (10.0..=70.0).contains(&new_pos.0) && (14.0..=34.0).contains(&new_pos.1);
+                if dots_hovered != self.dots_hovered {
+                    self.dots_hovered = dots_hovered;
+                    if let Some(win) = &self.window {
+                        win.request_redraw();
+                    }
+                }
+
                 if self.widget_dragging.is_some() {
                     let new_slot = self
                         .widget_preview_hit_at_mouse()
@@ -424,6 +433,14 @@ impl ApplicationHandler for SettingsApp {
                 };
                 if let Some(win) = &self.window {
                     win.set_cursor(cursor);
+                }
+            }
+            WindowEvent::CursorLeft { .. } => {
+                if self.dots_hovered {
+                    self.dots_hovered = false;
+                    if let Some(win) = &self.window {
+                        win.request_redraw();
+                    }
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
