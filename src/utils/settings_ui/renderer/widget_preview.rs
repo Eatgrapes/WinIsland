@@ -95,16 +95,6 @@ pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
         let cap_h = geom.cap_h;
         let cap_scale = geom.cap_scale;
 
-        let mut shadow_p = Paint::default();
-        shadow_p.set_anti_alias(true);
-        shadow_p.set_color(Color::from_argb(70, 0, 0, 0));
-        canvas.draw_round_rect(
-            Rect::from_xywh(cap_x - 1.0, cap_y + 3.0, cap_w + 2.0, cap_h + 2.0),
-            28.0,
-            28.0,
-            &shadow_p,
-        );
-
         let mut cap_bg = Paint::default();
         cap_bg.set_anti_alias(true);
 
