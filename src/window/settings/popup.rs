@@ -35,8 +35,17 @@ impl PopupState {
             .fold(120.0_f32, f32::max);
         let menu_width = content_width + 36.0;
         let menu_height = options.len() as f32 * POPUP_ITEM_H + POPUP_MENU_PAD * 2.0;
-        let menu_x = (button_rect.right - menu_width).clamp(0.0, window_width - menu_width - 10.0);
-        let menu_y = (button_rect.bottom + 4.0).clamp(0.0, window_height - menu_height - 10.0);
+        let max_x = (window_width - menu_width - 10.0).max(0.0);
+        let max_y = (window_height - menu_height - 10.0).max(0.0);
+        let menu_x = (button_rect.right - menu_width).clamp(0.0, max_x);
+        let below_y = button_rect.bottom + 4.0;
+        let above_y = button_rect.top - menu_height - 4.0;
+        let opens_upward = below_y + menu_height > window_height - 10.0 && above_y >= 10.0;
+        let menu_y = if opens_upward {
+            above_y
+        } else {
+            below_y.min(max_y)
+        };
 
         Self {
             on_select,
