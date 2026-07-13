@@ -45,12 +45,15 @@ body:
       value: |
         ## 环境
 
-  - type: input
+  - type: dropdown
     id: os
     attributes:
-      label: 操作系统 | OS
-      description: Windows 11、macOS 14、Ubuntu 22.04 etc.
-      placeholder: Windows 11
+      label: Windows 版本 | Windows version
+      description: 请选择复现问题时使用的 Windows 版本 | Select the Windows version where the issue occurs
+      options:
+        - Windows 11
+        - Windows 10
+        - 其他 Windows 版本 | Other Windows version
     validations:
       required: true
 

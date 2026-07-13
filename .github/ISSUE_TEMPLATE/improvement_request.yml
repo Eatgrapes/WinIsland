@@ -11,7 +11,7 @@ body:
       description: 指定要改进的模块或功能（例如 `src|core|render.rs`、`src|utils|physics.rs`）| Affected module or feature
       placeholder: 例如：src|core|render.rs
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: current_behavior

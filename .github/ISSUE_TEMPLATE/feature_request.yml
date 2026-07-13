@@ -47,7 +47,7 @@ body:
       description: 该功能将影响哪些模块（如 `src|core`, `src|ui`, `window` 等）|Which modules will be affected (e.g., `src|core`, `src|ui`)
       placeholder: 列出受影响的文件或模块 | Affected files or modules
     validations:
-      required: true
+      required: false
 
   - type: input
     id: version
