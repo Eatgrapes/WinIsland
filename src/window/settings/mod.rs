@@ -37,6 +37,12 @@ pub(crate) const PAGE_NAV_Y: f32 = 12.0;
 pub(crate) const PAGE_NAV_SIZE: f32 = 28.0;
 pub(crate) const PAGE_NAV_GAP: f32 = 4.0;
 
+#[derive(Clone, Copy)]
+pub(crate) enum PageNavigation {
+    Back,
+    Forward,
+}
+
 pub(crate) const POPUP_OPACITY_KEY: u64 = 1;
 pub(crate) const SIDEBAR_KEY_BASE: u64 = 1_000;
 pub(crate) const SCROLL_STIFFNESS: f32 = 55.0;
@@ -72,6 +78,8 @@ pub struct SettingsApp {
     pub(crate) surface: Option<Surface<Arc<Window>, Arc<Window>>>,
     pub(crate) config: AppConfig,
     pub(crate) active_page: usize,
+    pub(crate) page_history: Vec<usize>,
+    pub(crate) page_history_index: usize,
     pub(crate) switch_anim: SwitchAnimator,
     pub(crate) switch_anim_context: (usize, usize),
     pub(crate) anim: AnimPool,
@@ -108,6 +116,8 @@ impl SettingsApp {
             surface: None,
             config,
             active_page: 0,
+            page_history: vec![0],
+            page_history_index: 0,
             switch_anim,
             switch_anim_context: (usize::MAX, usize::MAX),
             anim: AnimPool::new(),
@@ -327,25 +337,11 @@ impl ApplicationHandler for SettingsApp {
                 }
                 match event.logical_key {
                     Key::Named(NamedKey::F11) => {}
-                    Key::Named(NamedKey::ArrowLeft) if self.active_page > 0 => {
-                        self.active_page -= 1;
-                        self.scroll_y = 0.0;
-                        self.target_scroll_y = 0.0;
-                        self.scroll_vel_y = 0.0;
-                        self.mark_items_dirty();
-                        if let Some(win) = &self.window {
-                            win.request_redraw();
-                        }
+                    Key::Named(NamedKey::ArrowLeft) => {
+                        self.navigate_page_history(PageNavigation::Back);
                     }
-                    Key::Named(NamedKey::ArrowRight) if self.active_page < 3 => {
-                        self.active_page += 1;
-                        self.scroll_y = 0.0;
-                        self.target_scroll_y = 0.0;
-                        self.scroll_vel_y = 0.0;
-                        self.mark_items_dirty();
-                        if let Some(win) = &self.window {
-                            win.request_redraw();
-                        }
+                    Key::Named(NamedKey::ArrowRight) => {
+                        self.navigate_page_history(PageNavigation::Forward);
                     }
                     _ => {}
                 }
@@ -504,7 +500,8 @@ impl ApplicationHandler for SettingsApp {
                     }
                 } else {
                     let is_in_sidebar_title = mx < SIDEBAR_W && my < 60.0;
-                    let is_in_content_title = mx >= SIDEBAR_W && my < 50.0;
+                    let is_in_content_title =
+                        mx >= SIDEBAR_W && my < 50.0 && self.page_navigation_at(mx, my).is_none();
                     if (is_in_sidebar_title || is_in_content_title) && self.popup.is_none() {
                         if let Some(win) = &self.window {
                             let _ = win.drag_window();

@@ -5,7 +5,7 @@ use winit::keyboard::{Key, NamedKey};
 use super::pages::PageInput;
 use super::{
     NumberInput, NumberInputHandler, PAGE_NAV_GAP, PAGE_NAV_SIZE, PAGE_NAV_X, PAGE_NAV_Y,
-    POPUP_OPACITY_KEY, SIDEBAR_ROW_H, SIDEBAR_W, SettingsApp,
+    POPUP_OPACITY_KEY, PageNavigation, SIDEBAR_ROW_H, SIDEBAR_W, SettingsApp,
 };
 
 impl SettingsApp {
@@ -40,19 +40,15 @@ impl SettingsApp {
                     && mouse_y <= row_y + SIDEBAR_ROW_H
                     && (SIDEBAR_PAD..=SIDEBAR_W - SIDEBAR_PAD).contains(&mouse_x)
                 {
-                    if self.active_page != page {
-                        self.active_page = page;
-                        self.reset_scroll();
-                    }
+                    self.visit_page(page);
                     return;
                 }
             }
             return;
         }
 
-        if let Some(page) = self.page_navigation_target(mouse_x, mouse_y) {
-            self.active_page = page;
-            self.reset_scroll();
+        if let Some(direction) = self.page_navigation_at(mouse_x, mouse_y) {
+            self.navigate_page_history(direction);
             return;
         }
 
@@ -105,8 +101,14 @@ impl SettingsApp {
             return true;
         }
 
-        if self.page_navigation_target(mouse_x, mouse_y).is_some() {
-            return true;
+        if let Some(direction) = self.page_navigation_at(mouse_x, mouse_y) {
+            let is_enabled = match direction {
+                PageNavigation::Back => self.can_navigate_back(),
+                PageNavigation::Forward => self.can_navigate_forward(),
+            };
+            if is_enabled {
+                return true;
+            }
         }
 
         if let Some(popup) = &self.popup {
@@ -161,21 +163,52 @@ impl SettingsApp {
         )
     }
 
-    fn page_navigation_target(&self, mouse_x: f32, mouse_y: f32) -> Option<usize> {
+    pub(super) fn page_navigation_at(&self, mouse_x: f32, mouse_y: f32) -> Option<PageNavigation> {
         if !(PAGE_NAV_Y..=PAGE_NAV_Y + PAGE_NAV_SIZE).contains(&mouse_y) {
             return None;
         }
 
         if (PAGE_NAV_X..=PAGE_NAV_X + PAGE_NAV_SIZE).contains(&mouse_x) {
-            return self.active_page.checked_sub(1);
+            return Some(PageNavigation::Back);
         }
 
         let forward_x = PAGE_NAV_X + PAGE_NAV_SIZE + PAGE_NAV_GAP;
         if (forward_x..=forward_x + PAGE_NAV_SIZE).contains(&mouse_x) {
-            return (self.active_page < 3).then_some(self.active_page + 1);
+            return Some(PageNavigation::Forward);
         }
 
         None
+    }
+
+    pub(crate) fn can_navigate_back(&self) -> bool {
+        self.page_history_index > 0
+    }
+
+    pub(crate) fn can_navigate_forward(&self) -> bool {
+        self.page_history_index + 1 < self.page_history.len()
+    }
+
+    pub(super) fn navigate_page_history(&mut self, direction: PageNavigation) -> bool {
+        let next_index = match direction {
+            PageNavigation::Back if self.can_navigate_back() => self.page_history_index - 1,
+            PageNavigation::Forward if self.can_navigate_forward() => self.page_history_index + 1,
+            _ => return false,
+        };
+        self.page_history_index = next_index;
+        self.active_page = self.page_history[next_index];
+        self.reset_scroll();
+        true
+    }
+
+    fn visit_page(&mut self, page: usize) {
+        if self.active_page == page {
+            return;
+        }
+        self.page_history.truncate(self.page_history_index + 1);
+        self.page_history.push(page);
+        self.page_history_index = self.page_history.len() - 1;
+        self.active_page = page;
+        self.reset_scroll();
     }
 
     pub(crate) fn begin_number_input(

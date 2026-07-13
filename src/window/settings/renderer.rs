@@ -245,7 +245,7 @@ impl SettingsApp {
         let forward_center_x = back_center_x + PAGE_NAV_SIZE + PAGE_NAV_GAP;
         let center_y = PAGE_NAV_Y + PAGE_NAV_SIZE / 2.0;
 
-        paint.set_color(if self.active_page > 0 {
+        paint.set_color(if self.can_navigate_back() {
             theme.text_pri
         } else {
             theme.disabled
@@ -262,7 +262,7 @@ impl SettingsApp {
             canvas.draw_path(&path, &paint);
         }
 
-        paint.set_color(if self.active_page < 3 {
+        paint.set_color(if self.can_navigate_forward() {
             theme.text_pri
         } else {
             theme.disabled
