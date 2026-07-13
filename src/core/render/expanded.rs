@@ -82,8 +82,6 @@ pub(super) fn draw_expanded_content(params: ExpandedContentParams<'_>) -> bool {
             viz_h_scale: viz_h_scale * global_scale,
             use_blur,
             font_size,
-            cover_shape: "square",
-            cover_rotate: false,
             dt,
             text_color,
             text_color_sec,
