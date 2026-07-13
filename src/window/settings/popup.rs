@@ -9,6 +9,7 @@ pub(crate) type PopupSelectHandler = fn(&mut SettingsApp, &str);
 
 pub(crate) struct PopupState {
     pub(crate) on_select: PopupSelectHandler,
+    pub(crate) button_rect: Rect,
     pub(crate) menu_rect: Rect,
     pub(crate) options: Vec<String>,
     pub(crate) values: Vec<String>,
@@ -49,6 +50,7 @@ impl PopupState {
 
         Self {
             on_select,
+            button_rect,
             menu_rect: Rect::from_xywh(menu_x, menu_y, menu_width, menu_height),
             options,
             values,

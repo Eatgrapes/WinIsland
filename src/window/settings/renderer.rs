@@ -97,6 +97,14 @@ impl SettingsApp {
                 true,
             );
             canvas.translate((SIDEBAR_W, -self.scroll_y));
+            let active_source_button = self.popup.as_ref().map(|popup| {
+                Rect::from_xywh(
+                    popup.button_rect.left - SIDEBAR_W,
+                    popup.button_rect.top + self.scroll_y,
+                    popup.button_rect.width(),
+                    popup.button_rect.height(),
+                )
+            });
             draw_items(DrawItemsParams {
                 canvas,
                 items: &self.cached_items,
@@ -114,6 +122,7 @@ impl SettingsApp {
                 widget_dragging: self.widget_dragging,
                 widget_drag_hover_slot: self.widget_drag_hover_slot,
                 widget_preview_hover_slot: self.widget_preview_hover_slot,
+                active_source_button,
             });
             canvas.restore();
 

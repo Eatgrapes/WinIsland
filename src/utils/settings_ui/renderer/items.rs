@@ -33,6 +33,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
     let widget_dragging = params.widget_dragging;
     let widget_drag_hover_slot = params.widget_drag_hover_slot;
     let widget_preview_hover_slot = params.widget_preview_hover_slot;
+    let active_source_button = params.active_source_button;
 
     let fm = FontManager::global();
     let mut y = start_y;
@@ -435,6 +436,9 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
 
                 let btn_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - POPUP_BTN_W;
                 let btn_y = cy - POPUP_BTN_H / 2.0;
+                let is_open = active_source_button.is_some_and(|button| {
+                    (button.left - btn_x).abs() < 0.5 && (button.top - btn_y).abs() < 0.5
+                });
 
                 if visible {
                     let mut p = Paint::default();
@@ -470,14 +474,19 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
 
                     let chev_cx = btn_x + POPUP_BTN_W - 12.0;
                     let chev_cy = cy;
+                    let (top_y, bottom_y) = if is_open {
+                        (chev_cy - 1.5, chev_cy + 1.5)
+                    } else {
+                        (chev_cy + 1.5, chev_cy - 1.5)
+                    };
                     let chev_svg = format!(
                         "M {} {} L {} {} L {} {}",
                         chev_cx - 3.0,
-                        chev_cy - 1.5,
+                        bottom_y,
                         chev_cx,
-                        chev_cy + 1.5,
+                        top_y,
                         chev_cx + 3.0,
-                        chev_cy - 1.5,
+                        bottom_y,
                     );
                     p.set_color(if *enabled {
                         theme.text_sec

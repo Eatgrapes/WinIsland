@@ -2,7 +2,7 @@ mod controls;
 mod items;
 mod widget_preview;
 
-use skia_safe::Canvas;
+use skia_safe::{Canvas, Rect};
 
 use crate::core::config::{WidgetKind, WidgetSlot};
 use crate::utils::color::SettingsTheme;
@@ -29,4 +29,5 @@ pub struct DrawItemsParams<'a> {
     pub widget_dragging: Option<WidgetKind>,
     pub widget_drag_hover_slot: Option<usize>,
     pub widget_preview_hover_slot: Option<usize>,
+    pub active_source_button: Option<Rect>,
 }
