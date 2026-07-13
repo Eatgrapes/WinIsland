@@ -34,8 +34,8 @@ enum HideEdge {
     Right,
 }
 
-fn should_show_widget_view(smtc_enabled: bool, has_media: bool, is_playing: bool) -> bool {
-    !(smtc_enabled && has_media && is_playing)
+fn should_show_widget_view(smtc_enabled: bool, has_media: bool) -> bool {
+    !(smtc_enabled && has_media)
 }
 
 pub struct App {

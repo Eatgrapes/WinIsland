@@ -262,11 +262,8 @@ impl App {
                     self.idle_timer = Instant::now();
                 } else {
                     let media = self.smtc.get_info();
-                    let widget_view = should_show_widget_view(
-                        self.config.smtc_enabled,
-                        !media.title.is_empty(),
-                        media.is_playing,
-                    );
+                    let widget_view =
+                        should_show_widget_view(self.config.smtc_enabled, !media.title.is_empty());
                     self.widget_view = widget_view;
                     self.spring_view.value = f32::from(widget_view);
                     self.spring_view.velocity = 0.0;
