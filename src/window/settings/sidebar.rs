@@ -68,7 +68,6 @@ impl SettingsApp {
             // Yellow Minimize line: -
             sym_paint.set_color(Color::from_rgb(0x5C, 0x3E, 0x00));
             canvas.draw_line((36.5, 24.0), (43.5, 24.0), &sym_paint);
-
         }
 
         let mut sep = Paint::default();
