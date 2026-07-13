@@ -91,16 +91,11 @@ pub(super) fn draw_stepper_btn(
     } else {
         theme.text_sec
     });
-    fm.draw_text_in_rect(DrawTextInRectParams {
-        canvas,
-        text: label,
-        x,
-        y: y + 17.0,
-        w: STEPPER_BTN_SIZE,
-        size: 16.0,
-        bold: false,
-        paint: &paint,
-    });
+    let font = fm.get_font(16.0, false);
+    let (_, bounds) = font.measure_str(label, None);
+    let text_x = x + (STEPPER_BTN_SIZE - bounds.width()) / 2.0 - bounds.left();
+    let text_y = y + (STEPPER_BTN_SIZE - bounds.height()) / 2.0 - bounds.top();
+    canvas.draw_str(label, (text_x, text_y), &font, &paint);
 }
 
 pub(super) fn draw_pill_btn(params: PillBtnParams<'_>) {
