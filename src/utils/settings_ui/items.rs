@@ -91,7 +91,8 @@ impl SettingsItem {
     pub fn height(&self) -> f32 {
         match self {
             SettingsItem::SectionHeader { .. } => 30.0,
-            SettingsItem::GroupStart | SettingsItem::GroupEnd => 0.0,
+            SettingsItem::GroupStart => 0.0,
+            SettingsItem::GroupEnd => 12.0,
             SettingsItem::CenterLink { .. } => 40.0,
             SettingsItem::CenterText { .. } => 35.0,
             SettingsItem::Spacer { height } => *height,
