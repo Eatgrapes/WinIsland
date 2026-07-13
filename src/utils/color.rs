@@ -70,7 +70,7 @@ pub fn light_settings_theme() -> SettingsTheme {
         win_bg: Color::from_rgb(242, 242, 247),
         sidebar_bg: Color::from_rgb(232, 232, 237),
         group_bg: Color::from_rgb(255, 255, 255),
-        card_highlight: Color::from_rgb(218, 218, 223),
+        card_highlight: Color::from_rgb(235, 235, 240),
         text_pri: Color::from_rgb(0, 0, 0),
         text_sec: Color::from_rgb(99, 99, 102),
         disabled: Color::from_rgb(194, 194, 199),
