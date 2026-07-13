@@ -24,9 +24,9 @@ impl SettingsApp {
             )
         } else if self.is_light {
             (
-                Color::from_rgb(0xE6, 0xE6, 0xE6),
-                Color::from_rgb(0xE6, 0xE6, 0xE6),
-                Color::from_rgb(0xE6, 0xE6, 0xE6),
+                Color::from_rgb(0xD4, 0x8A, 0x84),
+                Color::from_rgb(0xD1, 0xB0, 0x78),
+                Color::from_rgb(0x81, 0xB4, 0x89),
             )
         } else {
             (
