@@ -1,13 +1,14 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use skia_safe::{Color, Image};
 
 thread_local! {
-    static COLOR_CACHE: RefCell<HashMap<String, Vec<Color>>> = RefCell::new(HashMap::new());
+    static COLOR_CACHE: RefCell<HashMap<String, Arc<[Color]>>> = RefCell::new(HashMap::new());
 }
 
-pub(super) fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color> {
+pub(super) fn get_palette_from_image(img: &Image, cache_key: &str) -> Arc<[Color]> {
     COLOR_CACHE.with(|cache| {
         let mut cache_mut = cache.borrow_mut();
         if cache_mut.len() > 50
@@ -82,6 +83,7 @@ pub(super) fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color>
         if palette.is_empty() {
             palette.push(Color::from_rgb(200, 200, 200));
         }
+        let palette: Arc<[Color]> = Arc::from(palette);
         cache_mut.insert(cache_key.to_string(), palette.clone());
         palette
     })

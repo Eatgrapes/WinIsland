@@ -8,7 +8,7 @@ use self::mini::{MiniContentParams, draw_mini_content};
 
 use crate::core::config::{DockPosition, PADDING, TOP_OFFSET, WidgetSlot};
 use crate::core::smtc::MediaInfo;
-use crate::ui::expanded::music_view::get_media_palette;
+use crate::ui::expanded::music_view::{default_media_palette, get_media_palette};
 use skia_safe::{
     ClipOp, Color, ISize, Paint, RRect, Rect, Surface as SkSurface, image_filters, surfaces,
 };
@@ -225,10 +225,7 @@ pub fn draw_island(
     let palette = if expanded_alpha_f > 0.01 || mini_alpha_f > 0.01 {
         get_media_palette(media)
     } else {
-        vec![
-            Color::from_rgb(180, 180, 180),
-            Color::from_rgb(100, 100, 100),
-        ]
+        default_media_palette()
     };
 
     let viz_h_scale = 0.45 + (1.0 - 0.45) * expansion_progress;

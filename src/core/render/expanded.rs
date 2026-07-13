@@ -85,7 +85,7 @@ pub(super) fn draw_expanded_content(params: ExpandedContentParams<'_>) -> bool {
             dt,
             text_color,
             text_color_sec,
-            palette: palette.to_vec(),
+            palette,
         });
         canvas.restore();
 

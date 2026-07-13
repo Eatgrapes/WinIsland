@@ -24,6 +24,7 @@ use skia_safe::{
     SamplingOptions, image_filters,
 };
 use std::cell::RefCell;
+use std::sync::{Arc, OnceLock};
 
 thread_local! {
     static IMG_CACHE: RefCell<Option<(String, Image)>> = const { RefCell::new(None) };
@@ -86,15 +87,24 @@ pub fn get_cached_media_image_with_key(media: &MediaInfo) -> Option<(Image, Stri
     result
 }
 
-pub fn get_media_palette(media: &MediaInfo) -> Vec<Color> {
+pub fn get_media_palette(media: &MediaInfo) -> Arc<[Color]> {
     if let Some((img, cache_key)) = get_cached_media_image_with_key(media) {
         get_palette_from_image(&img, &cache_key)
     } else {
-        vec![
-            Color::from_rgb(180, 180, 180),
-            Color::from_rgb(100, 100, 100),
-        ]
+        default_media_palette()
     }
+}
+
+pub fn default_media_palette() -> Arc<[Color]> {
+    static DEFAULT_PALETTE: OnceLock<Arc<[Color]>> = OnceLock::new();
+    DEFAULT_PALETTE
+        .get_or_init(|| {
+            Arc::from([
+                Color::from_rgb(180, 180, 180),
+                Color::from_rgb(100, 100, 100),
+            ])
+        })
+        .clone()
 }
 
 pub fn clear_cover_cache() {
@@ -124,7 +134,7 @@ pub struct DrawMusicPageParams<'a> {
     pub dt: f32,
     pub text_color: Color,
     pub text_color_sec: Color,
-    pub palette: Vec<Color>,
+    pub palette: &'a [Color],
 }
 
 pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
@@ -694,7 +704,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         y: title_y - 4.0 * scale,
         alpha,
         is_playing: music_active && media.is_playing,
-        palette: &palette,
+        palette,
         spectrum: &media.spectrum,
         w_scale: scale,
         h_scale: viz_h_scale,
