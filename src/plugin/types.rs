@@ -19,7 +19,6 @@ pub fn read_opt_c_str(buf: &[u8]) -> Option<String> {
     if s.is_empty() { None } else { Some(s) }
 }
 
-/// 插件元信息（Host 端）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginMetadata {
     pub id: String,
@@ -41,7 +40,6 @@ impl From<&PluginMetadataC> for PluginMetadata {
     }
 }
 
-/// 主题颜色（Host 端）
 #[derive(Debug, Clone)]
 pub struct ThemeColors {
     pub primary: (u8, u8, u8, u8),
@@ -73,7 +71,6 @@ impl From<&ThemeColorsC> for ThemeColors {
     }
 }
 
-/// 动画配置（Host 端）
 #[derive(Debug, Clone)]
 pub struct AnimationConfig {
     pub expand_duration_ms: u32,
@@ -91,7 +88,6 @@ impl From<&AnimationConfigC> for AnimationConfig {
     }
 }
 
-/// 快捷方式定义（Host 端）
 #[derive(Debug, Clone)]
 pub struct Shortcut {
     pub id: String,
@@ -101,7 +97,6 @@ pub struct Shortcut {
     pub hotkey: Option<String>,
 }
 
-/// 插件错误
 #[derive(Debug)]
 pub enum PluginError {
     NotFound(String),

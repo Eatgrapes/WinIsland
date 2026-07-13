@@ -6,14 +6,12 @@ use std::time::{Duration, Instant};
 
 const MINI_TIMEOUT_SECS: u64 = 30;
 
-/// Mini view 应显示的内容来源
 #[derive(Debug, Clone, Copy)]
 pub enum MiniContent<'a> {
     Music,
     Plugin(&'a PluginContext),
 }
 
-/// 上下文管理器 —— 调度器和生命周期仲裁
 pub struct ContextManager {
     plugin_contexts: Vec<PluginContext>,
     smtc_active: bool,
@@ -74,7 +72,6 @@ impl ContextManager {
         self.expanded_id = id;
     }
 
-    /// 返回当前 mini 应显示的内容
     pub fn current_mini(&self) -> Option<MiniContent<'_>> {
         if let Some(ctx) = self.plugin_contexts.iter().rev().find(|c| c.mini_render) {
             return Some(MiniContent::Plugin(ctx));
