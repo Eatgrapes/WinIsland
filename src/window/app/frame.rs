@@ -258,31 +258,27 @@ impl App {
         set_progress_hover(progress_hover_active);
         set_progress_dragging(self.seeking_progress);
 
-        if self.is_dragging {
-            let dx = px - self.drag_start_px;
-            let dy = py - self.drag_start_py;
-            if !self.drag_has_moved && (dx.abs() > 3 || dy.abs() > 3) {
+        if self.is_dragging && !self.auto_hidden && !self.manually_hidden {
+            let upward_distance = self.drag_start_py - py;
+            let horizontal_distance = px - self.drag_start_px;
+            if upward_distance.abs() > 3 || horizontal_distance.abs() > 3 {
                 self.drag_has_moved = true;
-                if !self.auto_hidden && !self.manually_hidden {
-                    self.hide_edge = HideEdge::from_drag_delta(dx, dy);
-                    self.hide_origin = Some((self.win_x, self.win_y));
-                    self.snap_to_hide_edge(&window);
-                }
             }
-            let drag_layout = self.compute_island_layout();
-            let diff = match drag_layout.hide_edge {
-                HideEdge::Top => self.drag_start_py - py,
-                HideEdge::Bottom => py - self.drag_start_py,
-                HideEdge::Left => self.drag_start_px - px,
-                HideEdge::Right => px - self.drag_start_px,
-            };
-            if drag_layout.hide_distance > 0.0 {
-                let mut new_val =
-                    self.drag_start_hide_val + (diff as f32 / drag_layout.hide_distance as f32);
-                new_val = new_val.clamp(0.0, 1.0);
-                self.spring_hide.value = new_val;
-                self.spring_hide.velocity = 0.0;
-                window.request_redraw();
+            if upward_distance > 3 && self.hide_origin.is_none() {
+                self.hide_edge = HideEdge::Top;
+                self.hide_origin = Some((self.win_x, self.win_y));
+                self.snap_to_hide_edge(&window);
+            }
+            if self.hide_origin.is_some() {
+                let drag_layout = self.compute_island_layout();
+                if drag_layout.hide_distance > 0.0 {
+                    let mut new_val = self.drag_start_hide_val
+                        + (upward_distance as f32 / drag_layout.hide_distance as f32);
+                    new_val = new_val.clamp(0.0, 1.0);
+                    self.spring_hide.value = new_val;
+                    self.spring_hide.velocity = 0.0;
+                    window.request_redraw();
+                }
             }
         } else {
             let hide_target = if self.auto_hidden || self.manually_hidden {

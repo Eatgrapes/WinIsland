@@ -253,7 +253,6 @@ impl App {
             current_island_x,
             current_island_y,
             stable_island_y,
-            hide_edge,
             hide_distance,
             hidden_handle_x,
             hidden_handle_y,

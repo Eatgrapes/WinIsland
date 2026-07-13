@@ -34,22 +34,6 @@ enum HideEdge {
     Right,
 }
 
-impl HideEdge {
-    fn from_drag_delta(dx: i32, dy: i32) -> Self {
-        if dx.abs() > dy.abs() {
-            if dx.is_positive() {
-                Self::Right
-            } else {
-                Self::Left
-            }
-        } else if dy.is_positive() {
-            Self::Bottom
-        } else {
-            Self::Top
-        }
-    }
-}
-
 fn should_show_widget_view(smtc_enabled: bool, has_media: bool, is_playing: bool) -> bool {
     !(smtc_enabled && has_media && is_playing)
 }
@@ -193,7 +177,6 @@ struct IslandLayout {
     current_island_x: f64,
     current_island_y: f64,
     stable_island_y: f64,
-    hide_edge: HideEdge,
     hide_distance: f64,
     hidden_handle_x: f64,
     hidden_handle_y: f64,
