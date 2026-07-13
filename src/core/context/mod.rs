@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 mod types;
 
 pub use types::*;
@@ -9,10 +7,10 @@ use std::time::{Duration, Instant};
 const MINI_TIMEOUT_SECS: u64 = 30;
 
 /// Mini view 应显示的内容来源
-#[derive(Debug, Clone)]
-pub enum MiniContent {
+#[derive(Debug, Clone, Copy)]
+pub enum MiniContent<'a> {
     Music,
-    Plugin(Box<PluginContext>),
+    Plugin(&'a PluginContext),
 }
 
 /// 上下文管理器 —— 调度器和生命周期仲裁
@@ -35,12 +33,12 @@ impl ContextManager {
         self.smtc_active = active;
     }
 
+    #[allow(dead_code)]
     pub fn smtc_active(&self) -> bool {
         self.smtc_active
     }
 
-    pub fn push_context(&mut self, ctx: PluginContext) -> ContextId {
-        let id = ctx.id.clone();
+    pub fn push_context(&mut self, ctx: PluginContext) {
         if let Some(pos) = self
             .plugin_contexts
             .iter()
@@ -49,7 +47,6 @@ impl ContextManager {
             self.plugin_contexts.remove(pos);
         }
         self.plugin_contexts.push(ctx);
-        id
     }
 
     pub fn close_context(&mut self, id: &ContextId) -> bool {
@@ -65,20 +62,22 @@ impl ContextManager {
         }
     }
 
+    #[allow(dead_code)]
     pub fn current_expanded(&self) -> Option<&PluginContext> {
         self.expanded_id
             .as_ref()
             .and_then(|id| self.plugin_contexts.iter().find(|c| c.id == *id))
     }
 
+    #[allow(dead_code)]
     pub fn set_expanded(&mut self, id: Option<ContextId>) {
         self.expanded_id = id;
     }
 
     /// 返回当前 mini 应显示的内容
-    pub fn current_mini(&self) -> Option<MiniContent> {
+    pub fn current_mini(&self) -> Option<MiniContent<'_>> {
         if let Some(ctx) = self.plugin_contexts.iter().rev().find(|c| c.mini_render) {
-            return Some(MiniContent::Plugin(Box::new(ctx.clone())));
+            return Some(MiniContent::Plugin(ctx));
         }
         if self.smtc_active {
             return Some(MiniContent::Music);

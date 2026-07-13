@@ -13,7 +13,7 @@ use crate::utils::font::{DrawTextCachedParams, FontManager};
 
 pub(super) struct MiniContentParams<'a> {
     pub(super) canvas: &'a Canvas,
-    pub(super) content: &'a Option<MiniContent>,
+    pub(super) content: Option<MiniContent<'a>>,
     pub(super) mini_alpha: f32,
     pub(super) current_w: f32,
     pub(super) global_scale: f32,

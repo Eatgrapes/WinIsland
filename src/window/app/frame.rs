@@ -352,7 +352,7 @@ impl App {
         if let Some(lyric) = current_lyric_opt {
             if lyric != self.current_lyric_text {
                 self.old_lyric_text = self.current_lyric_text.clone();
-                self.current_lyric_text = lyric.clone();
+                self.current_lyric_text = lyric.to_owned();
                 self.lyric_transition = 0.0;
                 self.lyric_scroll_offset = 0.0;
                 self.lyric_scroll_pause = 0.0;

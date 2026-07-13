@@ -21,6 +21,7 @@ pub enum Priority {
 }
 
 impl Priority {
+    #[allow(dead_code)]
     pub fn from_u32(v: u32) -> Option<Self> {
         match v {
             0 => Some(Self::Low),
@@ -30,6 +31,7 @@ impl Priority {
         }
     }
 
+    #[allow(dead_code)]
     pub fn as_u32(self) -> u32 {
         self as u32
     }
@@ -77,13 +79,16 @@ pub struct PluginContext {
     /// expanded 正文
     pub body: String,
     /// 图标 PNG bytes
+    #[allow(dead_code)]
     pub icon: Vec<u8>,
     /// expanded 停留秒数
     pub duration_sec: u32,
     /// 是否在 mini 显示摘要
     pub mini_render: bool,
     /// mini 摘要文本（mini_render=true 时有意义）
+    #[allow(dead_code)]
     pub mini_text: String,
+    #[allow(dead_code)]
     pub created_at: Instant,
     pub expanded_started_at: Option<Instant>,
     pub collapsed_at: Option<Instant>,

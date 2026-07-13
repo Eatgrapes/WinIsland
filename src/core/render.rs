@@ -19,8 +19,6 @@ use winit::window::Window;
 
 thread_local! {
     static SK_SURFACE: RefCell<Option<SkSurface>> = const { RefCell::new(None) };
-    static MINI_COVER_ROTATION: RefCell<f32> = const { RefCell::new(0.0) };
-
 }
 
 pub struct LayoutParams {
@@ -75,7 +73,7 @@ pub struct DrawIslandParams<'a> {
     pub layout: LayoutParams,
     pub media: MediaParams<'a>,
     pub lyrics: LyricsParams<'a>,
-    pub mini_content: Option<MiniContent>,
+    pub mini_content: Option<MiniContent<'a>>,
     pub window: WindowParams,
     pub style: StyleParams<'a>,
 }
@@ -260,7 +258,7 @@ pub fn draw_island(
     });
     draw_mini_content(MiniContentParams {
         canvas,
-        content: &mini_content,
+        content: mini_content,
         mini_alpha: mini_alpha_f,
         current_w,
         global_scale,
