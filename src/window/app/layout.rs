@@ -3,7 +3,7 @@ use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
-use crate::core::config::{PADDING, TOP_OFFSET};
+use crate::core::config::{DockPosition, PADDING, TOP_OFFSET};
 
 use super::{App, IslandLayout};
 
@@ -96,6 +96,66 @@ impl App {
         };
 
         (win_x, win_y)
+    }
+
+    pub(super) fn snap_to_nearest_edge(&mut self, window: &Window) {
+        let Some(monitor) = Self::get_target_monitor(window, self.config.monitor_index) else {
+            return;
+        };
+        let mon_size = monitor.size();
+        let mon_pos = monitor.position();
+        let layout = self.compute_island_layout();
+        let island_w = self.spring_w.value.round().max(1.0) as i32;
+        let island_h = self.spring_h.value.round().max(1.0) as i32;
+        let island_x = self.win_x + layout.offset_x.round() as i32;
+        let island_y = self.win_y + layout.current_island_y.round() as i32;
+        let mon_right = mon_pos.x + mon_size.width as i32;
+        let mon_bottom = mon_pos.y + mon_size.height as i32;
+        let edges = [
+            ((island_y - mon_pos.y).max(0), DockPosition::TopCenter),
+            (
+                (mon_bottom - island_y - island_h).max(0),
+                DockPosition::BottomCenter,
+            ),
+            ((island_x - mon_pos.x).max(0), DockPosition::TopLeft),
+            (
+                (mon_right - island_x - island_w).max(0),
+                DockPosition::TopRight,
+            ),
+        ];
+        let dock_position = edges
+            .into_iter()
+            .min_by_key(|(distance, _)| *distance)
+            .map(|(_, position)| position)
+            .unwrap_or(DockPosition::TopCenter);
+        let island_center_x = island_x + island_w / 2;
+        let island_center_y = island_y + island_h / 2;
+
+        match dock_position {
+            DockPosition::TopCenter | DockPosition::BottomCenter => {
+                let min_x = mon_pos.x + TOP_OFFSET + island_w / 2;
+                let max_x = mon_right - TOP_OFFSET - island_w / 2;
+                let snapped_center_x = island_center_x.clamp(min_x, max_x.max(min_x));
+                self.config.position_x_offset =
+                    snapped_center_x - (mon_pos.x + mon_size.width as i32 / 2);
+                self.config.position_y_offset = 0;
+            }
+            DockPosition::TopLeft | DockPosition::TopRight => {
+                let min_y = mon_pos.y + TOP_OFFSET + island_h / 2;
+                let max_y = mon_bottom - TOP_OFFSET - island_h / 2;
+                let snapped_center_y = island_center_y.clamp(min_y, max_y.max(min_y));
+                self.config.position_x_offset = 0;
+                self.config.position_y_offset =
+                    snapped_center_y - (mon_pos.y + TOP_OFFSET + island_h / 2);
+            }
+            DockPosition::BottomLeft | DockPosition::BottomRight => unreachable!(),
+        }
+
+        self.config.dock_position = dock_position;
+        self.last_mon_size = (mon_size.width, mon_size.height);
+        self.last_mon_pos = (mon_pos.x, mon_pos.y);
+        (self.win_x, self.win_y) = self.compute_window_position(mon_pos, mon_size);
+        window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
     }
 
     pub(super) fn compute_island_layout(&self) -> IslandLayout {

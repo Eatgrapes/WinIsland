@@ -46,21 +46,27 @@ impl App {
                     self.spring_h.value as f64,
                 );
                 if is_hovering {
-                    self.right_press_time = Some(Instant::now());
                     self.right_press_cursor = Some((px, py));
+                    self.right_drag_start_offset =
+                        Some((self.config.position_x_offset, self.config.position_y_offset));
                 }
             }
             ElementState::Released => {
-                self.right_press_time = None;
                 if self.is_right_dragging {
                     self.is_right_dragging = false;
+                    if let Some(window) = self.window.clone() {
+                        self.snap_to_nearest_edge(&window);
+                    }
                     crate::core::persistence::save_config(&self.config);
                     log::info!(
-                        "Right click drag offsets saved: ({}, {})",
+                        "Island snapped to {} with offsets ({}, {})",
+                        self.config.dock_position,
                         self.config.position_x_offset,
                         self.config.position_y_offset
                     );
                 }
+                self.right_press_cursor = None;
+                self.right_drag_start_offset = None;
             }
         }
     }

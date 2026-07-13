@@ -14,7 +14,7 @@ use crate::utils::mouse::{
     is_point_in_rect,
 };
 
-use super::App;
+use super::{App, RIGHT_DRAG_THRESHOLD};
 
 impl App {
     pub(super) fn on_about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -71,41 +71,38 @@ impl App {
         let rel_x = px - self.win_x;
         let rel_y = py - self.win_y;
 
-        if let Some(press_time) = self.right_press_time
-            && press_time.elapsed().as_millis() >= 300
-        {
-            self.right_press_time = None;
-            self.is_right_dragging = true;
-            self.right_drag_start_pos = Some((px, py));
-            self.right_drag_start_offset =
-                Some((self.config.position_x_offset, self.config.position_y_offset));
-            log::info!(
-                "Right click drag started at offsets: ({}, {})",
-                self.config.position_x_offset,
-                self.config.position_y_offset
-            );
-        }
-
-        if self.is_right_dragging
-            && let Some((start_cx, start_cy)) = self.right_drag_start_pos
+        if let Some((start_cx, start_cy)) = self.right_press_cursor
             && let Some((start_ox, start_oy)) = self.right_drag_start_offset
         {
             let dx = px - start_cx;
             let dy = py - start_cy;
-            self.config.position_x_offset = start_ox + dx;
-            self.config.position_y_offset = start_oy + dy;
-
-            if let Some(monitor) = Self::get_target_monitor(&window, self.config.monitor_index) {
-                let mon_size = monitor.size();
-                let mon_pos = monitor.position();
-                let (new_x, new_y) = self.compute_window_position(mon_pos, mon_size);
-                if new_x != self.win_x || new_y != self.win_y {
-                    self.win_x = new_x;
-                    self.win_y = new_y;
-                    window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
-                }
+            if !self.is_right_dragging
+                && (dx.abs() >= RIGHT_DRAG_THRESHOLD || dy.abs() >= RIGHT_DRAG_THRESHOLD)
+            {
+                self.is_right_dragging = true;
+                log::info!(
+                    "Right click drag started at offsets: ({}, {})",
+                    start_ox,
+                    start_oy
+                );
             }
-            window.request_redraw();
+            if self.is_right_dragging {
+                self.config.position_x_offset = start_ox + dx;
+                self.config.position_y_offset = start_oy + dy;
+
+                if let Some(monitor) = Self::get_target_monitor(&window, self.config.monitor_index)
+                {
+                    let mon_size = monitor.size();
+                    let mon_pos = monitor.position();
+                    let (new_x, new_y) = self.compute_window_position(mon_pos, mon_size);
+                    if new_x != self.win_x || new_y != self.win_y {
+                        self.win_x = new_x;
+                        self.win_y = new_y;
+                        window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+                    }
+                }
+                window.request_redraw();
+            }
         }
 
         let layout = self.compute_island_layout();
@@ -196,13 +193,7 @@ impl App {
             self.idle_timer = Instant::now();
             self.spring_hide.velocity = -0.65;
             log::info!("Island un-hidden (media playing)");
-        } else if self.auto_hidden {
-            if is_on_hidden_handle || is_hovering_visible {
-                self.auto_hidden = false;
-                self.idle_timer = Instant::now();
-                self.spring_hide.velocity = -0.45;
-            }
-        } else if is_idle && !self.manually_hidden {
+        } else if !self.auto_hidden && is_idle && !self.manually_hidden {
             if self.idle_timer.elapsed().as_secs_f32() > self.config.auto_hide_delay {
                 self.auto_hidden = true;
                 log::info!(
@@ -210,7 +201,7 @@ impl App {
                     self.config.auto_hide_delay
                 );
             }
-        } else if !self.manually_hidden && !is_idle {
+        } else if !self.auto_hidden && !self.manually_hidden && !is_idle {
             self.idle_timer = Instant::now();
         }
 
@@ -409,7 +400,7 @@ impl App {
             || self.spring_r.velocity.abs() > 0.001
             || self.spring_view.velocity.abs() > 0.001
             || should_periodic_redraw
-            || self.right_press_time.is_some()
+            || self.right_press_cursor.is_some()
             || self.is_right_dragging
         {
             window.request_redraw();

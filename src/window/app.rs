@@ -24,6 +24,7 @@ mod startup;
 mod system;
 
 type InstallResult = Result<(PluginManifest, PathBuf, Vec<String>), String>;
+const RIGHT_DRAG_THRESHOLD: i32 = 4;
 
 fn should_show_widget_view(smtc_enabled: bool, has_media: bool, is_playing: bool) -> bool {
     !(smtc_enabled && has_media && is_playing)
@@ -83,10 +84,8 @@ pub struct App {
     plugin_mgr: PluginManager,
     plugin_media_source: Option<crate::core::smtc::MediaInfo>,
     pending_install: Option<mpsc::Receiver<InstallResult>>,
-    right_press_time: Option<Instant>,
     right_press_cursor: Option<(i32, i32)>,
     is_right_dragging: bool,
-    right_drag_start_pos: Option<(i32, i32)>,
     right_drag_start_offset: Option<(i32, i32)>,
 }
 
@@ -151,10 +150,8 @@ impl Default for App {
             plugin_mgr: PluginManager::default(),
             plugin_media_source: None,
             pending_install: None,
-            right_press_time: None,
             right_press_cursor: None,
             is_right_dragging: false,
-            right_drag_start_pos: None,
             right_drag_start_offset: None,
         }
     }
