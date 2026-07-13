@@ -5,7 +5,7 @@ use super::input::{
     widget_library_items, widget_source_rect,
 };
 use super::items::*;
-use crate::core::config::{WIDGET_GRID_SLOTS, WidgetKind, WidgetSlot, widget_footprint};
+use crate::core::config::{WidgetKind, WidgetSlot, widget_footprint};
 use crate::core::i18n::tr;
 use crate::ui::widget::{draw_mini_card, draw_widget};
 use crate::utils::anim::AnimPool;
@@ -1249,21 +1249,16 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     };
 
                     if dragging {
-                        for slot in 0..WIDGET_GRID_SLOTS {
+                        for slot in drop_cells.iter().copied() {
                             let (sx, sy, sw, sh) = geom.slot_rect(slot);
-                            let is_target = drop_cells.contains(&slot);
                             let mut slot_p = Paint::default();
                             slot_p.set_anti_alias(true);
-                            slot_p.set_color(if is_target {
-                                Color::from_argb(
-                                    110,
-                                    theme.accent.r(),
-                                    theme.accent.g(),
-                                    theme.accent.b(),
-                                )
-                            } else {
-                                Color::from_argb(18, 255, 255, 255)
-                            });
+                            slot_p.set_color(Color::from_argb(
+                                110,
+                                theme.accent.r(),
+                                theme.accent.g(),
+                                theme.accent.b(),
+                            ));
                             canvas.draw_round_rect(
                                 Rect::from_xywh(sx, sy, sw, sh),
                                 slot_radius,
@@ -1273,12 +1268,8 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                             let mut slot_border = Paint::default();
                             slot_border.set_anti_alias(true);
                             slot_border.set_style(skia_safe::paint::Style::Stroke);
-                            slot_border.set_stroke_width(if is_target { 2.0 } else { 1.0 });
-                            slot_border.set_color(if is_target {
-                                theme.accent
-                            } else {
-                                Color::from_argb(55, 255, 255, 255)
-                            });
+                            slot_border.set_stroke_width(2.0);
+                            slot_border.set_color(theme.accent);
                             canvas.draw_round_rect(
                                 Rect::from_xywh(sx, sy, sw, sh),
                                 slot_radius,
@@ -1301,10 +1292,10 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                             .map(|s| widget_footprint(kind, entry.slot).contains(&s))
                             .unwrap_or(false);
                         if dragging || hovered {
-                            let (bx, by) = widget_delete_button_center(tx, ty, tw, cap_scale);
+                            let (bx, by) = widget_delete_button_center(tx, ty, tw, th);
                             let mut xbg = Paint::default();
                             xbg.set_anti_alias(true);
-                            xbg.set_color(Color::from_argb(150, 0, 0, 0));
+                            xbg.set_color(Color::from_argb(235, 255, 59, 48));
                             canvas.draw_circle((bx, by), 7.0 * cap_scale, &xbg);
                             label_p.set_color(Color::WHITE);
                             fm.draw_text_in_rect(DrawTextInRectParams {

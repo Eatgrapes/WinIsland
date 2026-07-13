@@ -1,6 +1,6 @@
 use super::items::*;
-use crate::core::config::{AVAILABLE_WIDGETS, WIDGET_GRID_SLOTS, WidgetKind, WidgetSlot};
-use crate::ui::widget::{WidgetGridLayout, widget_grid_layout};
+use crate::core::config::{AVAILABLE_WIDGETS, WidgetKind, WidgetSlot};
+use crate::ui::widget::{WidgetGridLayout, widget_corner_radius, widget_grid_layout};
 
 pub const WIDGET_PREVIEW_H: f32 = 420.0;
 pub const WIDGET_ISLAND_PANEL_H: f32 = 300.0;
@@ -50,14 +50,28 @@ impl WidgetGridGeom {
     pub fn footprint_rect(&self, widget: WidgetKind, slot: usize) -> (f32, f32, f32, f32) {
         self.layout.footprint_rect(widget, slot)
     }
+
+    pub fn slot_at_point(&self, x: f32, y: f32, include_gaps: bool) -> Option<usize> {
+        self.layout.slot_at_point(x, y, include_gaps)
+    }
 }
 
-pub fn widget_delete_button_center(x: f32, y: f32, w: f32, scale: f32) -> (f32, f32) {
-    (x + w - 10.0 * scale, y + 10.0 * scale)
+pub fn widget_delete_button_center(x: f32, y: f32, w: f32, h: f32) -> (f32, f32) {
+    let corner_inset = widget_corner_radius(w, h) * (1.0 - std::f32::consts::FRAC_1_SQRT_2);
+    (x + w - corner_inset, y + corner_inset)
 }
 
-pub fn widget_delete_button_hit(mx: f32, my: f32, x: f32, y: f32, w: f32, scale: f32) -> bool {
-    let (cx, cy) = widget_delete_button_center(x, y, w, scale);
+#[allow(clippy::too_many_arguments)]
+pub fn widget_delete_button_hit(
+    mx: f32,
+    my: f32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    scale: f32,
+) -> bool {
+    let (cx, cy) = widget_delete_button_center(x, y, w, h);
     let radius = (7.0 * scale).max(6.0);
     (mx - cx).powi(2) + (my - cy).powi(2) <= radius.powi(2)
 }
@@ -159,11 +173,8 @@ pub fn widget_preview_hit_test(
     }
 
     let geom = widget_grid_geom(item_y, width, expanded_width, expanded_height);
-    for slot in 0..WIDGET_GRID_SLOTS {
-        let (sx, sy, sw, sh) = geom.slot_rect(slot);
-        if in_rect(mx, my, sx, sy, sw, sh) {
-            return WidgetPreviewHit::Slot(slot);
-        }
+    if let Some(slot) = geom.slot_at_point(mx, my, dragging.is_some()) {
+        return WidgetPreviewHit::Slot(slot);
     }
 
     WidgetPreviewHit::None
@@ -278,7 +289,9 @@ pub fn hover_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::config::{WIDGET_GRID_COLS, default_widget_layout, place_widget_in_layout};
+    use crate::core::config::{
+        WIDGET_GRID_COLS, WIDGET_GRID_SLOTS, default_widget_layout, place_widget_in_layout,
+    };
 
     const ITEM_Y: f32 = 80.0;
     const WIDTH: f32 = 486.0;
@@ -405,18 +418,47 @@ mod tests {
     }
 
     #[test]
+    fn widget_drag_hit_test_absorbs_grid_gaps() {
+        let layout = default_widget_layout();
+        let geom = widget_grid_geom(ITEM_Y, WIDTH, EXP_W, EXP_H);
+        let (x0, y0, w0, h0) = geom.slot_rect(0);
+        let (x1, _, _, _) = geom.slot_rect(1);
+        let gap_x = x0 + w0 + (x1 - x0 - w0) * 0.25;
+        let center_y = y0 + h0 / 2.0;
+
+        assert_eq!(
+            widget_preview_hit_test(gap_x, center_y, ITEM_Y, WIDTH, EXP_W, EXP_H, &layout, None,),
+            WidgetPreviewHit::None
+        );
+        assert_eq!(
+            widget_preview_hit_test(
+                gap_x,
+                center_y,
+                ITEM_Y,
+                WIDTH,
+                EXP_W,
+                EXP_H,
+                &layout,
+                Some(WidgetKind::Clock),
+            ),
+            WidgetPreviewHit::Slot(0)
+        );
+    }
+
+    #[test]
     fn widget_delete_button_does_not_include_the_widget_body() {
         let geom = widget_grid_geom(ITEM_Y, WIDTH, EXP_W, EXP_H);
         let (x, y, w, h) = geom.footprint_rect(WidgetKind::Clock, 0);
-        let (cx, cy) = widget_delete_button_center(x, y, w, geom.cap_scale);
+        let (cx, cy) = widget_delete_button_center(x, y, w, h);
 
-        assert!(widget_delete_button_hit(cx, cy, x, y, w, geom.cap_scale));
+        assert!(widget_delete_button_hit(cx, cy, x, y, w, h, geom.cap_scale));
         assert!(!widget_delete_button_hit(
             x + w / 2.0,
             y + h / 2.0,
             x,
             y,
             w,
+            h,
             geom.cap_scale
         ));
     }
