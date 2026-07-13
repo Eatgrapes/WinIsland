@@ -111,8 +111,8 @@ pub(super) fn draw_pill_btn(params: PillBtnParams<'_>) {
     paint.set_color(params.bg_color);
     canvas.draw_round_rect(
         Rect::from_xywh(params.x, params.y, params.w, params.h),
-        params.h / 2.0,
-        params.h / 2.0,
+        POPUP_BTN_R,
+        POPUP_BTN_R,
         &paint,
     );
     paint.set_color(params.text_color);
