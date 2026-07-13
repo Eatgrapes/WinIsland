@@ -8,4 +8,4 @@ pub use input::{
     ClickResult, StepDirection, WidgetPreviewHit, hit_test, hover_test, widget_delete_button_hit,
     widget_grid_geom, widget_preview_hit_test,
 };
-pub use renderer::{DrawItemsParams, content_height, draw_items};
+pub use renderer::{ActiveStepperValue, DrawItemsParams, content_height, draw_items};

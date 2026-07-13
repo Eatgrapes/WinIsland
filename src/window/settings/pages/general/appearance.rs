@@ -2,7 +2,7 @@ use crate::core::config::DockPosition;
 use crate::core::i18n::tr;
 use crate::utils::settings_ui::items::SettingsItem;
 use crate::utils::settings_ui::{ClickResult, StepDirection};
-use crate::window::settings::PopupState;
+use crate::window::settings::{NumberInputHandler, PopupState};
 
 use super::super::{PageInput, SettingsPage};
 use super::SettingsApp;
@@ -154,6 +154,40 @@ impl SettingsApp {
             return;
         };
 
+        if let ClickResult::StepperValue(item_index) = &result {
+            let (value, on_commit): (String, NumberInputHandler) = match action {
+                AppearanceAction::GlobalScale => {
+                    (format!("{:.2}", self.config.global_scale), set_global_scale)
+                }
+                AppearanceAction::BaseWidth => (self.config.base_width.to_string(), set_base_width),
+                AppearanceAction::BaseHeight => {
+                    (self.config.base_height.to_string(), set_base_height)
+                }
+                AppearanceAction::ExpandedWidth => {
+                    (self.config.expanded_width.to_string(), set_expanded_width)
+                }
+                AppearanceAction::ExpandedHeight => {
+                    (self.config.expanded_height.to_string(), set_expanded_height)
+                }
+                AppearanceAction::PositionX => {
+                    (self.config.position_x_offset.to_string(), set_position_x)
+                }
+                AppearanceAction::PositionY => {
+                    (self.config.position_y_offset.to_string(), set_position_y)
+                }
+                AppearanceAction::FontSize => {
+                    (format!("{:.0}", self.config.font_size), set_font_size)
+                }
+                AppearanceAction::Monitor | AppearanceAction::DockPosition => return,
+            };
+            self.begin_number_input(
+                input.stepper_value_rect(&page, *item_index, self.scroll_y),
+                value,
+                on_commit,
+            );
+            return;
+        }
+
         if let Some(direction) = result.step_direction() {
             match action {
                 AppearanceAction::GlobalScale => {
@@ -278,4 +312,52 @@ fn select_monitor(app: &mut SettingsApp, value: &str) {
 
 fn select_dock_position(app: &mut SettingsApp, value: &str) {
     app.config.dock_position = value.parse().unwrap_or(DockPosition::TopCenter);
+}
+
+fn set_global_scale(app: &mut SettingsApp, value: &str) {
+    if let Ok(value) = value.parse::<f32>() {
+        app.config.global_scale = value.clamp(0.5, 5.0);
+    }
+}
+
+fn set_base_width(app: &mut SettingsApp, value: &str) {
+    if let Ok(value) = value.parse::<f32>() {
+        app.config.base_width = value.clamp(40.0, 400.0);
+    }
+}
+
+fn set_base_height(app: &mut SettingsApp, value: &str) {
+    if let Ok(value) = value.parse::<f32>() {
+        app.config.base_height = value.clamp(15.0, 200.0);
+    }
+}
+
+fn set_expanded_width(app: &mut SettingsApp, value: &str) {
+    if let Ok(value) = value.parse::<f32>() {
+        app.config.expanded_width = value.clamp(200.0, 2000.0);
+    }
+}
+
+fn set_expanded_height(app: &mut SettingsApp, value: &str) {
+    if let Ok(value) = value.parse::<f32>() {
+        app.config.expanded_height = value.clamp(100.0, 1000.0);
+    }
+}
+
+fn set_position_x(app: &mut SettingsApp, value: &str) {
+    if let Ok(value) = value.parse::<i32>() {
+        app.config.position_x_offset = value;
+    }
+}
+
+fn set_position_y(app: &mut SettingsApp, value: &str) {
+    if let Ok(value) = value.parse::<i32>() {
+        app.config.position_y_offset = value;
+    }
+}
+
+fn set_font_size(app: &mut SettingsApp, value: &str) {
+    if let Ok(value) = value.parse::<f32>() {
+        app.config.font_size = value.clamp(0.0, 30.0);
+    }
 }

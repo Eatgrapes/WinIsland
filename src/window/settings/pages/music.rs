@@ -2,7 +2,7 @@ use crate::core::i18n::tr;
 use crate::utils::settings_ui::items::SettingsItem;
 use crate::utils::settings_ui::{ClickResult, StepDirection};
 
-use super::super::{PopupState, SettingsApp};
+use super::super::{NumberInputHandler, PopupState, SettingsApp};
 use super::{PageInput, SettingsPage};
 
 #[derive(Clone)]
@@ -145,6 +145,25 @@ impl SettingsApp {
             return;
         };
 
+        if let ClickResult::StepperValue(item_index) = &result {
+            let (value, on_commit): (String, NumberInputHandler) = match action {
+                MusicAction::LyricsDelay => {
+                    (format!("{:.1}", self.config.lyrics_delay), set_lyrics_delay)
+                }
+                MusicAction::LyricsScrollWidth => (
+                    (self.config.lyrics_scroll_max_width as i32).to_string(),
+                    set_lyrics_scroll_width,
+                ),
+                _ => return,
+            };
+            self.begin_number_input(
+                input.stepper_value_rect(&page, *item_index, self.scroll_y),
+                value,
+                on_commit,
+            );
+            return;
+        }
+
         let changed = match (&action, &result) {
             (MusicAction::SmtcEnabled, ClickResult::Switch(_)) => {
                 self.config.smtc_enabled = !self.config.smtc_enabled;
@@ -254,4 +273,16 @@ fn step_f64(value: f64, direction: StepDirection, amount: f64, min: f64, max: f6
 
 fn select_lyrics_source(app: &mut SettingsApp, value: &str) {
     app.config.lyrics_source = value.to_string();
+}
+
+fn set_lyrics_delay(app: &mut SettingsApp, value: &str) {
+    if let Ok(value) = value.parse::<f64>() {
+        app.config.lyrics_delay = value.clamp(-10.0, 10.0);
+    }
+}
+
+fn set_lyrics_scroll_width(app: &mut SettingsApp, value: &str) {
+    if let Ok(value) = value.parse::<f32>() {
+        app.config.lyrics_scroll_max_width = value.clamp(100.0, 500.0);
+    }
 }

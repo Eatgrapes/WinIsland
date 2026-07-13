@@ -34,6 +34,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
     let widget_drag_hover_slot = params.widget_drag_hover_slot;
     let widget_preview_hover_slot = params.widget_preview_hover_slot;
     let active_source_button = params.active_source_button;
+    let active_stepper_value = params.active_stepper_value;
 
     let fm = FontManager::global();
     let mut y = start_y;
@@ -117,24 +118,59 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 }
 
                 let btn_inc_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - STEPPER_BTN_SIZE;
-                let btn_dec_x = btn_inc_x - STEPPER_BTN_SIZE - 60.0;
+                let value_x = btn_inc_x - STEPPER_GAP - STEPPER_VALUE_W;
+                let btn_dec_x = value_x - STEPPER_GAP - STEPPER_BTN_SIZE;
                 let btn_y = cy - STEPPER_BTN_SIZE / 2.0;
                 if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
                     draw_stepper_btn(canvas, btn_dec_x, btn_y, "-", *enabled, theme);
                     draw_stepper_btn(canvas, btn_inc_x, btn_y, "+", *enabled, theme);
                 }
 
-                let val_center = (btn_dec_x + STEPPER_BTN_SIZE + btn_inc_x) / 2.0;
+                let val_center = value_x + STEPPER_VALUE_W / 2.0;
                 if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
+                    let is_editing = active_stepper_value.as_ref().is_some_and(|input| {
+                        (input.rect.left - value_x).abs() < 0.5
+                            && (input.rect.top - btn_y).abs() < 0.5
+                    });
+                    let display_value = active_stepper_value
+                        .as_ref()
+                        .filter(|_| is_editing)
+                        .map(|input| input.text)
+                        .unwrap_or(value);
+                    if is_editing {
+                        let mut input_paint = Paint::default();
+                        input_paint.set_anti_alias(true);
+                        input_paint.set_color(theme.card_highlight);
+                        canvas.draw_round_rect(
+                            Rect::from_xywh(value_x, btn_y, STEPPER_VALUE_W, STEPPER_BTN_SIZE),
+                            5.0,
+                            5.0,
+                            &input_paint,
+                        );
+                        input_paint.set_style(skia_safe::paint::Style::Stroke);
+                        input_paint.set_stroke_width(1.0);
+                        input_paint.set_color(theme.accent);
+                        canvas.draw_round_rect(
+                            Rect::from_xywh(
+                                value_x + 0.5,
+                                btn_y + 0.5,
+                                STEPPER_VALUE_W - 1.0,
+                                STEPPER_BTN_SIZE - 1.0,
+                            ),
+                            4.5,
+                            4.5,
+                            &input_paint,
+                        );
+                    }
                     paint.set_color(if *enabled {
                         theme.text_pri
                     } else {
                         theme.text_sec
                     });
-                    let val_w = fm.measure_text_cached(value, 13.0, FontStyle::normal());
+                    let val_w = fm.measure_text_cached(display_value, 13.0, FontStyle::normal());
                     fm.draw_text_cached(DrawTextCachedParams {
                         canvas,
-                        text: value,
+                        text: display_value,
                         x: val_center - val_w / 2.0,
                         y: cy + 5.0,
                         size: 13.0,

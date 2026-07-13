@@ -12,6 +12,11 @@ use super::items::SettingsItem;
 
 pub use items::{content_height, draw_items};
 
+pub struct ActiveStepperValue<'a> {
+    pub rect: Rect,
+    pub text: &'a str,
+}
+
 pub struct DrawItemsParams<'a> {
     pub canvas: &'a Canvas,
     pub items: &'a [SettingsItem],
@@ -30,4 +35,5 @@ pub struct DrawItemsParams<'a> {
     pub widget_drag_hover_slot: Option<usize>,
     pub widget_preview_hover_slot: Option<usize>,
     pub active_source_button: Option<Rect>,
+    pub active_stepper_value: Option<ActiveStepperValue<'a>>,
 }

@@ -14,6 +14,8 @@ pub const TOGGLE_KNOB: f32 = 18.0;
 pub const TOGGLE_INSET: f32 = 2.0;
 
 pub const STEPPER_BTN_SIZE: f32 = 24.0;
+pub const STEPPER_VALUE_W: f32 = 48.0;
+pub const STEPPER_GAP: f32 = 8.0;
 
 pub const POPUP_BTN_W: f32 = 80.0;
 pub const POPUP_BTN_H: f32 = 26.0;

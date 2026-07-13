@@ -11,6 +11,7 @@ pub enum ClickResult {
     Switch(usize),
     StepperDec(usize),
     StepperInc(usize),
+    StepperValue(usize),
     FontSelect(usize),
     FontReset(usize),
     CenterLink(usize),
@@ -34,6 +35,7 @@ impl ClickResult {
             ClickResult::Switch(index)
             | ClickResult::StepperDec(index)
             | ClickResult::StepperInc(index)
+            | ClickResult::StepperValue(index)
             | ClickResult::FontSelect(index)
             | ClickResult::FontReset(index)
             | ClickResult::CenterLink(index)
@@ -223,13 +225,17 @@ pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f
             SettingsItem::RowStepper { enabled, .. } if *enabled => {
                 let cy = y + ROW_HEIGHT / 2.0;
                 let btn_inc_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - STEPPER_BTN_SIZE;
-                let btn_dec_x = btn_inc_x - STEPPER_BTN_SIZE - 60.0;
+                let value_x = btn_inc_x - STEPPER_GAP - STEPPER_VALUE_W;
+                let btn_dec_x = value_x - STEPPER_GAP - STEPPER_BTN_SIZE;
                 let btn_y = cy - STEPPER_BTN_SIZE / 2.0;
                 if in_rect(mx, my, btn_dec_x, btn_y, STEPPER_BTN_SIZE, STEPPER_BTN_SIZE) {
                     return ClickResult::StepperDec(idx);
                 }
                 if in_rect(mx, my, btn_inc_x, btn_y, STEPPER_BTN_SIZE, STEPPER_BTN_SIZE) {
                     return ClickResult::StepperInc(idx);
+                }
+                if in_rect(mx, my, value_x, btn_y, STEPPER_VALUE_W, STEPPER_BTN_SIZE) {
+                    return ClickResult::StepperValue(idx);
                 }
             }
             SettingsItem::RowSwitch { enabled, .. } if *enabled => {

@@ -1,7 +1,8 @@
 use skia_safe::Rect;
 
 use crate::utils::settings_ui::items::{
-    CONTENT_PADDING, GROUP_INNER_PAD, POPUP_BTN_H, POPUP_BTN_W, ROW_HEIGHT, SettingsItem,
+    CONTENT_PADDING, GROUP_INNER_PAD, POPUP_BTN_H, POPUP_BTN_W, ROW_HEIGHT, STEPPER_BTN_SIZE,
+    STEPPER_GAP, STEPPER_VALUE_W, SettingsItem,
 };
 use crate::utils::settings_ui::{ClickResult, hit_test};
 
@@ -80,6 +81,31 @@ impl PageInput {
         let button_x = SIDEBAR_W + CONTENT_PADDING + self.width - GROUP_INNER_PAD - POPUP_BTN_W;
         let button_y = item_y + (ROW_HEIGHT - POPUP_BTN_H) / 2.0 - scroll_y;
         Rect::from_xywh(button_x, button_y, POPUP_BTN_W, POPUP_BTN_H)
+    }
+
+    pub(crate) fn stepper_value_rect<A>(
+        &self,
+        page: &SettingsPage<A>,
+        item_index: usize,
+        scroll_y: f32,
+    ) -> Rect {
+        let item_y = self.start_y
+            + page
+                .items()
+                .iter()
+                .take(item_index)
+                .map(SettingsItem::height)
+                .sum::<f32>();
+        let content_w = self.width - CONTENT_PADDING * 2.0;
+        let button_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - STEPPER_BTN_SIZE;
+        let value_x = button_x - STEPPER_GAP - STEPPER_VALUE_W;
+        let value_y = item_y + (ROW_HEIGHT - STEPPER_BTN_SIZE) / 2.0 - scroll_y;
+        Rect::from_xywh(
+            SIDEBAR_W + value_x,
+            value_y,
+            STEPPER_VALUE_W,
+            STEPPER_BTN_SIZE,
+        )
     }
 }
 

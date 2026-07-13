@@ -1,15 +1,18 @@
 use crate::utils::settings_ui::items::SIDEBAR_PAD;
 use crate::utils::settings_ui::{WidgetPreviewHit, hover_test};
+use winit::keyboard::{Key, NamedKey};
 
 use super::pages::PageInput;
 use super::{
-    PAGE_NAV_GAP, PAGE_NAV_SIZE, PAGE_NAV_X, PAGE_NAV_Y, POPUP_OPACITY_KEY, SIDEBAR_ROW_H,
-    SIDEBAR_W, SettingsApp,
+    NumberInput, NumberInputHandler, PAGE_NAV_GAP, PAGE_NAV_SIZE, PAGE_NAV_X, PAGE_NAV_Y,
+    POPUP_OPACITY_KEY, SIDEBAR_ROW_H, SIDEBAR_W, SettingsApp,
 };
 
 impl SettingsApp {
     pub(super) fn handle_click(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
         let (mouse_x, mouse_y) = self.logical_mouse_pos;
+
+        self.commit_number_input();
 
         if self.popup.is_some() {
             let selection = self.popup.as_ref().and_then(|popup| {
@@ -173,5 +176,61 @@ impl SettingsApp {
         }
 
         None
+    }
+
+    pub(crate) fn begin_number_input(
+        &mut self,
+        rect: skia_safe::Rect,
+        value: String,
+        on_commit: NumberInputHandler,
+    ) {
+        self.number_input = Some(NumberInput {
+            rect,
+            text: value,
+            on_commit,
+        });
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    pub(super) fn commit_number_input(&mut self) {
+        let Some(input) = self.number_input.take() else {
+            return;
+        };
+        (input.on_commit)(self, &input.text);
+        self.persist_settings_change();
+    }
+
+    pub(super) fn handle_number_input_key(&mut self, key: &Key) -> bool {
+        let Some(input) = &mut self.number_input else {
+            return false;
+        };
+
+        match key {
+            Key::Named(NamedKey::Backspace) => {
+                input.text.pop();
+            }
+            Key::Named(NamedKey::Enter) => {
+                self.commit_number_input();
+                return true;
+            }
+            Key::Named(NamedKey::Escape) => {
+                self.number_input = None;
+            }
+            Key::Character(value)
+                if value.chars().all(|character| {
+                    character.is_ascii_digit() || matches!(character, '.' | '-')
+                }) =>
+            {
+                input.text.push_str(value);
+            }
+            _ => return false,
+        }
+
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+        true
     }
 }

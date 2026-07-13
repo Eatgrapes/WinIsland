@@ -59,6 +59,14 @@ pub(crate) fn settings_frame_should_continue(
     has_anim || has_popup || is_scrolling || is_widget_dragging
 }
 
+pub(crate) type NumberInputHandler = fn(&mut SettingsApp, &str);
+
+pub(crate) struct NumberInput {
+    pub(crate) rect: skia_safe::Rect,
+    pub(crate) text: String,
+    pub(crate) on_commit: NumberInputHandler,
+}
+
 pub struct SettingsApp {
     pub(crate) window: Option<Arc<Window>>,
     pub(crate) surface: Option<Surface<Arc<Window>, Arc<Window>>>,
@@ -77,6 +85,7 @@ pub struct SettingsApp {
     pub(crate) detected_apps: Vec<String>,
     pub(crate) sidebar_hover: i32,
     pub(crate) popup: Option<PopupState>,
+    pub(crate) number_input: Option<NumberInput>,
     pub(crate) is_light: bool,
     pub(crate) cached_items: Vec<SettingsItem>,
     pub(crate) items_dirty: bool,
@@ -112,6 +121,7 @@ impl SettingsApp {
             detected_apps: Vec::new(),
             sidebar_hover: -1,
             popup: None,
+            number_input: None,
             is_light: false,
             cached_items: Vec::new(),
             items_dirty: true,
@@ -280,6 +290,9 @@ impl ApplicationHandler for SettingsApp {
             WindowEvent::CloseRequested => _el.exit(),
             WindowEvent::Focused(focused) => {
                 self.focused = focused;
+                if !focused {
+                    self.commit_number_input();
+                }
                 if let Some(win) = &self.window {
                     win.request_redraw();
                 }
@@ -309,6 +322,9 @@ impl ApplicationHandler for SettingsApp {
                 }
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                if self.handle_number_input_key(&event.logical_key) {
+                    return;
+                }
                 match event.logical_key {
                     Key::Named(NamedKey::F11) => {}
                     Key::Named(NamedKey::ArrowLeft) if self.active_page > 0 => {

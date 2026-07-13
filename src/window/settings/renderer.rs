@@ -109,6 +109,15 @@ impl SettingsApp {
                     popup.button_rect.height(),
                 )
             });
+            let active_stepper_value = self.number_input.as_ref().map(|input| ActiveStepperValue {
+                rect: Rect::from_xywh(
+                    input.rect.left - SIDEBAR_W,
+                    input.rect.top + self.scroll_y,
+                    input.rect.width(),
+                    input.rect.height(),
+                ),
+                text: &input.text,
+            });
             draw_items(DrawItemsParams {
                 canvas,
                 items: &self.cached_items,
@@ -127,6 +136,7 @@ impl SettingsApp {
                 widget_drag_hover_slot: self.widget_drag_hover_slot,
                 widget_preview_hover_slot: self.widget_preview_hover_slot,
                 active_source_button,
+                active_stepper_value,
             });
             canvas.restore();
 

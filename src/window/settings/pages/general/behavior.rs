@@ -4,7 +4,7 @@ use crate::utils::autostart::set_autostart;
 use crate::utils::font::FontManager;
 use crate::utils::settings_ui::items::SettingsItem;
 use crate::utils::settings_ui::{ClickResult, StepDirection};
-use crate::window::settings::PopupState;
+use crate::window::settings::{NumberInputHandler, PopupState};
 
 use super::super::{PageInput, SettingsPage};
 use super::SettingsApp;
@@ -138,6 +138,26 @@ impl SettingsApp {
             return;
         };
 
+        if let ClickResult::StepperValue(item_index) = &result {
+            let (value, on_commit): (String, NumberInputHandler) = match action {
+                BehaviorAction::HideDelay => (
+                    format!("{:.0}", self.config.auto_hide_delay),
+                    set_hide_delay,
+                ),
+                BehaviorAction::UpdateInterval => (
+                    format!("{:.0}", self.config.update_check_interval),
+                    set_update_interval,
+                ),
+                _ => return,
+            };
+            self.begin_number_input(
+                input.stepper_value_rect(&page, *item_index, self.scroll_y),
+                value,
+                on_commit,
+            );
+            return;
+        }
+
         let changed = match (action, &result) {
             (BehaviorAction::AutoStart, ClickResult::Switch(_)) => {
                 self.config.auto_start = !self.config.auto_start;
@@ -246,4 +266,16 @@ fn select_language(app: &mut SettingsApp, value: &str) {
 
 fn select_update_channel(app: &mut SettingsApp, value: &str) {
     app.config.update_channel = value.to_string();
+}
+
+fn set_hide_delay(app: &mut SettingsApp, value: &str) {
+    if let Ok(value) = value.parse::<f32>() {
+        app.config.auto_hide_delay = value.clamp(1.0, 60.0);
+    }
+}
+
+fn set_update_interval(app: &mut SettingsApp, value: &str) {
+    if let Ok(value) = value.parse::<f32>() {
+        app.config.update_check_interval = value.clamp(1.0, 24.0);
+    }
 }
