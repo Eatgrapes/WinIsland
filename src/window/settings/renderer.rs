@@ -1,4 +1,3 @@
-use crate::core::i18n::tr;
 use crate::ui::widget::draw_mini_card;
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
@@ -6,10 +5,7 @@ use crate::utils::settings_ui::items::*;
 use crate::utils::settings_ui::*;
 use skia_safe::{Canvas, Color, Paint, Rect, surfaces};
 
-use super::{
-    CONTENT_START_Y, POPUP_MENU_R, POPUP_OPACITY_KEY, SIDEBAR_W, SUB_TAB_H, SUB_TAB_START_Y,
-    SettingsApp,
-};
+use super::{POPUP_MENU_R, POPUP_OPACITY_KEY, SIDEBAR_W, SettingsApp};
 
 impl SettingsApp {
     pub(crate) fn draw(&mut self) {
@@ -87,21 +83,12 @@ impl SettingsApp {
             self.draw_sidebar(canvas, &theme);
 
             let content_w = win_w - SIDEBAR_W;
-            self.draw_sub_tabs(canvas, &theme, content_w);
 
-            let content_start_y = if self.active_page == 0 {
-                SUB_TAB_START_Y + SUB_TAB_H + CONTENT_START_Y
-            } else {
-                50.0
-            };
+            let content_start_y = if self.active_page == 0 { 100.0 } else { 50.0 };
 
             self.target_scroll_y = self.target_scroll_y.clamp(0.0, self.cached_max_scroll);
 
-            let clip_start_y = if self.active_page == 0 {
-                SUB_TAB_START_Y + SUB_TAB_H
-            } else {
-                50.0
-            };
+            let clip_start_y = if self.active_page == 0 { 100.0 } else { 50.0 };
 
             canvas.save();
             canvas.clip_rect(
@@ -221,87 +208,6 @@ impl SettingsApp {
         canvas.draw_round_rect(Rect::from_xywh(x, y + 4.0, w, h), 12.0, 12.0, &shadow);
 
         draw_mini_card(canvas, widget, x, y, w, h);
-    }
-
-    pub(crate) fn draw_sub_tabs(&self, canvas: &Canvas, theme: &SettingsTheme, content_w: f32) {
-        if self.active_page != 0 {
-            return;
-        }
-
-        let fm = FontManager::global();
-        let tabs = [
-            tr("section_appearance"),
-            tr("section_effects"),
-            tr("section_behavior"),
-        ];
-        let tab_w = content_w / tabs.len() as f32;
-        let start_x = SIDEBAR_W;
-
-        let mut paint = Paint::default();
-        paint.set_anti_alias(true);
-
-        paint.set_color(theme.text_pri);
-        fm.draw_text_cached(DrawTextCachedParams {
-            canvas,
-            text: &tr("tab_general"),
-            x: SIDEBAR_W + CONTENT_PADDING,
-            y: 35.0,
-            size: 20.0,
-            bold: true,
-            paint: &paint,
-        });
-
-        let mut sep = Paint::default();
-        sep.set_anti_alias(true);
-        sep.set_color(theme.separator);
-        sep.set_stroke_width(0.5);
-        sep.set_style(skia_safe::paint::Style::Stroke);
-        canvas.draw_line(
-            (SIDEBAR_W, SUB_TAB_START_Y + SUB_TAB_H),
-            (SIDEBAR_W + content_w, SUB_TAB_START_Y + SUB_TAB_H),
-            &sep,
-        );
-
-        for (i, label) in tabs.iter().enumerate() {
-            let tab_x = start_x + i as f32 * tab_w;
-            let is_active = self.active_sub_page == i;
-            let is_hover = self.sub_tab_hover == i as i32;
-
-            paint.set_color(if is_active || is_hover {
-                theme.text_pri
-            } else {
-                theme.text_sec
-            });
-
-            let label_w = FontManager::global().measure_text_cached(
-                label,
-                13.0,
-                skia_safe::FontStyle::normal(),
-            );
-            let text_x = tab_x + (tab_w - label_w) / 2.0;
-            let text_y = SUB_TAB_START_Y + SUB_TAB_H / 2.0 + 5.0;
-            fm.draw_text_cached(DrawTextCachedParams {
-                canvas,
-                text: label,
-                x: text_x,
-                y: text_y,
-                size: 13.0,
-                bold: false,
-                paint: &paint,
-            });
-
-            if is_active {
-                let underline_pad = 4.0;
-                let underline_x = text_x - underline_pad;
-                let underline_w = label_w + underline_pad * 2.0;
-                let underline_y = SUB_TAB_START_Y + SUB_TAB_H - 2.0;
-                paint.set_style(skia_safe::paint::Style::Fill);
-                canvas.draw_rect(
-                    Rect::from_xywh(underline_x, underline_y, underline_w, 2.0),
-                    &paint,
-                );
-            }
-        }
     }
 
     pub(crate) fn draw_popup(&self, canvas: &Canvas, theme: &SettingsTheme) {

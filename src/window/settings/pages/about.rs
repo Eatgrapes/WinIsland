@@ -18,9 +18,6 @@ impl SettingsApp {
     fn build_about_page(&self) -> SettingsPage<AboutAction> {
         let theme = self.theme();
         let mut page = SettingsPage::new();
-        page.push(SettingsItem::PageTitle {
-            text: tr("tab_about"),
-        });
         page.push(SettingsItem::Spacer { height: 20.0 });
         page.push(SettingsItem::CenterText {
             text: "WinIsland".to_string(),

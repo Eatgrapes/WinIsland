@@ -22,9 +22,6 @@ impl SettingsApp {
     fn build_music_page(&self) -> SettingsPage<MusicAction> {
         let show_lyrics = self.config.show_lyrics;
         let mut page = SettingsPage::new();
-        page.push(SettingsItem::PageTitle {
-            text: tr("tab_music"),
-        });
         page.push(SettingsItem::SectionHeader {
             label: tr("section_playback"),
         });

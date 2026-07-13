@@ -24,9 +24,6 @@ pub const POPUP_MENU_PAD: f32 = 4.0;
 
 #[derive(Clone)]
 pub enum SettingsItem {
-    PageTitle {
-        text: String,
-    },
     SectionHeader {
         label: String,
     },
@@ -93,7 +90,6 @@ pub enum SettingsItem {
 impl SettingsItem {
     pub fn height(&self) -> f32 {
         match self {
-            SettingsItem::PageTitle { .. } => 50.0,
             SettingsItem::SectionHeader { .. } => 30.0,
             SettingsItem::GroupStart | SettingsItem::GroupEnd => 0.0,
             SettingsItem::CenterLink { .. } => 40.0,

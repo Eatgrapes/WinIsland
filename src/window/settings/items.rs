@@ -1,7 +1,7 @@
 use crate::utils::settings_ui::content_height;
 use crate::utils::settings_ui::items::SettingsItem;
 
-use super::{CONTENT_START_Y, SUB_TAB_H, SUB_TAB_START_Y, SettingsApp};
+use super::SettingsApp;
 
 impl SettingsApp {
     pub(crate) fn build_current_items(&self) -> Vec<SettingsItem> {
@@ -24,7 +24,7 @@ impl SettingsApp {
                 _ => None,
             })
             .collect();
-        let switch_context = (self.active_page, self.active_sub_page);
+        let switch_context = (self.active_page, 0);
         if self.switch_anim_context != switch_context
             || self.switch_anim.len() != switch_states.len()
         {
@@ -33,11 +33,7 @@ impl SettingsApp {
         } else {
             self.switch_anim.set_targets(&switch_states);
         }
-        let content_start_y = if self.active_page == 0 {
-            SUB_TAB_START_Y + SUB_TAB_H + CONTENT_START_Y
-        } else {
-            50.0
-        };
+        let content_start_y = if self.active_page == 0 { 100.0 } else { 50.0 };
         self.cached_content_height = content_height(&self.cached_items, content_start_y);
         let scale = self
             .window

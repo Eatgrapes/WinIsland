@@ -51,21 +51,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
             break;
         }
         match item {
-            SettingsItem::PageTitle { text } => {
-                let h = item.height();
-                if y + h >= visible_min_y && y <= visible_max_y {
-                    paint.set_color(theme.text_pri);
-                    fm.draw_text_cached(DrawTextCachedParams {
-                        canvas,
-                        text,
-                        x: CONTENT_PADDING,
-                        y: y + 35.0,
-                        size: 20.0,
-                        bold: true,
-                        paint: &paint,
-                    });
-                }
-            }
             SettingsItem::SectionHeader { label } => {
                 let h = item.height();
                 if y + h >= visible_min_y && y <= visible_max_y {

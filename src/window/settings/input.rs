@@ -2,10 +2,7 @@ use crate::utils::settings_ui::items::SIDEBAR_PAD;
 use crate::utils::settings_ui::{WidgetPreviewHit, hover_test};
 
 use super::pages::PageInput;
-use super::{
-    CONTENT_START_Y, POPUP_OPACITY_KEY, SIDEBAR_ROW_H, SIDEBAR_W, SUB_TAB_H, SUB_TAB_START_Y,
-    SettingsApp,
-};
+use super::{POPUP_OPACITY_KEY, SIDEBAR_ROW_H, SIDEBAR_W, SettingsApp};
 
 impl SettingsApp {
     pub(super) fn handle_click(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
@@ -54,23 +51,7 @@ impl SettingsApp {
             .unwrap_or(1.0);
         let content_width = self.win_w / scale - SIDEBAR_W;
 
-        if self.active_page == 0
-            && (SUB_TAB_START_Y..=SUB_TAB_START_Y + SUB_TAB_H).contains(&mouse_y)
-        {
-            let tab_width = content_width / 3.0;
-            let tab = ((mouse_x - SIDEBAR_W) / tab_width) as usize;
-            if tab < 3 && self.active_sub_page != tab {
-                self.active_sub_page = tab;
-                self.reset_scroll();
-            }
-            return;
-        }
-
-        let start_y = if self.active_page == 0 {
-            SUB_TAB_START_Y + SUB_TAB_H + CONTENT_START_Y
-        } else {
-            50.0
-        };
+        let start_y = if self.active_page == 0 { 100.0 } else { 50.0 };
         let input = PageInput {
             x: mouse_x - SIDEBAR_W,
             y: mouse_y + self.scroll_y,
@@ -143,11 +124,6 @@ impl SettingsApp {
             .map(|window| window.scale_factor() as f32)
             .unwrap_or(1.0);
         let content_width = self.win_w / scale - SIDEBAR_W;
-        if self.active_page == 0
-            && (SUB_TAB_START_Y..=SUB_TAB_START_Y + SUB_TAB_H).contains(&mouse_y)
-        {
-            return true;
-        }
         if self.widget_dragging.is_some() {
             return true;
         }
@@ -158,11 +134,7 @@ impl SettingsApp {
             return true;
         }
 
-        let start_y = if self.active_page == 0 {
-            SUB_TAB_START_Y + SUB_TAB_H + CONTENT_START_Y
-        } else {
-            50.0
-        };
+        let start_y = if self.active_page == 0 { 100.0 } else { 50.0 };
         self.ensure_items_cache();
         hover_test(
             &self.cached_items,

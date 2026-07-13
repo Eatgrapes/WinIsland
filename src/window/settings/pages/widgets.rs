@@ -1,7 +1,6 @@
 use crate::core::config::{
     WidgetKind, clear_widget_slot, place_widget_in_layout, widget_covering_slot,
 };
-use crate::core::i18n::tr;
 use crate::core::persistence::save_config;
 use crate::utils::settings_ui::items::SettingsItem;
 use crate::utils::settings_ui::{
@@ -12,13 +11,7 @@ use super::super::{SIDEBAR_W, SettingsApp};
 
 impl SettingsApp {
     pub(crate) fn build_widget_items(&self) -> Vec<SettingsItem> {
-        vec![
-            SettingsItem::PageTitle {
-                text: tr("tab_widgets"),
-            },
-            SettingsItem::Spacer { height: 20.0 },
-            SettingsItem::WidgetPreview,
-        ]
+        vec![SettingsItem::WidgetPreview]
     }
 
     fn widget_preview_item_y(&mut self) -> Option<f32> {

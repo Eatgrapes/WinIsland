@@ -1,5 +1,4 @@
 use crate::core::config::{AppConfig, WidgetKind};
-use crate::core::i18n::tr;
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
 use crate::utils::icon::get_app_icon;
@@ -33,9 +32,6 @@ pub(crate) const WIN_W: f32 = 666.0;
 pub(crate) const WIN_H: f32 = 666.0;
 pub(crate) const SIDEBAR_W: f32 = 180.0;
 pub(crate) const SIDEBAR_ROW_H: f32 = 32.0;
-pub(crate) const CONTENT_START_Y: f32 = 10.0;
-pub(crate) const SUB_TAB_H: f32 = 40.0;
-pub(crate) const SUB_TAB_START_Y: f32 = 50.0;
 
 pub(crate) const POPUP_OPACITY_KEY: u64 = 1;
 pub(crate) const SIDEBAR_KEY_BASE: u64 = 1_000;
@@ -64,8 +60,6 @@ pub struct SettingsApp {
     pub(crate) surface: Option<Surface<Arc<Window>, Arc<Window>>>,
     pub(crate) config: AppConfig,
     pub(crate) active_page: usize,
-    pub(crate) active_sub_page: usize,
-    pub(crate) sub_tab_hover: i32,
     pub(crate) switch_anim: SwitchAnimator,
     pub(crate) switch_anim_context: (usize, usize),
     pub(crate) anim: AnimPool,
@@ -101,8 +95,6 @@ impl SettingsApp {
             surface: None,
             config,
             active_page: 0,
-            active_sub_page: 0,
-            sub_tab_hover: -1,
             switch_anim,
             switch_anim_context: (usize::MAX, usize::MAX),
             anim: AnimPool::new(),
@@ -315,50 +307,24 @@ impl ApplicationHandler for SettingsApp {
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 match event.logical_key {
                     Key::Named(NamedKey::F11) => {}
-                    Key::Named(NamedKey::ArrowLeft) => {
-                        if self.active_page == 0 {
-                            if self.active_sub_page > 0 {
-                                self.active_sub_page -= 1;
-                                self.scroll_y = 0.0;
-                                self.target_scroll_y = 0.0;
-                                self.scroll_vel_y = 0.0;
-                                self.mark_items_dirty();
-                                if let Some(win) = &self.window {
-                                    win.request_redraw();
-                                }
-                            }
-                        } else if self.active_page > 0 {
-                            self.active_page -= 1;
-                            self.scroll_y = 0.0;
-                            self.target_scroll_y = 0.0;
-                            self.scroll_vel_y = 0.0;
-                            self.mark_items_dirty();
-                            if let Some(win) = &self.window {
-                                win.request_redraw();
-                            }
+                    Key::Named(NamedKey::ArrowLeft) if self.active_page > 0 => {
+                        self.active_page -= 1;
+                        self.scroll_y = 0.0;
+                        self.target_scroll_y = 0.0;
+                        self.scroll_vel_y = 0.0;
+                        self.mark_items_dirty();
+                        if let Some(win) = &self.window {
+                            win.request_redraw();
                         }
                     }
-                    Key::Named(NamedKey::ArrowRight) => {
-                        if self.active_page == 0 {
-                            if self.active_sub_page < 2 {
-                                self.active_sub_page += 1;
-                                self.scroll_y = 0.0;
-                                self.target_scroll_y = 0.0;
-                                self.scroll_vel_y = 0.0;
-                                self.mark_items_dirty();
-                                if let Some(win) = &self.window {
-                                    win.request_redraw();
-                                }
-                            }
-                        } else if self.active_page < 3 {
-                            self.active_page += 1;
-                            self.scroll_y = 0.0;
-                            self.target_scroll_y = 0.0;
-                            self.scroll_vel_y = 0.0;
-                            self.mark_items_dirty();
-                            if let Some(win) = &self.window {
-                                win.request_redraw();
-                            }
+                    Key::Named(NamedKey::ArrowRight) if self.active_page < 3 => {
+                        self.active_page += 1;
+                        self.scroll_y = 0.0;
+                        self.target_scroll_y = 0.0;
+                        self.scroll_vel_y = 0.0;
+                        self.mark_items_dirty();
+                        if let Some(win) = &self.window {
+                            win.request_redraw();
                         }
                     }
                     _ => {}
@@ -441,44 +407,6 @@ impl ApplicationHandler for SettingsApp {
                                 self.anim.set(SIDEBAR_KEY_BASE + idx as u64, 0.0);
                             }
                         }
-                        if let Some(win) = &self.window {
-                            win.request_redraw();
-                        }
-                    }
-
-                    let scale = self
-                        .window
-                        .as_ref()
-                        .map(|w| w.scale_factor() as f32)
-                        .unwrap_or(1.0);
-                    let content_w = self.win_w / scale - SIDEBAR_W;
-
-                    if self.active_page == 0
-                        && mx >= SIDEBAR_W
-                        && (SUB_TAB_START_Y..=SUB_TAB_START_Y + SUB_TAB_H).contains(&my)
-                    {
-                        let tabs = [
-                            tr("section_appearance"),
-                            tr("section_effects"),
-                            tr("section_behavior"),
-                        ];
-                        let tab_count = tabs.len() as i32;
-                        let tab_w = content_w / tab_count as f32;
-                        let rel_x = mx - SIDEBAR_W;
-                        let tab_idx = (rel_x / tab_w) as i32;
-                        let new_sub_hover = if tab_idx >= 0 && tab_idx < tab_count {
-                            tab_idx
-                        } else {
-                            -1
-                        };
-                        if new_sub_hover != self.sub_tab_hover {
-                            self.sub_tab_hover = new_sub_hover;
-                            if let Some(win) = &self.window {
-                                win.request_redraw();
-                            }
-                        }
-                    } else if self.sub_tab_hover != -1 {
-                        self.sub_tab_hover = -1;
                         if let Some(win) = &self.window {
                             win.request_redraw();
                         }
