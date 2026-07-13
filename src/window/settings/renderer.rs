@@ -116,7 +116,6 @@ impl SettingsApp {
                 start_y: content_start_y,
                 width: content_w,
                 anims: &anim,
-                hover_anims: &self.anim,
                 theme: &theme,
                 visible_min_y: self.scroll_y,
                 visible_max_y: self.scroll_y + win_h,

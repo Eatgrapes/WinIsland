@@ -5,7 +5,6 @@ mod widget_preview;
 use skia_safe::Canvas;
 
 use crate::core::config::{WidgetKind, WidgetSlot};
-use crate::utils::anim::AnimPool;
 use crate::utils::color::SettingsTheme;
 
 use super::anim::SwitchAnimator;
@@ -19,7 +18,6 @@ pub struct DrawItemsParams<'a> {
     pub start_y: f32,
     pub width: f32,
     pub anims: &'a SwitchAnimator,
-    pub hover_anims: &'a AnimPool,
     pub theme: &'a SettingsTheme,
     pub visible_min_y: f32,
     pub visible_max_y: f32,

@@ -1,10 +1,8 @@
 use skia_safe::{Canvas, Color, FontStyle, Paint, Rect};
 
-use crate::utils::anim::AnimPool;
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextInRectParams, FontManager};
 
-use super::super::HOVER_ROW_KEY_BASE;
 use super::super::items::*;
 
 pub(super) struct PillBtnParams<'a> {
@@ -149,40 +147,4 @@ pub(super) fn truncate_text(fm: &FontManager, text: &str, size: f32, max_w: f32)
         result.push(c);
     }
     result
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(super) fn draw_row_hover(
-    canvas: &Canvas,
-    y: f32,
-    row_h: f32,
-    content_w: f32,
-    row_idx: usize,
-    in_group: bool,
-    hover_anims: &AnimPool,
-    theme: &SettingsTheme,
-) {
-    let val = hover_anims.get(HOVER_ROW_KEY_BASE + row_idx as u64);
-    if val > 0.005 {
-        let alpha = (val * 15.0) as u8;
-        let base = theme.hover_row;
-        let mut hp = Paint::default();
-        hp.set_anti_alias(true);
-        hp.set_color(Color::from_argb(alpha, base.r(), base.g(), base.b()));
-        if in_group {
-            canvas.draw_round_rect(
-                Rect::from_xywh(CONTENT_PADDING + 2.0, y, content_w - 4.0, row_h),
-                4.0,
-                4.0,
-                &hp,
-            );
-        } else {
-            canvas.draw_round_rect(
-                Rect::from_xywh(CONTENT_PADDING, y, content_w, row_h),
-                GROUP_RADIUS,
-                GROUP_RADIUS,
-                &hp,
-            );
-        }
-    }
 }

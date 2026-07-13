@@ -22,7 +22,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
     let start_y = params.start_y;
     let width = params.width;
     let anims = params.anims;
-    let hover_anims = params.hover_anims;
     let theme = params.theme;
     let visible_min_y = params.visible_min_y;
     let visible_max_y = params.visible_max_y;
@@ -44,7 +43,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
     let mut group_row_count = 0;
     let mut group_current_row = 0;
     let content_w = width - CONTENT_PADDING * 2.0;
-    let mut row_idx: usize = 0;
 
     let mut i = 0;
     while i < items.len() {
@@ -112,18 +110,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 value,
                 enabled,
             } => {
-                if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
-                    draw_row_hover(
-                        canvas,
-                        y,
-                        ROW_HEIGHT,
-                        content_w,
-                        row_idx,
-                        in_group,
-                        hover_anims,
-                        theme,
-                    );
-                }
                 let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
                 let cy = y + ROW_HEIGHT / 2.0;
 
@@ -192,25 +178,12 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         );
                     }
                 }
-                row_idx += 1;
             }
             SettingsItem::RowSwitch {
                 label,
                 on: _,
                 enabled,
             } => {
-                if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
-                    draw_row_hover(
-                        canvas,
-                        y,
-                        ROW_HEIGHT,
-                        content_w,
-                        row_idx,
-                        in_group,
-                        hover_anims,
-                        theme,
-                    );
-                }
                 let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
                 let cy = y + ROW_HEIGHT / 2.0;
 
@@ -266,7 +239,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         );
                     }
                 }
-                row_idx += 1;
             }
             SettingsItem::RowFontPicker {
                 label,
@@ -274,18 +246,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 reset_label,
             } => {
                 let visible = y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y;
-                if visible {
-                    draw_row_hover(
-                        canvas,
-                        y,
-                        ROW_HEIGHT,
-                        content_w,
-                        row_idx,
-                        in_group,
-                        hover_anims,
-                        theme,
-                    );
-                }
                 let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
                 let cy = y + ROW_HEIGHT / 2.0;
 
@@ -348,7 +308,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         );
                     }
                 }
-                row_idx += 1;
             }
             SettingsItem::RowFolderPicker {
                 label,
@@ -360,18 +319,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 let has_path = current_path.as_ref().is_some_and(|p| !p.is_empty());
                 let row_h = if has_path { 64.0 } else { ROW_HEIGHT };
                 let visible = y + row_h >= visible_min_y && y <= visible_max_y;
-                if visible {
-                    draw_row_hover(
-                        canvas,
-                        y,
-                        row_h,
-                        content_w,
-                        row_idx,
-                        in_group,
-                        hover_anims,
-                        theme,
-                    );
-                }
                 let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
                 let cy = y + row_h / 2.0;
 
@@ -468,7 +415,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         );
                     }
                 }
-                row_idx += 1;
             }
             SettingsItem::RowSourceSelect {
                 label,
@@ -476,18 +422,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 enabled,
             } => {
                 let visible = y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y;
-                if visible {
-                    draw_row_hover(
-                        canvas,
-                        y,
-                        ROW_HEIGHT,
-                        content_w,
-                        row_idx,
-                        in_group,
-                        hover_anims,
-                        theme,
-                    );
-                }
                 let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
                 let cy = y + ROW_HEIGHT / 2.0;
 
@@ -590,7 +524,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         );
                     }
                 }
-                row_idx += 1;
             }
             SettingsItem::RowButton {
                 label,
@@ -598,18 +531,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 enabled,
             } => {
                 let visible = y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y;
-                if visible {
-                    draw_row_hover(
-                        canvas,
-                        y,
-                        ROW_HEIGHT,
-                        content_w,
-                        row_idx,
-                        in_group,
-                        hover_anims,
-                        theme,
-                    );
-                }
                 let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
                 let cy = y + ROW_HEIGHT / 2.0;
 
@@ -671,7 +592,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         );
                     }
                 }
-                row_idx += 1;
             }
             SettingsItem::RowAppItem {
                 label,
@@ -679,18 +599,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 enabled,
             } => {
                 let visible = y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y;
-                if visible {
-                    draw_row_hover(
-                        canvas,
-                        y,
-                        ROW_HEIGHT,
-                        content_w,
-                        row_idx,
-                        in_group,
-                        hover_anims,
-                        theme,
-                    );
-                }
                 let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
                 let cy = y + ROW_HEIGHT / 2.0;
 
@@ -776,22 +684,9 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         );
                     }
                 }
-                row_idx += 1;
             }
             SettingsItem::RowLabel { label } => {
                 let visible = y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y;
-                if visible {
-                    draw_row_hover(
-                        canvas,
-                        y,
-                        ROW_HEIGHT,
-                        content_w,
-                        row_idx,
-                        in_group,
-                        hover_anims,
-                        theme,
-                    );
-                }
                 let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
                 let cy = y + ROW_HEIGHT / 2.0;
                 if visible {
@@ -825,7 +720,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         );
                     }
                 }
-                row_idx += 1;
             }
             SettingsItem::CenterLink { label, color } => {
                 let h = item.height();

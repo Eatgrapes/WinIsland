@@ -3,8 +3,6 @@ pub mod input;
 pub mod items;
 pub mod renderer;
 
-pub const HOVER_ROW_KEY_BASE: u64 = 10_000;
-
 pub use anim::SwitchAnimator;
 pub use input::{
     ClickResult, StepDirection, WidgetPreviewHit, hit_test, hover_test, widget_delete_button_hit,

@@ -79,15 +79,11 @@ pub struct SettingsApp {
     pub(crate) detected_apps: Vec<String>,
     pub(crate) sidebar_hover: i32,
     pub(crate) popup: Option<PopupState>,
-    pub(crate) hover_row: Option<usize>,
-    pub(crate) total_rows: usize,
     pub(crate) is_light: bool,
     pub(crate) cached_items: Vec<SettingsItem>,
     pub(crate) items_dirty: bool,
     pub(crate) cached_content_height: f32,
     pub(crate) cached_max_scroll: f32,
-    pub(crate) cached_row_tops: Vec<f32>,
-    pub(crate) cached_row_heights: Vec<f32>,
     pub(crate) win_w: f32,
     pub(crate) win_h: f32,
     pub(crate) focused: bool,
@@ -120,15 +116,11 @@ impl SettingsApp {
             detected_apps: Vec::new(),
             sidebar_hover: -1,
             popup: None,
-            hover_row: None,
-            total_rows: 0,
             is_light: false,
             cached_items: Vec::new(),
             items_dirty: true,
             cached_content_height: 0.0,
             cached_max_scroll: 0.0,
-            cached_row_tops: Vec::new(),
-            cached_row_heights: Vec::new(),
             win_w: WIN_W,
             win_h: WIN_H,
             focused: true,
@@ -490,43 +482,6 @@ impl ApplicationHandler for SettingsApp {
                         if let Some(win) = &self.window {
                             win.request_redraw();
                         }
-                    }
-
-                    if mx >= SIDEBAR_W {
-                        let content_x = mx - SIDEBAR_W;
-                        let content_y = my + self.scroll_y;
-                        let mut new_row: Option<usize> = None;
-                        self.ensure_items_cache();
-                        if content_x >= CONTENT_PADDING && content_x <= content_w - CONTENT_PADDING
-                        {
-                            let idx = match self
-                                .cached_row_tops
-                                .binary_search_by(|y| y.total_cmp(&content_y))
-                            {
-                                Ok(i) => Some(i),
-                                Err(0) => None,
-                                Err(i) => Some(i - 1),
-                            };
-                            if let Some(i) = idx
-                                && content_y <= self.cached_row_tops[i] + self.cached_row_heights[i]
-                            {
-                                new_row = Some(i);
-                            }
-                        }
-                        if new_row != self.hover_row {
-                            if let Some(old) = self.hover_row {
-                                self.anim.set(HOVER_ROW_KEY_BASE + old as u64, 0.0);
-                            }
-                            if let Some(new) = new_row {
-                                self.anim.set(HOVER_ROW_KEY_BASE + new as u64, 1.0);
-                            }
-                            self.hover_row = new_row;
-                        }
-                    } else if self.hover_row.is_some() {
-                        if let Some(old) = self.hover_row {
-                            self.anim.set(HOVER_ROW_KEY_BASE + old as u64, 0.0);
-                        }
-                        self.hover_row = None;
                     }
                 }
 

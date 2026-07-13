@@ -42,7 +42,6 @@ pub struct SettingsTheme {
     pub separator: Color,
     pub popup_bg: Color,
     pub popup_border: Color,
-    pub hover_row: Color,
 }
 
 pub fn dark_settings_theme() -> SettingsTheme {
@@ -63,7 +62,6 @@ pub fn dark_settings_theme() -> SettingsTheme {
         separator: color_separator(),
         popup_bg: Color::from_rgb(50, 50, 52),
         popup_border: Color::from_argb(40, 255, 255, 255),
-        hover_row: Color::from_argb(28, 255, 255, 255),
     }
 }
 
@@ -85,6 +83,5 @@ pub fn light_settings_theme() -> SettingsTheme {
         separator: Color::from_argb(26, 0, 0, 0),
         popup_bg: Color::from_rgb(255, 255, 255),
         popup_border: Color::from_argb(40, 0, 0, 0),
-        hover_row: Color::from_argb(22, 0, 0, 0),
     }
 }

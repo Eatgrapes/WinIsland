@@ -46,17 +46,6 @@ impl SettingsApp {
             .unwrap_or(1.0);
         let view_h = self.win_h / scale;
         self.cached_max_scroll = (self.cached_content_height - view_h + 20.0).max(0.0);
-        self.cached_row_tops.clear();
-        self.cached_row_heights.clear();
-        let mut y = content_start_y;
-        for item in &self.cached_items {
-            if item.is_row() {
-                self.cached_row_tops.push(y);
-                self.cached_row_heights.push(item.height());
-            }
-            y += item.height();
-        }
-        self.total_rows = self.cached_row_tops.len();
         self.items_dirty = false;
     }
 
