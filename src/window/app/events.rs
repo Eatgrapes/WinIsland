@@ -1,0 +1,213 @@
+use std::time::Instant;
+
+use winit::event::{ElementState, MouseButton, TouchPhase, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::window::WindowId;
+
+use crate::core::render::draw_island;
+use crate::utils::blur::calculate_blur_sigmas;
+use crate::utils::mouse::get_global_cursor_pos;
+
+use super::App;
+
+impl App {
+    pub(super) fn on_window_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        id: WindowId,
+        event: WindowEvent,
+    ) {
+        if let Some(win) = &self.window
+            && win.id() == id
+        {
+            match event {
+                WindowEvent::ThemeChanged(theme) => {
+                    let is_light = theme == winit::window::Theme::Light;
+                    log::info!("Window theme changed to {:?}", theme);
+                    if let Some(tray) = self.tray.as_mut() {
+                        tray.update_theme(is_light);
+                    }
+                }
+                WindowEvent::Resized(_) if win.is_maximized() => {
+                    win.set_maximized(false);
+                }
+                WindowEvent::CloseRequested => (),
+                WindowEvent::DroppedFile(path)
+                    if path
+                        .extension()
+                        .is_some_and(|e| e.eq_ignore_ascii_case("zip")) =>
+                {
+                    log::info!("File dropped: {}", path.display());
+                    self.install_zip_drop(&path);
+                }
+                WindowEvent::HoveredFile(_) => (),
+                WindowEvent::HoveredFileCancelled => (),
+                WindowEvent::MouseInput { state, button, .. } => {
+                    let (px, py) = get_global_cursor_pos();
+                    if button == MouseButton::Left {
+                        self.handle_input(state, px, py);
+                    } else if button == MouseButton::Right {
+                        self.handle_right_input(state, px, py);
+                    }
+                }
+                WindowEvent::Touch(touch) => {
+                    let (px, py) = (
+                        (touch.location.x + self.win_x as f64) as i32,
+                        (touch.location.y + self.win_y as f64) as i32,
+                    );
+                    self.touch_pos = touch.location;
+                    match touch.phase {
+                        TouchPhase::Started => {
+                            self.touch_id = Some(touch.id);
+                            self.handle_input(ElementState::Pressed, px, py);
+                        }
+                        TouchPhase::Moved => {
+                            self.touch_id = Some(touch.id);
+                        }
+                        TouchPhase::Ended | TouchPhase::Cancelled => {
+                            self.handle_input(ElementState::Released, px, py);
+                            self.touch_id = None;
+                        }
+                    }
+                }
+                WindowEvent::RedrawRequested => {
+                    if let Some(surface) = self.surface.as_mut() {
+                        let dt =
+                            (self.last_frame_time.elapsed().as_secs_f32() * 60.0).clamp(0.1, 3.0);
+                        let sigmas = if self.config.motion_blur {
+                            calculate_blur_sigmas(
+                                self.spring_w.velocity,
+                                self.spring_h.velocity,
+                                self.spring_view.velocity,
+                                self.spring_w.value,
+                            )
+                        } else {
+                            (0.0, 0.0)
+                        };
+                        let total_h = (self.config.expanded_height - self.config.base_height)
+                            .abs()
+                            .max(1.0)
+                            * self.config.global_scale;
+                        let dist_h = (self.spring_h.value
+                            - self.config.base_height * self.config.global_scale)
+                            .abs();
+                        let progress = (dist_h / total_h).clamp(0.0, 1.0);
+                        if let Some(ps) = crate::plugin::manager::drain_pending_media_source() {
+                            use std::sync::Arc;
+                            let (cover, hash) = if !ps.cover_data.is_empty() {
+                                use std::collections::hash_map::DefaultHasher;
+                                use std::hash::{Hash, Hasher};
+                                let mut hasher = DefaultHasher::new();
+                                ps.cover_data.hash(&mut hasher);
+                                (Some(Arc::new(ps.cover_data)), hasher.finish())
+                            } else {
+                                (None, 0)
+                            };
+                            self.plugin_media_source = Some(crate::core::smtc::MediaInfo {
+                                title: ps.title,
+                                artist: ps.artist,
+                                album: ps.album,
+                                duration_ms: ps.duration_ms,
+                                duration_secs: ps.duration_ms / 1000,
+                                position_ms: ps.position_ms,
+                                is_playing: ps.is_playing,
+                                last_update: Instant::now(),
+                                thumbnail: cover,
+                                thumbnail_hash: hash,
+                                ..Default::default()
+                            });
+                        }
+                        if let Some(ref mut info) = self.plugin_media_source
+                            && info.is_playing
+                        {
+                            let elapsed = info.last_update.elapsed().as_millis() as u64;
+                            info.position_ms = info.position_ms.saturating_add(elapsed);
+                            info.last_update = Instant::now();
+                        }
+                        let mut media_info = self
+                            .plugin_media_source
+                            .clone()
+                            .or_else(|| {
+                                if self.config.smtc_enabled {
+                                    Some(self.smtc.get_info())
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or_default();
+                        if self.seeking_progress && self.seeking_duration_ms > 0 {
+                            media_info.position_ms = self.seeking_preview_ms;
+                            media_info.last_update = Instant::now();
+                        }
+                        let is_hidden = self.auto_hidden || self.manually_hidden;
+                        self.audio.set_gate_override(!is_hidden);
+                        media_info.spectrum = self.audio.get_spectrum();
+                        let mut music_active = false;
+                        if self.config.smtc_enabled && !media_info.title.is_empty() {
+                            music_active = true;
+                        }
+                        self.ctx_mgr.set_smtc_active(music_active);
+                        crate::plugin::manager::drain_pending_contexts(&mut self.ctx_mgr);
+                        self.ctx_mgr.tick();
+                        let mini_content = self.ctx_mgr.current_mini();
+
+                        let widget_animating = draw_island(
+                            surface,
+                            crate::core::render::DrawIslandParams {
+                                layout: crate::core::render::LayoutParams {
+                                    current_w: self.spring_w.value,
+                                    current_h: self.spring_h.value,
+                                    current_r: self.spring_r.value,
+                                    os_w: self.os_w,
+                                    os_h: self.os_h,
+                                    sigmas,
+                                    expansion_progress: progress,
+                                    view_offset: self.spring_view.value,
+                                    global_scale: self.config.global_scale,
+                                    hide_progress: self.spring_hide.value,
+                                    dock_position: self.config.dock_position,
+                                    base_h: self.config.base_height * self.config.global_scale,
+                                },
+                                media: crate::core::render::MediaParams {
+                                    media: &media_info,
+                                    music_active,
+                                },
+                                lyrics: crate::core::render::LyricsParams {
+                                    current_lyric: &self.current_lyric_text,
+                                    old_lyric: &self.old_lyric_text,
+                                    lyric_transition: self.lyric_transition,
+                                    lyric_scroll_offset: self.lyric_scroll_offset,
+                                },
+                                window: crate::core::render::WindowParams {
+                                    win_x: self.win_x,
+                                    win_y: self.win_y,
+                                    monitor_x: self.last_mon_pos.0,
+                                    monitor_y: self.last_mon_pos.1,
+                                    monitor_w: self.last_mon_size.0,
+                                    monitor_h: self.last_mon_size.1,
+                                },
+                                style: crate::core::render::StyleParams {
+                                    island_style: &self.config.island_style,
+                                    use_blur: self.config.motion_blur,
+                                    font_size: self.config.font_size,
+                                    weights: self.border_weights,
+                                    mini_cover_shape: &self.config.mini_cover_shape,
+                                    expanded_cover_shape: &self.config.expanded_cover_shape,
+                                    cover_rotate: self.config.cover_rotate,
+                                    lyrics_delay: self.config.lyrics_delay,
+                                    dt,
+                                    widget_layout: &self.config.widget_layout,
+                                },
+                                mini_content,
+                            },
+                        );
+                        if widget_animating && let Some(win) = &self.window {
+                            win.request_redraw();
+                        }
+                    }
+                }
+                _ => (),
+            }
+        }
+    }
+}
