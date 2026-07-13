@@ -1,7 +1,6 @@
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, LazyLock, RwLock};
 use windows::Win32::Globalization::GetUserDefaultLocaleName;
 
 #[derive(Clone, Debug)]
@@ -20,7 +19,7 @@ pub struct I18n {
 
 type EmbeddedLang = (&'static str, &'static str);
 
-static I18N: Lazy<Arc<RwLock<I18n>>> = Lazy::new(|| {
+static I18N: LazyLock<Arc<RwLock<I18n>>> = LazyLock::new(|| {
     let i18n = I18n::new();
     Arc::new(RwLock::new(i18n))
 });

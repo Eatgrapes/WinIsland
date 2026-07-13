@@ -2,6 +2,9 @@ use crate::core::config::{APP_AUTHOR, APP_HOMEPAGE, APP_VERSION};
 use crate::core::i18n::tr;
 use crate::utils::settings_ui::ClickResult;
 use crate::utils::settings_ui::items::SettingsItem;
+use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+use windows::core::PCWSTR;
 
 use super::super::SettingsApp;
 use super::{PageInput, SettingsPage};
@@ -56,7 +59,21 @@ impl SettingsApp {
             (page.action(&result), result),
             (Some(AboutAction::Homepage), ClickResult::CenterLink(_))
         ) {
-            let _ = open::that(APP_HOMEPAGE);
+            let homepage: Vec<u16> = APP_HOMEPAGE
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+            // SAFETY: `homepage` is null-terminated and remains valid for the duration of the call.
+            unsafe {
+                let _ = ShellExecuteW(
+                    None,
+                    None,
+                    PCWSTR(homepage.as_ptr()),
+                    None,
+                    None,
+                    SW_SHOWNORMAL,
+                );
+            }
         }
     }
 }

@@ -1,8 +1,7 @@
 use crate::core::config::{APP_HOMEPAGE, APP_VERSION};
-use once_cell::sync::Lazy;
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 /// Check whether a search query is related to a song name.
 fn query_matches_song(query: &str, song_name: &str) -> bool {
@@ -21,7 +20,7 @@ fn query_matches_song(query: &str, song_name: &str) -> bool {
     words.iter().any(|w| n.contains(w))
 }
 
-static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
