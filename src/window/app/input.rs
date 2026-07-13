@@ -262,11 +262,14 @@ impl App {
                     self.idle_timer = Instant::now();
                 } else {
                     let media = self.smtc.get_info();
-                    self.widget_view = should_show_widget_view(
+                    let widget_view = should_show_widget_view(
                         self.config.smtc_enabled,
                         !media.title.is_empty(),
                         media.is_playing,
                     );
+                    self.widget_view = widget_view;
+                    self.spring_view.value = f32::from(widget_view);
+                    self.spring_view.velocity = 0.0;
                     self.expanded = true;
                 }
             } else if self.spring_hide.value > 0.3 {
