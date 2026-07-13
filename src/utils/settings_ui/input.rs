@@ -86,6 +86,7 @@ pub fn widget_source_rect(
     let (source_w, source_h) = match kind {
         WidgetKind::Clock => (108.0, 50.0),
         WidgetKind::Calendar => (72.0, 72.0),
+        WidgetKind::Settings => (50.0, 50.0),
     };
     (source_x, source_y, source_w, source_h)
 }

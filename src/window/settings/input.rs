@@ -82,15 +82,17 @@ impl SettingsApp {
                 );
                 let (x, y, w, h) = geom.footprint_rect(widget, anchor);
                 let (mx, my) = self.logical_mouse_pos;
-                if widget_delete_button_hit(
-                    mx - SIDEBAR_W,
-                    my + self.scroll_y,
-                    x,
-                    y,
-                    w,
-                    h,
-                    geom.cap_scale,
-                ) {
+                if widget != crate::core::config::WidgetKind::Settings
+                    && widget_delete_button_hit(
+                        mx - SIDEBAR_W,
+                        my + self.scroll_y,
+                        x,
+                        y,
+                        w,
+                        h,
+                        geom.cap_scale,
+                    )
+                {
                     return false;
                 }
                 widget
@@ -137,6 +139,9 @@ impl SettingsApp {
         );
         let anchor = self.config.widget_layout.iter().find_map(|entry| {
             let widget = entry.widget?;
+            if widget == crate::core::config::WidgetKind::Settings {
+                return None;
+            }
             let (x, y, w, h) = geom.footprint_rect(widget, entry.slot);
             widget_delete_button_hit(
                 mx - SIDEBAR_W,

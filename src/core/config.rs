@@ -86,6 +86,7 @@ impl From<DockPosition> for String {
 pub enum WidgetKind {
     Clock,
     Calendar,
+    Settings,
 }
 
 impl WidgetKind {
@@ -93,6 +94,7 @@ impl WidgetKind {
         match self {
             WidgetKind::Clock => (2, 1),
             WidgetKind::Calendar => (2, 2),
+            WidgetKind::Settings => (1, 1),
         }
     }
 }
@@ -112,6 +114,7 @@ where
     Ok(raw.and_then(|s| match s.as_str() {
         "clock" => Some(WidgetKind::Clock),
         "calendar" => Some(WidgetKind::Calendar),
+        "settings" => Some(WidgetKind::Settings),
         _ => None,
     }))
 }
@@ -330,9 +333,56 @@ pub fn widget_covering_slot(
 }
 
 pub fn default_widget_layout() -> Vec<WidgetSlot> {
-    (0..WIDGET_GRID_SLOTS)
+    let mut layout: Vec<WidgetSlot> = (0..WIDGET_GRID_SLOTS)
         .map(|slot| WidgetSlot { slot, widget: None })
-        .collect()
+        .collect();
+    layout[WIDGET_GRID_SLOTS - 1].widget = Some(WidgetKind::Settings);
+    layout
+}
+
+fn ensure_widget_slots(layout: &mut Vec<WidgetSlot>) {
+    for slot in 0..WIDGET_GRID_SLOTS {
+        if !layout.iter().any(|entry| entry.slot == slot) {
+            layout.push(WidgetSlot { slot, widget: None });
+        }
+    }
+    layout.sort_by_key(|entry| entry.slot);
+}
+
+pub fn ensure_settings_widget(layout: &mut Vec<WidgetSlot>) -> bool {
+    ensure_widget_slots(layout);
+    let settings_slots: Vec<usize> = layout
+        .iter()
+        .filter(|entry| entry.widget == Some(WidgetKind::Settings))
+        .map(|entry| entry.slot)
+        .collect();
+    if let Some(keep) = settings_slots
+        .iter()
+        .copied()
+        .find(|slot| *slot < WIDGET_GRID_SLOTS)
+    {
+        let changed = settings_slots.len() != 1;
+        for entry in layout.iter_mut() {
+            if entry.widget == Some(WidgetKind::Settings) && entry.slot != keep {
+                entry.widget = None;
+            }
+        }
+        return changed;
+    }
+    for entry in layout.iter_mut() {
+        if entry.widget == Some(WidgetKind::Settings) {
+            entry.widget = None;
+        }
+    }
+
+    let slot = (0..WIDGET_GRID_SLOTS)
+        .rev()
+        .find(|slot| widget_covering_slot(layout, *slot).is_none())
+        .unwrap_or(WIDGET_GRID_SLOTS - 1);
+    if let Some(entry) = layout.iter_mut().find(|entry| entry.slot == slot) {
+        entry.widget = Some(WidgetKind::Settings);
+    }
+    true
 }
 
 fn clear_cells(layout: &mut [WidgetSlot], cells: &[usize]) {
@@ -358,14 +408,18 @@ pub fn place_widget_in_layout(
     widget: WidgetKind,
     target_slot: usize,
 ) {
+    ensure_settings_widget(layout);
     let anchor = widget_anchor_slot(widget, target_slot);
-    let slot_count = anchor.max(WIDGET_GRID_SLOTS - 1) + 1;
-    for slot in 0..slot_count {
-        if !layout.iter().any(|entry| entry.slot == slot) {
-            layout.push(WidgetSlot { slot, widget: None });
+    if widget != WidgetKind::Settings {
+        let target_cells = widget_footprint(widget, anchor);
+        let settings_slot = layout
+            .iter()
+            .find(|entry| entry.widget == Some(WidgetKind::Settings))
+            .map(|entry| entry.slot);
+        if settings_slot.is_some_and(|slot| target_cells.contains(&slot)) {
+            return;
         }
     }
-    layout.sort_by_key(|entry| entry.slot);
     for entry in layout.iter_mut() {
         if entry.widget == Some(widget) {
             entry.widget = None;
@@ -378,6 +432,11 @@ pub fn place_widget_in_layout(
 }
 
 pub fn clear_widget_slot(layout: &mut [WidgetSlot], target_slot: usize) {
+    if widget_covering_slot(layout, target_slot)
+        .is_some_and(|(_, widget)| widget == WidgetKind::Settings)
+    {
+        return;
+    }
     clear_cells(layout, &[target_slot]);
 }
 
@@ -430,13 +489,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_config_has_empty_widget_slots() {
+    fn default_config_has_required_settings_widget() {
         let config = AppConfig::default();
 
         assert_eq!(config.widget_layout.len(), WIDGET_GRID_SLOTS);
+        assert_eq!(
+            config.widget_layout[WIDGET_GRID_SLOTS - 1].widget,
+            Some(WidgetKind::Settings)
+        );
         assert!(
-            config.widget_layout.iter().all(|s| s.widget.is_none()),
-            "default layout must ship with no placeholder widgets"
+            config.widget_layout[..WIDGET_GRID_SLOTS - 1]
+                .iter()
+                .all(|slot| slot.widget.is_none())
         );
         for (i, entry) in config.widget_layout.iter().enumerate() {
             assert_eq!(entry.slot, i);
@@ -447,6 +511,7 @@ mod tests {
     fn widgets_use_their_expected_footprints() {
         assert_eq!(WidgetKind::Clock.span(), (2, 1));
         assert_eq!(WidgetKind::Calendar.span(), (2, 2));
+        assert_eq!(WidgetKind::Settings.span(), (1, 1));
         assert_eq!(widget_footprint(WidgetKind::Clock, 0), vec![0, 1]);
         assert_eq!(widget_footprint(WidgetKind::Clock, 17), vec![16, 17]);
         assert_eq!(widget_anchor_slot(WidgetKind::Clock, 17), 16);
@@ -515,7 +580,55 @@ smtc_apps = []
 
         clear_widget_slot(&mut layout, 0);
 
-        assert!(layout.iter().all(|e| e.widget.is_none()));
+        assert!(
+            layout
+                .iter()
+                .all(|entry| entry.widget != Some(WidgetKind::Clock))
+        );
+        assert_eq!(
+            layout[WIDGET_GRID_SLOTS - 1].widget,
+            Some(WidgetKind::Settings)
+        );
+    }
+
+    #[test]
+    fn settings_widget_is_required_and_protected() {
+        let mut layout = vec![WidgetSlot {
+            slot: 0,
+            widget: None,
+        }];
+        assert!(ensure_settings_widget(&mut layout));
+        let settings_slot = layout
+            .iter()
+            .find(|entry| entry.widget == Some(WidgetKind::Settings))
+            .map(|entry| entry.slot)
+            .unwrap();
+
+        clear_widget_slot(&mut layout, settings_slot);
+        assert_eq!(
+            widget_covering_slot(&layout, settings_slot),
+            Some((settings_slot, WidgetKind::Settings))
+        );
+
+        place_widget_in_layout(&mut layout, WidgetKind::Clock, settings_slot);
+        assert!(
+            layout
+                .iter()
+                .all(|entry| entry.widget != Some(WidgetKind::Clock))
+        );
+
+        place_widget_in_layout(&mut layout, WidgetKind::Settings, 0);
+        assert_eq!(
+            widget_covering_slot(&layout, 0),
+            Some((0, WidgetKind::Settings))
+        );
+        assert_eq!(
+            layout
+                .iter()
+                .filter(|entry| entry.widget == Some(WidgetKind::Settings))
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -542,5 +655,7 @@ smtc_apps = []
         assert_eq!(slot.widget, Some(WidgetKind::Clock));
         let slot: WidgetSlot = toml::from_str("slot = 2\nwidget = \"calendar\"\n").unwrap();
         assert_eq!(slot.widget, Some(WidgetKind::Calendar));
+        let slot: WidgetSlot = toml::from_str("slot = 3\nwidget = \"settings\"\n").unwrap();
+        assert_eq!(slot.widget, Some(WidgetKind::Settings));
     }
 }

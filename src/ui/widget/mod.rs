@@ -1,4 +1,5 @@
 pub mod calendar;
+pub mod settings;
 pub mod time;
 
 use crate::core::config::{WIDGET_GRID_COLS, WIDGET_GRID_ROWS, WidgetKind, widget_footprint};
@@ -151,6 +152,9 @@ pub fn draw_widget(
         WidgetKind::Clock => time::draw_time_widget(canvas, x, y, w, h, scale, alpha, text_color),
         WidgetKind::Calendar => {
             calendar::draw_calendar_widget(canvas, x, y, w, h, scale, alpha, text_color)
+        }
+        WidgetKind::Settings => {
+            settings::draw_settings_widget(canvas, x, y, w, h, scale, alpha, text_color)
         }
     }
 }

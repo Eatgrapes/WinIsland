@@ -1,5 +1,5 @@
 use crate::core::audio::AudioProcessor;
-use crate::core::config::{AppConfig, PADDING, TOP_OFFSET, WINDOW_TITLE};
+use crate::core::config::{AppConfig, PADDING, TOP_OFFSET, WINDOW_TITLE, WidgetKind};
 use crate::core::context::ContextManager;
 use crate::core::persistence::load_config;
 use crate::core::render::draw_island;
@@ -12,6 +12,7 @@ use crate::ui::expanded::music_view::{
     set_progress_dragging, set_progress_hover, trigger_cover_flip, trigger_next_click,
     trigger_pause_click, trigger_prev_click,
 };
+use crate::ui::widget::widget_grid_layout;
 use crate::utils::blur::calculate_blur_sigmas;
 use crate::utils::color::get_island_border_weights;
 use crate::utils::icon::get_app_icon;
@@ -573,10 +574,31 @@ impl App {
             }
 
             if view_val > 0.5 {
-                let gear_x = offset_x + w - 28.0 * scale + w - page_shift;
-                let gear_y = island_y + h - 16.0 * scale;
-                let dist_sq = (rel_x as f64 - gear_x).powi(2) + (rel_y as f64 - gear_y).powi(2);
-                if dist_sq <= (20.0 * scale).powi(2) {
+                let settings_hit = self
+                    .config
+                    .widget_layout
+                    .iter()
+                    .find(|entry| entry.widget == Some(WidgetKind::Settings))
+                    .is_some_and(|entry| {
+                        let layout = widget_grid_layout(
+                            offset_x as f32,
+                            island_y as f32,
+                            w as f32,
+                            h as f32,
+                            self.config.global_scale,
+                        );
+                        let (x, y, width, height) =
+                            layout.footprint_rect(WidgetKind::Settings, entry.slot);
+                        is_point_in_rect(
+                            rel_x as f64,
+                            rel_y as f64,
+                            x as f64 + w - page_shift,
+                            y as f64,
+                            width as f64,
+                            height as f64,
+                        )
+                    });
+                if settings_hit {
                     if let Ok(exe) = std::env::current_exe() {
                         let _ = std::process::Command::new(exe).arg("--settings").spawn();
                     }

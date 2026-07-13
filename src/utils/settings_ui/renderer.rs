@@ -1291,7 +1291,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         let hovered = widget_preview_hover_slot
                             .map(|s| widget_footprint(kind, entry.slot).contains(&s))
                             .unwrap_or(false);
-                        if dragging || hovered {
+                        if kind != WidgetKind::Settings && (dragging || hovered) {
                             let (bx, by) = widget_delete_button_center(tx, ty, tw, th);
                             let mut xbg = Paint::default();
                             xbg.set_anti_alias(true);
