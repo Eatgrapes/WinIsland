@@ -851,28 +851,3 @@ pub(crate) fn resize_surface(
         let _ = surface.resize(w, h);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn widget_drag_move_requests_redraw_even_when_hover_slot_is_unchanged() {
-        assert!(widget_drag_move_needs_redraw(true, Some(1), Some(1)));
-    }
-
-    #[test]
-    fn widget_drag_move_requests_redraw_when_hover_slot_changes() {
-        assert!(widget_drag_move_needs_redraw(true, Some(0), Some(1)));
-    }
-
-    #[test]
-    fn widget_drag_move_does_not_request_redraw_when_not_dragging_and_slot_is_unchanged() {
-        assert!(!widget_drag_move_needs_redraw(false, Some(1), Some(1)));
-    }
-
-    #[test]
-    fn settings_frame_continues_while_widget_dragging() {
-        assert!(settings_frame_should_continue(false, false, false, true));
-    }
-}

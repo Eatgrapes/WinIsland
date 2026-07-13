@@ -60,6 +60,9 @@ cargo clippy --workspace -- -D warnings
 - 所有 Win32 API 调用必须包裹在 `unsafe {}` 块内
 - 涉及窗口、音频、SMTC 的代码需注意线程安全
 
+**3.1.6 测试**：
+- 不要为本项目添加单元测试、集成测试、快照测试或 UI 测试
+
 ### 3.2 渲染相关（Skia）
 
 - 在 `src/core/render.rs` 中修改绘制逻辑时，确保 Skia 表面已正确初始化
@@ -101,7 +104,6 @@ cargo clippy --workspace -- -D warnings
 - `style`: 代码格式（不影响逻辑）
 - `refactor`: 重构（非修复或功能）
 - `perf`: 性能优化
-- `test`: 测试相关
 - `chore`: 构建、依赖等杂务
 - `ci`: CI 配置变更
 - `revert`: 回滚提交
@@ -119,7 +121,7 @@ docs(contributing): 补充 Skia 渲染相关规范
 
 - `pre-commit`：运行 `cargo fmt -- --check`，确保格式正确
 - `commit-msg`：校验提交信息是否符合约定式提交格式
-- CI：再次执行 clippy、格式检查、构建和测试（如有）
+- CI：再次执行 clippy、格式检查和构建
 
 ### 4.4 提交被拦截怎么办？
 
@@ -165,7 +167,6 @@ docs(contributing): 补充 Skia 渲染相关规范
 ### 5.2 建议满足
 
 - 适当的注释和文档
-- 相关模块添加或更新测试（如 `src/core/config.rs` 中的序列化测试）
 - 如有 UI 变更，提供截图或描述动画效果（Spring 参数等）
 
 ## 6. 常见问题

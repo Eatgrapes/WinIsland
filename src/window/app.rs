@@ -1665,16 +1665,3 @@ impl ApplicationHandler for App {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::should_show_widget_view;
-
-    #[test]
-    fn expanded_view_follows_music_playback_state() {
-        assert!(!should_show_widget_view(true, true, true));
-        assert!(should_show_widget_view(true, true, false));
-        assert!(should_show_widget_view(true, false, false));
-        assert!(should_show_widget_view(false, true, true));
-    }
-}
