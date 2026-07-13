@@ -40,7 +40,7 @@ impl App {
                 let is_hovering = is_point_in_rect(
                     rel_x as f64,
                     rel_y as f64,
-                    layout.offset_x,
+                    layout.current_island_x,
                     layout.current_island_y,
                     self.spring_w.value as f64,
                     self.spring_h.value as f64,
@@ -54,13 +54,9 @@ impl App {
             ElementState::Released => {
                 if self.is_right_dragging {
                     self.is_right_dragging = false;
-                    if let Some(window) = self.window.clone() {
-                        self.snap_to_nearest_edge(&window);
-                    }
                     crate::core::persistence::save_config(&self.config);
                     log::info!(
-                        "Island snapped to {} with offsets ({}, {})",
-                        self.config.dock_position,
+                        "Right click drag offsets saved: ({}, {})",
                         self.config.position_x_offset,
                         self.config.position_y_offset
                     );
@@ -74,26 +70,29 @@ impl App {
     pub(super) fn handle_press(&mut self, rel_x: i32, rel_y: i32, layout: &IslandLayout) {
         let island_y = layout.island_y;
         let offset_x = layout.offset_x;
+        let current_island_x = layout.current_island_x;
         let current_island_y = layout.current_island_y;
 
         let is_hovering_visible = is_point_in_rect(
             rel_x as f64,
             rel_y as f64,
-            offset_x,
+            current_island_x,
             current_island_y,
             self.spring_w.value as f64,
             self.spring_h.value as f64,
         );
 
-        let hidden_handle_h = layout.hidden_handle_h;
+        let hidden_handle_x = layout.hidden_handle_x;
         let hidden_handle_y = layout.hidden_handle_y;
+        let hidden_handle_w = layout.hidden_handle_w;
+        let hidden_handle_h = layout.hidden_handle_h;
         let is_on_hidden_handle = (self.auto_hidden || self.manually_hidden)
             && is_point_in_rect(
                 rel_x as f64,
                 rel_y as f64,
-                offset_x,
+                hidden_handle_x,
                 hidden_handle_y,
-                self.spring_w.value as f64,
+                hidden_handle_w,
                 hidden_handle_h,
             );
 
@@ -238,6 +237,7 @@ impl App {
             }
         } else if is_hovering_visible || is_on_hidden_handle {
             self.is_dragging = true;
+            self.drag_start_px = rel_x + self.win_x;
             self.drag_start_py = rel_y + self.win_y;
             self.drag_start_hide_val = self.spring_hide.value;
             self.drag_has_moved = false;

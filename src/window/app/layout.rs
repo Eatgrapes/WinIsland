@@ -3,9 +3,9 @@ use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
-use crate::core::config::{DockPosition, PADDING, TOP_OFFSET};
+use crate::core::config::{PADDING, TOP_OFFSET};
 
-use super::{App, IslandLayout};
+use super::{App, HideEdge, IslandLayout};
 
 impl App {
     pub(super) fn get_target_monitor(
@@ -98,64 +98,73 @@ impl App {
         (win_x, win_y)
     }
 
-    pub(super) fn snap_to_nearest_edge(&mut self, window: &Window) {
+    pub(super) fn nearest_hide_edge(&self) -> HideEdge {
+        if self.last_mon_size.0 == 0 || self.last_mon_size.1 == 0 {
+            return self.current_hide_edge();
+        }
+        let layout = self.compute_island_layout();
+        let island_x = self.win_x + layout.current_island_x.round() as i32;
+        let island_y = self.win_y + layout.current_island_y.round() as i32;
+        let island_w = self.spring_w.value.round().max(1.0) as i32;
+        let island_h = self.spring_h.value.round().max(1.0) as i32;
+        let mon_right = self.last_mon_pos.0 + self.last_mon_size.0 as i32;
+        let mon_bottom = self.last_mon_pos.1 + self.last_mon_size.1 as i32;
+        [
+            ((island_y - self.last_mon_pos.1).max(0), HideEdge::Top),
+            ((mon_bottom - island_y - island_h).max(0), HideEdge::Bottom),
+            ((island_x - self.last_mon_pos.0).max(0), HideEdge::Left),
+            ((mon_right - island_x - island_w).max(0), HideEdge::Right),
+        ]
+        .into_iter()
+        .min_by_key(|(distance, _)| *distance)
+        .map(|(_, edge)| edge)
+        .unwrap_or(HideEdge::Top)
+    }
+
+    pub(super) fn current_hide_edge(&self) -> HideEdge {
+        if self.auto_hidden || self.manually_hidden || self.hide_origin.is_some() {
+            self.hide_edge
+        } else if self.config.dock_position.is_bottom() {
+            HideEdge::Bottom
+        } else {
+            HideEdge::Top
+        }
+    }
+
+    pub(super) fn snap_to_hide_edge(&mut self, window: &Window) {
         let Some(monitor) = Self::get_target_monitor(window, self.config.monitor_index) else {
             return;
         };
-        let mon_size = monitor.size();
-        let mon_pos = monitor.position();
         let layout = self.compute_island_layout();
-        let island_w = self.spring_w.value.round().max(1.0) as i32;
-        let island_h = self.spring_h.value.round().max(1.0) as i32;
-        let island_x = self.win_x + layout.offset_x.round() as i32;
-        let island_y = self.win_y + layout.current_island_y.round() as i32;
+        let mon_pos = monitor.position();
+        let mon_size = monitor.size();
         let mon_right = mon_pos.x + mon_size.width as i32;
         let mon_bottom = mon_pos.y + mon_size.height as i32;
-        let edges = [
-            ((island_y - mon_pos.y).max(0), DockPosition::TopCenter),
-            (
-                (mon_bottom - island_y - island_h).max(0),
-                DockPosition::BottomCenter,
-            ),
-            ((island_x - mon_pos.x).max(0), DockPosition::TopLeft),
-            (
-                (mon_right - island_x - island_w).max(0),
-                DockPosition::TopRight,
-            ),
-        ];
-        let dock_position = edges
-            .into_iter()
-            .min_by_key(|(distance, _)| *distance)
-            .map(|(_, position)| position)
-            .unwrap_or(DockPosition::TopCenter);
-        let island_center_x = island_x + island_w / 2;
-        let island_center_y = island_y + island_h / 2;
+        let island_w = self.spring_w.value.round() as i32;
+        let island_h = self.spring_h.value.round() as i32;
 
-        match dock_position {
-            DockPosition::TopCenter | DockPosition::BottomCenter => {
-                let min_x = mon_pos.x + TOP_OFFSET + island_w / 2;
-                let max_x = mon_right - TOP_OFFSET - island_w / 2;
-                let snapped_center_x = island_center_x.clamp(min_x, max_x.max(min_x));
-                self.config.position_x_offset =
-                    snapped_center_x - (mon_pos.x + mon_size.width as i32 / 2);
-                self.config.position_y_offset = 0;
+        match self.hide_edge {
+            HideEdge::Top => self.win_y = mon_pos.y + TOP_OFFSET - layout.island_y.round() as i32,
+            HideEdge::Bottom => {
+                self.win_y = mon_bottom - TOP_OFFSET - island_h - layout.island_y.round() as i32
             }
-            DockPosition::TopLeft | DockPosition::TopRight => {
-                let min_y = mon_pos.y + TOP_OFFSET + island_h / 2;
-                let max_y = mon_bottom - TOP_OFFSET - island_h / 2;
-                let snapped_center_y = island_center_y.clamp(min_y, max_y.max(min_y));
-                self.config.position_x_offset = 0;
-                self.config.position_y_offset =
-                    snapped_center_y - (mon_pos.y + TOP_OFFSET + island_h / 2);
+            HideEdge::Left => self.win_x = mon_pos.x + TOP_OFFSET - layout.offset_x.round() as i32,
+            HideEdge::Right => {
+                self.win_x = mon_right - TOP_OFFSET - island_w - layout.offset_x.round() as i32
             }
-            DockPosition::BottomLeft | DockPosition::BottomRight => unreachable!(),
         }
-
-        self.config.dock_position = dock_position;
-        self.last_mon_size = (mon_size.width, mon_size.height);
-        self.last_mon_pos = (mon_pos.x, mon_pos.y);
-        (self.win_x, self.win_y) = self.compute_window_position(mon_pos, mon_size);
         window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+    }
+
+    pub(super) fn restore_hide_origin(&mut self, window: &Window) {
+        if self.spring_hide.value > 0.001 {
+            return;
+        }
+        if let Some((win_x, win_y)) = self.hide_origin.take() {
+            self.win_x = win_x;
+            self.win_y = win_y;
+            window.set_outer_position(PhysicalPosition::new(win_x, win_y));
+        }
     }
 
     pub(super) fn compute_island_layout(&self) -> IslandLayout {
@@ -174,35 +183,81 @@ impl App {
             (self.os_w as f64 - self.spring_w.value as f64) / 2.0
         };
 
+        let hide_edge = self.current_hide_edge();
         let scale = self.config.global_scale as f64;
-        let hidden_peek_h = (5.0 * scale).max(3.0);
-        let hide_distance = if dock_bottom {
-            (self.spring_h.value as f64 - hidden_peek_h).max(0.0)
-        } else {
-            (self.spring_h.value as f64 - hidden_peek_h + TOP_OFFSET as f64).max(0.0)
+        let hidden_peek = (5.0 * scale).max(3.0);
+        let hide_distance = match hide_edge {
+            HideEdge::Top => {
+                (self.spring_h.value as f64 - hidden_peek + TOP_OFFSET as f64).max(0.0)
+            }
+            HideEdge::Bottom => (self.spring_h.value as f64 - hidden_peek).max(0.0),
+            HideEdge::Left => {
+                (self.spring_w.value as f64 - hidden_peek + TOP_OFFSET as f64).max(0.0)
+            }
+            HideEdge::Right => (self.spring_w.value as f64 - hidden_peek).max(0.0),
         };
-        let hide_y_offset = self.spring_hide.value as f64 * hide_distance;
-        let current_island_y = if dock_bottom {
-            island_y + hide_y_offset
-        } else {
-            island_y - hide_y_offset
+        let hide_offset = self.spring_hide.value as f64 * hide_distance;
+        let (current_island_x, current_island_y) = match hide_edge {
+            HideEdge::Top => (offset_x, island_y - hide_offset),
+            HideEdge::Bottom => (offset_x, island_y + hide_offset),
+            HideEdge::Left => (offset_x - hide_offset, island_y),
+            HideEdge::Right => (offset_x + hide_offset, island_y),
         };
-
-        let hidden_handle_h = (24.0 * scale).max(14.0);
-        let hidden_handle_y = if dock_bottom {
-            (self.os_h as f64 - PADDING as f64 / 2.0 - hidden_handle_h).max(0.0)
+        let stable_base_y = if dock_bottom {
+            self.os_h as f64 - PADDING as f64 / 2.0 - self.config.base_height as f64 * scale
         } else {
-            (current_island_y + self.spring_h.value as f64 - hidden_peek_h - hidden_handle_h * 0.35)
-                .max(0.0)
+            PADDING as f64 / 2.0
+        };
+        let stable_island_y = match hide_edge {
+            HideEdge::Top => stable_base_y - hide_offset,
+            HideEdge::Bottom => stable_base_y + hide_offset,
+            HideEdge::Left | HideEdge::Right => stable_base_y,
+        };
+        let hidden_handle_size = (24.0 * scale).max(14.0);
+        let (hidden_handle_x, hidden_handle_y, hidden_handle_w, hidden_handle_h) = match hide_edge {
+            HideEdge::Top => (
+                current_island_x,
+                (current_island_y + self.spring_h.value as f64
+                    - hidden_peek
+                    - hidden_handle_size * 0.35)
+                    .max(0.0),
+                self.spring_w.value as f64,
+                hidden_handle_size,
+            ),
+            HideEdge::Bottom => (
+                current_island_x,
+                (self.os_h as f64 - PADDING as f64 / 2.0 - hidden_handle_size).max(0.0),
+                self.spring_w.value as f64,
+                hidden_handle_size,
+            ),
+            HideEdge::Left => (
+                (current_island_x + self.spring_w.value as f64
+                    - hidden_peek
+                    - hidden_handle_size * 0.35)
+                    .max(0.0),
+                current_island_y,
+                hidden_handle_size,
+                self.spring_h.value as f64,
+            ),
+            HideEdge::Right => (
+                (self.os_w as f64 - PADDING as f64 / 2.0 - hidden_handle_size).max(0.0),
+                current_island_y,
+                hidden_handle_size,
+                self.spring_h.value as f64,
+            ),
         };
 
         IslandLayout {
-            dock_bottom,
             offset_x,
             island_y,
+            current_island_x,
             current_island_y,
+            stable_island_y,
+            hide_edge,
             hide_distance,
+            hidden_handle_x,
             hidden_handle_y,
+            hidden_handle_w,
             hidden_handle_h,
         }
     }

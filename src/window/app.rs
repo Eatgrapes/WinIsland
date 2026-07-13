@@ -26,6 +26,30 @@ mod system;
 type InstallResult = Result<(PluginManifest, PathBuf, Vec<String>), String>;
 const RIGHT_DRAG_THRESHOLD: i32 = 4;
 
+#[derive(Clone, Copy)]
+enum HideEdge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+impl HideEdge {
+    fn from_drag_delta(dx: i32, dy: i32) -> Self {
+        if dx.abs() > dy.abs() {
+            if dx.is_positive() {
+                Self::Right
+            } else {
+                Self::Left
+            }
+        } else if dy.is_positive() {
+            Self::Bottom
+        } else {
+            Self::Top
+        }
+    }
+}
+
 fn should_show_widget_view(smtc_enabled: bool, has_media: bool, is_playing: bool) -> bool {
     !(smtc_enabled && has_media && is_playing)
 }
@@ -61,7 +85,10 @@ pub struct App {
     last_glass_refresh: Instant,
     spring_hide: Spring,
     auto_hidden: bool,
+    hide_origin: Option<(i32, i32)>,
+    hide_edge: HideEdge,
     is_dragging: bool,
+    drag_start_px: i32,
     drag_start_py: i32,
     drag_start_hide_val: f32,
     manually_hidden: bool,
@@ -127,7 +154,10 @@ impl Default for App {
             last_glass_refresh: Instant::now(),
             spring_hide: Spring::new(0.0),
             auto_hidden: false,
+            hide_origin: None,
+            hide_edge: HideEdge::Top,
             is_dragging: false,
+            drag_start_px: 0,
             drag_start_py: 0,
             drag_start_hide_val: 0.0,
             manually_hidden: false,
@@ -158,11 +188,15 @@ impl Default for App {
 }
 
 struct IslandLayout {
-    dock_bottom: bool,
     offset_x: f64,
     island_y: f64,
+    current_island_x: f64,
     current_island_y: f64,
+    stable_island_y: f64,
+    hide_edge: HideEdge,
     hide_distance: f64,
+    hidden_handle_x: f64,
     hidden_handle_y: f64,
+    hidden_handle_w: f64,
     hidden_handle_h: f64,
 }

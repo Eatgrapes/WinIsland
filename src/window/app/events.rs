@@ -71,6 +71,7 @@ impl App {
                     }
                 }
                 WindowEvent::RedrawRequested => {
+                    let island_layout = self.compute_island_layout();
                     if let Some(surface) = self.surface.as_mut() {
                         let dt =
                             (self.last_frame_time.elapsed().as_secs_f32() * 60.0).clamp(0.1, 3.0);
@@ -165,7 +166,9 @@ impl App {
                                     view_offset: self.spring_view.value,
                                     global_scale: self.config.global_scale,
                                     hide_progress: self.spring_hide.value,
-                                    dock_position: self.config.dock_position,
+                                    island_x: island_layout.current_island_x as f32,
+                                    island_y: island_layout.current_island_y as f32,
+                                    stable_island_y: island_layout.stable_island_y as f32,
                                     base_h: self.config.base_height * self.config.global_scale,
                                 },
                                 media: crate::core::render::MediaParams {

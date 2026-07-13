@@ -14,7 +14,7 @@ use crate::utils::mouse::{
     is_point_in_rect,
 };
 
-use super::{App, RIGHT_DRAG_THRESHOLD};
+use super::{App, HideEdge, RIGHT_DRAG_THRESHOLD};
 
 impl App {
     pub(super) fn on_about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -106,28 +106,29 @@ impl App {
         }
 
         let layout = self.compute_island_layout();
-        let dock_bottom = layout.dock_bottom;
         let island_y = layout.island_y;
         let offset_x = layout.offset_x;
-        let hide_distance = layout.hide_distance;
+        let current_island_x = layout.current_island_x;
         let current_island_y = layout.current_island_y;
         let is_hovering_visible = is_point_in_rect(
             rel_x as f64,
             rel_y as f64,
-            offset_x,
+            current_island_x,
             current_island_y,
             self.spring_w.value as f64,
             self.spring_h.value as f64,
         );
-        let hidden_handle_h = layout.hidden_handle_h;
+        let hidden_handle_x = layout.hidden_handle_x;
         let hidden_handle_y = layout.hidden_handle_y;
+        let hidden_handle_w = layout.hidden_handle_w;
+        let hidden_handle_h = layout.hidden_handle_h;
         let is_on_hidden_handle = (self.auto_hidden || self.manually_hidden)
             && is_point_in_rect(
                 rel_x as f64,
                 rel_y as f64,
-                offset_x,
+                hidden_handle_x,
                 hidden_handle_y,
-                self.spring_w.value as f64,
+                hidden_handle_w,
                 hidden_handle_h,
             );
 
@@ -195,6 +196,9 @@ impl App {
             log::info!("Island un-hidden (media playing)");
         } else if !self.auto_hidden && is_idle && !self.manually_hidden {
             if self.idle_timer.elapsed().as_secs_f32() > self.config.auto_hide_delay {
+                self.hide_edge = self.nearest_hide_edge();
+                self.hide_origin = Some((self.win_x, self.win_y));
+                self.snap_to_hide_edge(&window);
                 self.auto_hidden = true;
                 log::info!(
                     "Island auto-hidden (idle {:.1}s)",
@@ -255,16 +259,26 @@ impl App {
         set_progress_dragging(self.seeking_progress);
 
         if self.is_dragging {
-            let diff_y = if dock_bottom {
-                py - self.drag_start_py
-            } else {
-                self.drag_start_py - py
-            };
-            if diff_y.abs() > 3 {
+            let dx = px - self.drag_start_px;
+            let dy = py - self.drag_start_py;
+            if !self.drag_has_moved && (dx.abs() > 3 || dy.abs() > 3) {
                 self.drag_has_moved = true;
+                if !self.auto_hidden && !self.manually_hidden {
+                    self.hide_edge = HideEdge::from_drag_delta(dx, dy);
+                    self.hide_origin = Some((self.win_x, self.win_y));
+                    self.snap_to_hide_edge(&window);
+                }
             }
-            if hide_distance > 0.0 {
-                let mut new_val = self.drag_start_hide_val + (diff_y as f32 / hide_distance as f32);
+            let drag_layout = self.compute_island_layout();
+            let diff = match drag_layout.hide_edge {
+                HideEdge::Top => self.drag_start_py - py,
+                HideEdge::Bottom => py - self.drag_start_py,
+                HideEdge::Left => self.drag_start_px - px,
+                HideEdge::Right => px - self.drag_start_px,
+            };
+            if drag_layout.hide_distance > 0.0 {
+                let mut new_val =
+                    self.drag_start_hide_val + (diff as f32 / drag_layout.hide_distance as f32);
                 new_val = new_val.clamp(0.0, 1.0);
                 self.spring_hide.value = new_val;
                 self.spring_hide.velocity = 0.0;
@@ -283,6 +297,9 @@ impl App {
             };
             self.spring_hide
                 .update_dt(hide_target, stiffness, damping, dt);
+        }
+        if !self.auto_hidden && !self.manually_hidden {
+            self.restore_hide_origin(&window);
         }
 
         if self.spring_hide.velocity.abs() > 0.001
@@ -309,8 +326,8 @@ impl App {
 
         if self.config.adaptive_border {
             if self.frame_count.is_multiple_of(30) {
-                let island_cx =
-                    self.win_x + (offset_x + (self.spring_w.value as f64) / 2.0).round() as i32;
+                let island_cx = self.win_x
+                    + (current_island_x + (self.spring_w.value as f64) / 2.0).round() as i32;
                 let island_cy = self.win_y
                     + (current_island_y + (self.spring_h.value as f64) / 2.0).round() as i32;
                 let raw_weights = get_island_border_weights(

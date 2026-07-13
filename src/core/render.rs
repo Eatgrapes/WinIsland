@@ -6,7 +6,7 @@ use self::background::{BackgroundParams, draw_background};
 use self::expanded::{ExpandedContentParams, draw_expanded_content};
 use self::mini::{MiniContentParams, draw_mini_content};
 
-use crate::core::config::{DockPosition, PADDING, TOP_OFFSET, WidgetSlot};
+use crate::core::config::WidgetSlot;
 use crate::core::smtc::MediaInfo;
 use crate::ui::expanded::music_view::{default_media_palette, get_media_palette};
 use skia_safe::{
@@ -32,7 +32,9 @@ pub struct LayoutParams {
     pub view_offset: f32,
     pub global_scale: f32,
     pub hide_progress: f32,
-    pub dock_position: DockPosition,
+    pub island_x: f32,
+    pub island_y: f32,
+    pub stable_island_y: f32,
     pub base_h: f32,
 }
 
@@ -102,7 +104,9 @@ pub fn draw_island(
         view_offset,
         global_scale,
         hide_progress,
-        dock_position,
+        island_x,
+        island_y,
+        stable_island_y,
         base_h,
     } = layout;
     let MediaParams {
@@ -149,42 +153,9 @@ pub fn draw_island(
     let canvas = sk_surface.canvas();
     canvas.clear(Color::TRANSPARENT);
 
-    let dock_bottom = dock_position.is_bottom();
-    let offset_x = if dock_position.is_left() {
-        PADDING / 2.0
-    } else if dock_position.is_right() {
-        (os_w as f32 - PADDING / 2.0 - current_w).max(0.0)
-    } else {
-        (os_w as f32 - current_w) / 2.0
-    };
-    let base_y = if dock_bottom {
-        os_h as f32 - PADDING / 2.0 - current_h
-    } else {
-        PADDING / 2.0
-    };
-    let hidden_peek_h = (5.0 * global_scale).max(3.0);
-    let hide_distance = if dock_bottom {
-        (current_h - hidden_peek_h).max(0.0)
-    } else {
-        (current_h - hidden_peek_h + TOP_OFFSET as f32).max(0.0)
-    };
-    let hide_y_offset = hide_progress * hide_distance;
-    let offset_y = if dock_bottom {
-        base_y + hide_y_offset
-    } else {
-        base_y - hide_y_offset
-    };
-
-    let stable_base_y = if dock_bottom {
-        os_h as f32 - PADDING / 2.0 - base_h
-    } else {
-        PADDING / 2.0
-    };
-    let stable_offset_y = if dock_bottom {
-        stable_base_y + hide_y_offset
-    } else {
-        stable_base_y - hide_y_offset
-    };
+    let offset_x = island_x;
+    let offset_y = island_y;
+    let stable_offset_y = stable_island_y;
 
     let rect = Rect::from_xywh(offset_x, offset_y, current_w, current_h);
     let rrect = RRect::new_rect_xy(rect, current_r, current_r);
