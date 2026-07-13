@@ -61,8 +61,9 @@ pub(crate) fn settings_frame_should_continue(
     has_popup: bool,
     is_scrolling: bool,
     is_widget_dragging: bool,
+    is_number_input_active: bool,
 ) -> bool {
-    has_anim || has_popup || is_scrolling || is_widget_dragging
+    has_anim || has_popup || is_scrolling || is_widget_dragging || is_number_input_active
 }
 
 pub(crate) type NumberInputHandler = fn(&mut SettingsApp, &str);
@@ -563,12 +564,19 @@ impl ApplicationHandler for SettingsApp {
         let has_popup = self.popup.is_some();
         let is_scrolling = (self.target_scroll_y - self.scroll_y).abs() > 0.1;
         let is_widget_dragging = self.widget_dragging.is_some();
+        let is_number_input_active = self.number_input.is_some();
 
-        if !settings_frame_should_continue(has_anim, has_popup, is_scrolling, is_widget_dragging) {
+        if !settings_frame_should_continue(
+            has_anim,
+            has_popup,
+            is_scrolling,
+            is_widget_dragging,
+            is_number_input_active,
+        ) {
             return;
         }
 
-        let mut redraw = is_widget_dragging || self.switch_anim.tick();
+        let mut redraw = is_widget_dragging || is_number_input_active || self.switch_anim.tick();
         if self.anim.tick() {
             redraw = true;
         }

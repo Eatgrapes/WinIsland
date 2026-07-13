@@ -15,6 +15,7 @@ pub use items::{content_height, draw_items};
 pub struct ActiveStepperValue<'a> {
     pub rect: Rect,
     pub text: &'a str,
+    pub show_caret: bool,
 }
 
 pub struct DrawItemsParams<'a> {

@@ -137,6 +137,9 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         .filter(|_| is_editing)
                         .map(|input| input.text)
                         .unwrap_or(value);
+                    let show_caret = active_stepper_value
+                        .as_ref()
+                        .is_some_and(|input| is_editing && input.show_caret);
                     if is_editing {
                         let mut input_paint = Paint::default();
                         input_paint.set_anti_alias(true);
@@ -177,6 +180,18 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         bold: false,
                         paint: &paint,
                     });
+                    if show_caret {
+                        let mut caret_paint = Paint::default();
+                        caret_paint.set_anti_alias(true);
+                        caret_paint.set_stroke_width(1.0);
+                        caret_paint.set_color(theme.accent);
+                        let caret_x = val_center + val_w / 2.0 + 1.5;
+                        canvas.draw_line(
+                            (caret_x, btn_y + 5.0),
+                            (caret_x, btn_y + STEPPER_BTN_SIZE - 5.0),
+                            &caret_paint,
+                        );
+                    }
                 }
 
                 if in_group {

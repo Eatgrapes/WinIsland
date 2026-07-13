@@ -117,6 +117,7 @@ impl SettingsApp {
                     input.rect.height(),
                 ),
                 text: &input.text,
+                show_caret: self.frame_count % 60 < 30,
             });
             draw_items(DrawItemsParams {
                 canvas,
