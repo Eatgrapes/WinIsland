@@ -2,9 +2,9 @@ use skia_safe::{Canvas, Color, Paint, Rect};
 
 use crate::core::config::{WidgetKind, WidgetSlot, widget_footprint};
 use crate::core::i18n::tr;
-use crate::ui::widget::{draw_mini_card, draw_widget};
+use crate::ui::widget::{draw_mini_card, draw_widget, draw_widget_text_centered};
 use crate::utils::color::SettingsTheme;
-use crate::utils::font::{DrawTextInRectParams, FontManager};
+use crate::utils::font::FontManager;
 
 use super::super::input::{
     WIDGET_ISLAND_PANEL_H, WIDGET_PREVIEW_H, widget_delete_button_center, widget_grid_geom,
@@ -199,16 +199,15 @@ pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
                 xbg.set_color(Color::from_argb(235, 255, 59, 48));
                 canvas.draw_circle((bx, by), 7.0 * cap_scale, &xbg);
                 label_p.set_color(Color::WHITE);
-                fm.draw_text_in_rect(DrawTextInRectParams {
+                let diameter = 14.0 * cap_scale;
+                draw_widget_text_centered(
                     canvas,
-                    text: "x",
-                    x: bx - 5.0 * cap_scale,
-                    y: by + 3.5 * cap_scale,
-                    w: 10.0 * cap_scale,
-                    size: 9.0 * cap_scale,
-                    bold: true,
-                    paint: &label_p,
-                });
+                    "×",
+                    Rect::from_xywh(bx - diameter / 2.0, by - diameter / 2.0, diameter, diameter),
+                    10.0 * cap_scale,
+                    true,
+                    &label_p,
+                );
             }
         }
 
