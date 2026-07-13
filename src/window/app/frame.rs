@@ -172,15 +172,6 @@ impl App {
             }
         }
 
-        let music_is_playing = music_active && media.is_playing;
-        if music_is_playing != self.last_media_playing {
-            self.last_media_playing = music_is_playing;
-            if self.expanded {
-                self.widget_view = !music_is_playing;
-                window.request_redraw();
-            }
-        }
-
         let is_paused_idle = music_active && !media.is_playing;
         let is_idle = !is_hovering_visible
             && !self.expanded
