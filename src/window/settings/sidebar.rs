@@ -1,10 +1,44 @@
+use std::cell::OnceCell;
+
 use crate::core::i18n::tr;
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::settings_ui::items::*;
-use skia_safe::{Canvas, Color, Paint, Rect};
+use skia_safe::{Canvas, Color, Data, FilterMode, Image, MipmapMode, Paint, Rect, SamplingOptions};
 
 use super::{SIDEBAR_KEY_BASE, SIDEBAR_ROW_H, SIDEBAR_W, SettingsApp};
+
+const SIDEBAR_ICON_BYTES: [&[u8]; 4] = [
+    include_bytes!("../../../resources/in_app/settings/settings.png"),
+    include_bytes!("../../../resources/in_app/settings/music.png"),
+    include_bytes!("../../../resources/in_app/settings/widget.png"),
+    include_bytes!("../../../resources/in_app/settings/about.png"),
+];
+
+thread_local! {
+    static SIDEBAR_ICONS: OnceCell<[Image; 4]> = const { OnceCell::new() };
+}
+
+fn draw_sidebar_icon(canvas: &Canvas, index: usize, rect: Rect) {
+    SIDEBAR_ICONS.with(|cache| {
+        let icons = cache.get_or_init(|| {
+            SIDEBAR_ICON_BYTES.map(|bytes| {
+                let icon = Image::from_encoded(Data::new_copy(bytes))
+                    .expect("Failed to load sidebar icon");
+                icon.with_default_mipmaps().unwrap_or(icon)
+            })
+        });
+        let mut paint = Paint::default();
+        paint.set_anti_alias(true);
+        canvas.draw_image_rect_with_sampling_options(
+            &icons[index],
+            None,
+            rect,
+            SamplingOptions::new(FilterMode::Linear, MipmapMode::Linear),
+            &paint,
+        );
+    });
+}
 
 impl SettingsApp {
     pub(crate) fn draw_sidebar(&self, canvas: &Canvas, theme: &SettingsTheme) {
@@ -16,24 +50,28 @@ impl SettingsApp {
         canvas.draw_rect(Rect::from_xywh(0.0, 0.0, SIDEBAR_W, self.win_h), &paint);
 
         // Draw Apple-style Window Control Dots
-        let (red_color, yellow_color, green_color) = if self.focused {
+        let (red_color, yellow_color) = if self.focused {
             (
                 Color::from_rgb(0xFF, 0x5F, 0x56),
                 Color::from_rgb(0xFF, 0xBD, 0x2E),
-                Color::from_rgb(0x27, 0xC9, 0x3F),
             )
         } else if self.is_light {
             (
-                Color::from_rgb(0xE6, 0xE6, 0xE6),
-                Color::from_rgb(0xE6, 0xE6, 0xE6),
-                Color::from_rgb(0xE6, 0xE6, 0xE6),
+                Color::from_rgb(0xD4, 0x8A, 0x84),
+                Color::from_rgb(0xD1, 0xB0, 0x78),
             )
         } else {
             (
                 Color::from_rgb(0x4D, 0x4D, 0x4D),
                 Color::from_rgb(0x4D, 0x4D, 0x4D),
-                Color::from_rgb(0x4D, 0x4D, 0x4D),
             )
+        };
+        let disabled_control = if self.focused {
+            Color::from_rgb(142, 142, 147)
+        } else if self.is_light {
+            Color::from_rgb(190, 190, 195)
+        } else {
+            Color::from_rgb(77, 77, 77)
         };
 
         let radius = 6.0;
@@ -47,11 +85,10 @@ impl SettingsApp {
         paint.set_color(yellow_color);
         canvas.draw_circle(yellow_center, radius, &paint);
 
-        paint.set_color(green_color);
+        paint.set_color(disabled_control);
         canvas.draw_circle(green_center, radius, &paint);
 
-        // Draw symbols if hovered and focused
-        if self.dots_hovered && self.focused {
+        if self.dots_hovered {
             let mut sym_paint = Paint::default();
             sym_paint.set_anti_alias(true);
             sym_paint.set_style(skia_safe::paint::Style::Stroke);
@@ -65,11 +102,6 @@ impl SettingsApp {
             // Yellow Minimize line: -
             sym_paint.set_color(Color::from_rgb(0x5C, 0x3E, 0x00));
             canvas.draw_line((36.5, 24.0), (43.5, 24.0), &sym_paint);
-
-            // Green Maximize plus: +
-            sym_paint.set_color(Color::from_rgb(0x00, 0x4D, 0x02));
-            canvas.draw_line((57.0, 24.0), (63.0, 24.0), &sym_paint);
-            canvas.draw_line((60.0, 21.0), (60.0, 27.0), &sym_paint);
         }
 
         let mut sep = Paint::default();
@@ -117,93 +149,11 @@ impl SettingsApp {
                 paint.set_color(theme.text_sec);
             }
 
-            // Draw macOS-style icon next to text
-            let icon_bg_rect = Rect::from_xywh(row_x + 8.0, row_y + 6.0, 20.0, 20.0);
-            let mut icon_bg_paint = Paint::default();
-            icon_bg_paint.set_anti_alias(true);
-
-            match i {
-                0 => {
-                    icon_bg_paint.set_color(Color::from_rgb(142, 142, 147)); // Gray
-                    canvas.draw_round_rect(icon_bg_rect, 5.0, 5.0, &icon_bg_paint);
-                    crate::icons::settings::draw_settings_icon(
-                        canvas,
-                        row_x + 18.0,
-                        row_y + 16.0,
-                        255,
-                        0.5,
-                        Color::WHITE,
-                    );
-                }
-                1 => {
-                    icon_bg_paint.set_color(Color::from_rgb(252, 60, 68)); // Pink/Red
-                    canvas.draw_round_rect(icon_bg_rect, 5.0, 5.0, &icon_bg_paint);
-                    crate::icons::music::draw_music_icon(
-                        canvas,
-                        row_x + 18.0,
-                        row_y + 16.0,
-                        255,
-                        0.5,
-                        Color::WHITE,
-                    );
-                }
-                2 => {
-                    icon_bg_paint.set_color(Color::from_rgb(52, 199, 89)); // Green
-                    canvas.draw_round_rect(icon_bg_rect, 5.0, 5.0, &icon_bg_paint);
-
-                    let mut widget_paint = Paint::default();
-                    widget_paint.set_anti_alias(true);
-                    widget_paint.set_color(Color::WHITE);
-                    // Draw a 2x2 grid representing widgets
-                    canvas.draw_round_rect(
-                        Rect::from_xywh(row_x + 12.0, row_y + 10.0, 5.0, 5.0),
-                        1.0,
-                        1.0,
-                        &widget_paint,
-                    );
-                    canvas.draw_round_rect(
-                        Rect::from_xywh(row_x + 19.0, row_y + 10.0, 5.0, 5.0),
-                        1.0,
-                        1.0,
-                        &widget_paint,
-                    );
-                    canvas.draw_round_rect(
-                        Rect::from_xywh(row_x + 12.0, row_y + 17.0, 5.0, 5.0),
-                        1.0,
-                        1.0,
-                        &widget_paint,
-                    );
-                    canvas.draw_round_rect(
-                        Rect::from_xywh(row_x + 19.0, row_y + 17.0, 5.0, 5.0),
-                        1.0,
-                        1.0,
-                        &widget_paint,
-                    );
-                }
-                3 => {
-                    icon_bg_paint.set_color(Color::from_rgb(0, 122, 255)); // Royal Blue
-                    canvas.draw_round_rect(icon_bg_rect, 5.0, 5.0, &icon_bg_paint);
-
-                    let mut info_paint = Paint::default();
-                    info_paint.set_anti_alias(true);
-                    info_paint.set_color(Color::WHITE);
-                    info_paint.set_stroke_width(1.2);
-
-                    info_paint.set_style(skia_safe::paint::Style::Stroke);
-                    canvas.draw_circle((row_x + 18.0, row_y + 16.0), 6.5, &info_paint);
-
-                    info_paint.set_style(skia_safe::paint::Style::Fill);
-                    canvas.draw_circle((row_x + 18.0, row_y + 13.0), 0.8, &info_paint);
-
-                    info_paint.set_style(skia_safe::paint::Style::Stroke);
-                    canvas.draw_line(
-                        (row_x + 18.0, row_y + 15.0),
-                        (row_x + 18.0, row_y + 18.5),
-                        &info_paint,
-                    );
-                }
-                _ => {}
-            }
+            draw_sidebar_icon(
+                canvas,
+                i,
+                Rect::from_xywh(row_x + 8.0, row_y + 6.0, 20.0, 20.0),
+            );
 
             fm.draw_text_cached(DrawTextCachedParams {
                 canvas,
@@ -211,7 +161,7 @@ impl SettingsApp {
                 x: row_x + 36.0,
                 y: row_y + 21.0,
                 size: 13.0,
-                bold: false,
+                bold: true,
                 paint: &paint,
             });
         }

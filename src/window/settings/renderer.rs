@@ -1,4 +1,3 @@
-use crate::core::i18n::tr;
 use crate::ui::widget::draw_mini_card;
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
@@ -7,8 +6,8 @@ use crate::utils::settings_ui::*;
 use skia_safe::{Canvas, Color, Paint, Rect, surfaces};
 
 use super::{
-    CONTENT_START_Y, POPUP_MENU_R, POPUP_OPACITY_KEY, SIDEBAR_W, SUB_TAB_H, SUB_TAB_START_Y,
-    SettingsApp,
+    PAGE_NAV_GAP, PAGE_NAV_SIZE, PAGE_NAV_X, PAGE_NAV_Y, POPUP_MENU_R, POPUP_OPACITY_KEY,
+    SIDEBAR_W, SettingsApp,
 };
 
 impl SettingsApp {
@@ -32,7 +31,7 @@ impl SettingsApp {
         let theme = self.theme();
         let win_w = self.win_w / scale;
         let win_h = self.win_h / scale;
-        let anim = self.get_page_anim();
+        let anim = self.switch_anim.clone();
 
         let mut surface = match self.surface.take() {
             Some(s) => s,
@@ -85,23 +84,15 @@ impl SettingsApp {
             canvas.draw_rect(win_rect, &bg_paint);
 
             self.draw_sidebar(canvas, &theme);
+            self.draw_page_navigation(canvas, &theme);
 
             let content_w = win_w - SIDEBAR_W;
-            self.draw_sub_tabs(canvas, &theme, content_w);
 
-            let content_start_y = if self.active_page == 0 {
-                SUB_TAB_START_Y + SUB_TAB_H + CONTENT_START_Y
-            } else {
-                50.0
-            };
+            let content_start_y = if self.active_page == 0 { 100.0 } else { 50.0 };
 
             self.target_scroll_y = self.target_scroll_y.clamp(0.0, self.cached_max_scroll);
 
-            let clip_start_y = if self.active_page == 0 {
-                SUB_TAB_START_Y + SUB_TAB_H
-            } else {
-                50.0
-            };
+            let clip_start_y = if self.active_page == 0 { 100.0 } else { 50.0 };
 
             canvas.save();
             canvas.clip_rect(
@@ -110,13 +101,30 @@ impl SettingsApp {
                 true,
             );
             canvas.translate((SIDEBAR_W, -self.scroll_y));
+            let active_source_button = self.popup.as_ref().map(|popup| {
+                Rect::from_xywh(
+                    popup.button_rect.left - SIDEBAR_W,
+                    popup.button_rect.top + self.scroll_y,
+                    popup.button_rect.width(),
+                    popup.button_rect.height(),
+                )
+            });
+            let active_stepper_value = self.number_input.as_ref().map(|input| ActiveStepperValue {
+                rect: Rect::from_xywh(
+                    input.rect.left - SIDEBAR_W,
+                    input.rect.top + self.scroll_y,
+                    input.rect.width(),
+                    input.rect.height(),
+                ),
+                text: &input.text,
+                show_caret: self.frame_count % 60 < 30,
+            });
             draw_items(DrawItemsParams {
                 canvas,
                 items: &self.cached_items,
                 start_y: content_start_y,
                 width: content_w,
                 anims: &anim,
-                hover_anims: &self.anim,
                 theme: &theme,
                 visible_min_y: self.scroll_y,
                 visible_max_y: self.scroll_y + win_h,
@@ -128,6 +136,8 @@ impl SettingsApp {
                 widget_dragging: self.widget_dragging,
                 widget_drag_hover_slot: self.widget_drag_hover_slot,
                 widget_preview_hover_slot: self.widget_preview_hover_slot,
+                active_source_button,
+                active_stepper_value,
             });
             canvas.restore();
 
@@ -224,84 +234,50 @@ impl SettingsApp {
         draw_mini_card(canvas, widget, x, y, w, h);
     }
 
-    pub(crate) fn draw_sub_tabs(&self, canvas: &Canvas, theme: &SettingsTheme, content_w: f32) {
-        if self.active_page != 0 {
-            return;
-        }
-
-        let fm = FontManager::global();
-        let tabs = [
-            tr("section_appearance"),
-            tr("section_effects"),
-            tr("section_behavior"),
-        ];
-        let tab_w = content_w / tabs.len() as f32;
-        let start_x = SIDEBAR_W;
-
+    fn draw_page_navigation(&self, canvas: &Canvas, theme: &SettingsTheme) {
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
+        paint.set_style(skia_safe::paint::Style::Stroke);
+        paint.set_stroke_width(1.8);
+        paint.set_stroke_cap(skia_safe::paint::Cap::Round);
+        paint.set_stroke_join(skia_safe::paint::Join::Round);
 
-        paint.set_color(theme.text_pri);
-        fm.draw_text_cached(DrawTextCachedParams {
-            canvas,
-            text: &tr("tab_general"),
-            x: SIDEBAR_W + CONTENT_PADDING,
-            y: 35.0,
-            size: 20.0,
-            bold: true,
-            paint: &paint,
+        let back_center_x = PAGE_NAV_X + PAGE_NAV_SIZE / 2.0;
+        let forward_center_x = back_center_x + PAGE_NAV_SIZE + PAGE_NAV_GAP;
+        let center_y = PAGE_NAV_Y + PAGE_NAV_SIZE / 2.0;
+
+        paint.set_color(if self.can_navigate_back() {
+            theme.text_pri
+        } else {
+            theme.disabled
         });
+        if let Some(path) = skia_safe::Path::from_svg(format!(
+            "M {} {} L {} {} L {} {}",
+            back_center_x + 2.5,
+            center_y - 5.0,
+            back_center_x - 2.5,
+            center_y,
+            back_center_x + 2.5,
+            center_y + 5.0,
+        )) {
+            canvas.draw_path(&path, &paint);
+        }
 
-        let mut sep = Paint::default();
-        sep.set_anti_alias(true);
-        sep.set_color(theme.separator);
-        sep.set_stroke_width(0.5);
-        sep.set_style(skia_safe::paint::Style::Stroke);
-        canvas.draw_line(
-            (SIDEBAR_W, SUB_TAB_START_Y + SUB_TAB_H),
-            (SIDEBAR_W + content_w, SUB_TAB_START_Y + SUB_TAB_H),
-            &sep,
-        );
-
-        for (i, label) in tabs.iter().enumerate() {
-            let tab_x = start_x + i as f32 * tab_w;
-            let is_active = self.active_sub_page == i;
-            let is_hover = self.sub_tab_hover == i as i32;
-
-            paint.set_color(if is_active || is_hover {
-                theme.text_pri
-            } else {
-                theme.text_sec
-            });
-
-            let label_w = FontManager::global().measure_text_cached(
-                label,
-                13.0,
-                skia_safe::FontStyle::normal(),
-            );
-            let text_x = tab_x + (tab_w - label_w) / 2.0;
-            let text_y = SUB_TAB_START_Y + SUB_TAB_H / 2.0 + 5.0;
-            fm.draw_text_cached(DrawTextCachedParams {
-                canvas,
-                text: label,
-                x: text_x,
-                y: text_y,
-                size: 13.0,
-                bold: false,
-                paint: &paint,
-            });
-
-            if is_active {
-                let underline_pad = 4.0;
-                let underline_x = text_x - underline_pad;
-                let underline_w = label_w + underline_pad * 2.0;
-                let underline_y = SUB_TAB_START_Y + SUB_TAB_H - 2.0;
-                paint.set_style(skia_safe::paint::Style::Fill);
-                canvas.draw_rect(
-                    Rect::from_xywh(underline_x, underline_y, underline_w, 2.0),
-                    &paint,
-                );
-            }
+        paint.set_color(if self.can_navigate_forward() {
+            theme.text_pri
+        } else {
+            theme.disabled
+        });
+        if let Some(path) = skia_safe::Path::from_svg(format!(
+            "M {} {} L {} {} L {} {}",
+            forward_center_x - 2.5,
+            center_y - 5.0,
+            forward_center_x + 2.5,
+            center_y,
+            forward_center_x - 2.5,
+            center_y + 5.0,
+        )) {
+            canvas.draw_path(&path, &paint);
         }
     }
 
@@ -435,19 +411,6 @@ impl SettingsApp {
                     &sep,
                 );
             }
-        }
-    }
-
-    pub(crate) fn get_page_anim(&self) -> SwitchAnimator {
-        match self.active_page {
-            0 => match self.active_sub_page {
-                0 => SwitchAnimator::new(&[]),
-                1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[0, 1, 2]),
-                2 => SwitchAnimator::new_with_anims(&self.switch_anim, &[3, 4, 5, 6]),
-                _ => SwitchAnimator::new(&[]),
-            },
-            1 => SwitchAnimator::new_with_anims(&self.switch_anim, &[7, 8, 9, 10]),
-            _ => SwitchAnimator::new(&[]),
         }
     }
 }

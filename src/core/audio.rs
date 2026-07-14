@@ -14,6 +14,8 @@ use windows::Win32::System::Com::{
 };
 use windows::core::Interface;
 
+const FFT_LEN: usize = 1024;
+
 pub struct AudioProcessor {
     spectrum: Arc<Mutex<[f32; 6]>>,
     gate: Arc<AtomicU32>,
@@ -296,20 +298,21 @@ where
     f32: FromSample<T>,
 {
     let mut planner = RealFftPlanner::<f32>::new();
-    let fft_len = 1024usize;
-    let fft = planner.plan_fft_forward(fft_len);
+    let fft = planner.plan_fft_forward(FFT_LEN);
     let mut output = fft.make_output_vec();
-    let mut pcm_buffer = Vec::with_capacity(fft_len);
+    let mut input = vec![0.0f32; FFT_LEN];
+    let mut input_len = 0;
     let mut adaptive_max = [0.1f32; 6];
 
     device.build_input_stream(
         *config,
         move |data: &[T], _: &_| {
             for &sample in data {
-                pcm_buffer.push(f32::from_sample(sample));
-                if pcm_buffer.len() >= fft_len {
+                input[input_len] = f32::from_sample(sample);
+                input_len += 1;
+                if input_len == FFT_LEN {
                     update_spectrum(
-                        &mut pcm_buffer,
+                        &mut input,
                         &fft,
                         &mut output,
                         &mut adaptive_max,
@@ -317,6 +320,7 @@ where
                         &gate_clone,
                         &gate_override_clone,
                     );
+                    input_len = 0;
                 }
             }
         },
@@ -326,7 +330,7 @@ where
 }
 
 fn update_spectrum(
-    pcm_buffer: &mut Vec<f32>,
+    input: &mut [f32],
     fft: &Arc<dyn realfft::RealToComplex<f32>>,
     output: &mut [realfft::num_complex::Complex32],
     adaptive_max: &mut [f32; 6],
@@ -334,10 +338,7 @@ fn update_spectrum(
     gate_clone: &Arc<AtomicU32>,
     gate_override_clone: &Arc<AtomicU32>,
 ) {
-    let fft_len = 1024;
-    let mut indata = pcm_buffer[..fft_len].to_vec();
-    pcm_buffer.drain(..fft_len);
-    if let Err(e) = fft.process(&mut indata, output) {
+    if let Err(e) = fft.process(input, output) {
         log::warn!("FFT processing failed: {:?}", e);
         // Feed the floor value into adaptive_max to prevent slow baseline decay
         // when FFT frames are intermittently dropped.

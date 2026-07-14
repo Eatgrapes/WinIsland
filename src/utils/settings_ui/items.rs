@@ -14,6 +14,8 @@ pub const TOGGLE_KNOB: f32 = 18.0;
 pub const TOGGLE_INSET: f32 = 2.0;
 
 pub const STEPPER_BTN_SIZE: f32 = 24.0;
+pub const STEPPER_VALUE_W: f32 = 48.0;
+pub const STEPPER_GAP: f32 = 8.0;
 
 pub const POPUP_BTN_W: f32 = 80.0;
 pub const POPUP_BTN_H: f32 = 26.0;
@@ -24,9 +26,6 @@ pub const POPUP_MENU_PAD: f32 = 4.0;
 
 #[derive(Clone)]
 pub enum SettingsItem {
-    PageTitle {
-        text: String,
-    },
     SectionHeader {
         label: String,
     },
@@ -39,7 +38,6 @@ pub enum SettingsItem {
     },
     RowSwitch {
         label: String,
-        #[allow(dead_code)]
         on: bool,
         enabled: bool,
     },
@@ -94,9 +92,9 @@ pub enum SettingsItem {
 impl SettingsItem {
     pub fn height(&self) -> f32 {
         match self {
-            SettingsItem::PageTitle { .. } => 50.0,
             SettingsItem::SectionHeader { .. } => 30.0,
-            SettingsItem::GroupStart | SettingsItem::GroupEnd => 0.0,
+            SettingsItem::GroupStart => 0.0,
+            SettingsItem::GroupEnd => 12.0,
             SettingsItem::CenterLink { .. } => 40.0,
             SettingsItem::CenterText { .. } => 35.0,
             SettingsItem::Spacer { height } => *height,

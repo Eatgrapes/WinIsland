@@ -9,18 +9,15 @@ fn generate_id() -> String {
     format!("{:x}", ts)
 }
 
-/// 上下文优先级
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Priority {
-    /// 媒体播放，后台常驻（SMTC）
     Low = 0,
-    /// 进行中的短期活动（插件默认）
     Medium = 1,
-    /// 需要即时注意的通知
     High = 2,
 }
 
 impl Priority {
+    #[allow(dead_code)]
     pub fn from_u32(v: u32) -> Option<Self> {
         match v {
             0 => Some(Self::Low),
@@ -30,17 +27,15 @@ impl Priority {
         }
     }
 
+    #[allow(dead_code)]
     pub fn as_u32(self) -> u32 {
         self as u32
     }
 }
 
-/// 上下文唯一标识
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ContextId {
-    /// "smtc" 或插件 ID
     pub source: String,
-    /// 随机 UUID
     pub uuid: String,
 }
 
@@ -52,7 +47,6 @@ impl ContextId {
         }
     }
 
-    /// 从 "source:uuid" 格式解析
     pub fn from_encoded(s: &str) -> Option<Self> {
         let (source, uuid) = s.split_once(':')?;
         Some(Self {
@@ -61,32 +55,26 @@ impl ContextId {
         })
     }
 
-    /// 编码为 "source:uuid"
     pub fn encode(&self) -> String {
         format!("{}:{}", self.source, self.uuid)
     }
 }
 
-/// 插件或系统发送的上下文
 #[derive(Debug, Clone)]
 pub struct PluginContext {
     pub id: ContextId,
     pub priority: Priority,
-    /// 标题（mini 显示，expanded 标题行）
     pub title: String,
-    /// expanded 正文
     pub body: String,
-    /// 图标 PNG bytes
+    #[allow(dead_code)]
     pub icon: Vec<u8>,
-    /// expanded 停留秒数
     pub duration_sec: u32,
-    /// 是否在 mini 显示摘要
     pub mini_render: bool,
-    /// mini 摘要文本（mini_render=true 时有意义）
+    #[allow(dead_code)]
     pub mini_text: String,
+    #[allow(dead_code)]
     pub created_at: Instant,
     pub expanded_started_at: Option<Instant>,
     pub collapsed_at: Option<Instant>,
-    /// 30 秒超时计时起点（collapsed 时设置）
     pub mini_timeout_start: Option<Instant>,
 }

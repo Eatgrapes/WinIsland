@@ -1,7 +1,7 @@
 use crate::utils::settings_ui::content_height;
 use crate::utils::settings_ui::items::SettingsItem;
 
-use super::{CONTENT_START_Y, SUB_TAB_H, SUB_TAB_START_Y, SettingsApp};
+use super::SettingsApp;
 
 impl SettingsApp {
     pub(crate) fn build_current_items(&self) -> Vec<SettingsItem> {
@@ -16,11 +16,24 @@ impl SettingsApp {
 
     pub(crate) fn rebuild_items_cache(&mut self) {
         self.cached_items = self.build_current_items();
-        let content_start_y = if self.active_page == 0 {
-            SUB_TAB_START_Y + SUB_TAB_H + CONTENT_START_Y
+        let switch_states: Vec<bool> = self
+            .cached_items
+            .iter()
+            .filter_map(|item| match item {
+                SettingsItem::RowSwitch { on, .. } => Some(*on),
+                _ => None,
+            })
+            .collect();
+        let switch_context = (self.active_page, 0);
+        if self.switch_anim_context != switch_context
+            || self.switch_anim.len() != switch_states.len()
+        {
+            self.switch_anim = crate::utils::settings_ui::SwitchAnimator::new(&switch_states);
+            self.switch_anim_context = switch_context;
         } else {
-            50.0
-        };
+            self.switch_anim.set_targets(&switch_states);
+        }
+        let content_start_y = if self.active_page == 0 { 100.0 } else { 50.0 };
         self.cached_content_height = content_height(&self.cached_items, content_start_y);
         let scale = self
             .window
@@ -29,17 +42,6 @@ impl SettingsApp {
             .unwrap_or(1.0);
         let view_h = self.win_h / scale;
         self.cached_max_scroll = (self.cached_content_height - view_h + 20.0).max(0.0);
-        self.cached_row_tops.clear();
-        self.cached_row_heights.clear();
-        let mut y = content_start_y;
-        for item in &self.cached_items {
-            if item.is_row() {
-                self.cached_row_tops.push(y);
-                self.cached_row_heights.push(item.height());
-            }
-            y += item.height();
-        }
-        self.total_rows = self.cached_row_tops.len();
         self.items_dirty = false;
     }
 

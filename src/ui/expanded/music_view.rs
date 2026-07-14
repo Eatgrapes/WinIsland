@@ -1,4 +1,17 @@
 #![allow(deprecated)]
+mod controls;
+mod palette;
+mod visualizer;
+
+pub use controls::{
+    get_next_btn_rect, get_pause_btn_rect, get_prev_btn_rect, get_progress_bar_rect,
+    set_progress_dragging, set_progress_hover, trigger_cover_flip, trigger_next_click,
+    trigger_pause_click, trigger_prev_click,
+};
+pub use visualizer::{DrawVisualizerParams, draw_visualizer};
+
+use self::controls::ease_out_back;
+use self::palette::get_palette_from_image;
 use crate::core::smtc::MediaInfo;
 use crate::icons::arrows::draw_arrow_right;
 use crate::icons::controls::{draw_control_triangle, draw_pause_button, draw_play_button};
@@ -8,15 +21,13 @@ use crate::utils::scroll::{ScrollDrawParams, ScrollText};
 use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
     Canvas, Color, Data, FilterMode, FontStyle, Image, MipmapMode, Paint, Point, RRect, Rect,
-    SamplingOptions, TileMode, gradient_shader, image_filters,
+    SamplingOptions, image_filters,
 };
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
 
 thread_local! {
     static IMG_CACHE: RefCell<Option<(String, Image)>> = const { RefCell::new(None) };
-    static COLOR_CACHE: RefCell<HashMap<String, Vec<Color>>> = RefCell::new(HashMap::new());
-    static VIZ_HEIGHTS: RefCell<[f32; 6]> = const { RefCell::new([3.0; 6]) };
     static PROGRESS_SMOOTH: RefCell<f32> = const { RefCell::new(-1.0) };
     static PAUSE_ANIM: RefCell<f32> = const { RefCell::new(0.0) };
     static PAUSE_SPRING: RefCell<Spring> = RefCell::new(Spring::new(1.0));
@@ -30,127 +41,6 @@ thread_local! {
     static PROGRESS_HOVER: RefCell<(bool, f32)> = const { RefCell::new((false, 0.0)) };
     static PROGRESS_DRAGGING: RefCell<bool> = const { RefCell::new(false) };
     static COVER_ROTATION: RefCell<f32> = const { RefCell::new(0.0) };
-}
-
-pub fn set_progress_dragging(active: bool) {
-    PROGRESS_DRAGGING.with(|cell| {
-        *cell.borrow_mut() = active;
-    });
-}
-
-pub fn trigger_pause_click(current_is_playing: bool) {
-    PAUSE_SPRING.with(|cell| {
-        let mut s = cell.borrow_mut();
-        s.velocity = -0.25;
-    });
-    LOCAL_PLAY_STATE.with(|cell| {
-        *cell.borrow_mut() = Some((!current_is_playing, std::time::Instant::now()));
-    });
-}
-
-pub fn trigger_prev_click() {
-    PREV_SKIP_ANIM.with(|cell| {
-        *cell.borrow_mut() = Some(std::time::Instant::now());
-    });
-}
-
-pub fn trigger_next_click() {
-    NEXT_SKIP_ANIM.with(|cell| {
-        *cell.borrow_mut() = Some(std::time::Instant::now());
-    });
-}
-
-fn ease_out_back(t: f32) -> f32 {
-    let c1 = 1.70158_f32;
-    let c3 = c1 + 1.0;
-    1.0 + c3 * (t - 1.0).powi(3) + c1 * (t - 1.0).powi(2)
-}
-
-pub fn trigger_cover_flip() {
-    let old_img = IMG_CACHE.with(|cache| cache.borrow().as_ref().map(|(_, img)| img.clone()));
-    COVER_FLIP_OLD_IMG.with(|cell| {
-        *cell.borrow_mut() = old_img;
-    });
-    COVER_FLIP_ANIM.with(|cell| {
-        *cell.borrow_mut() = Some(std::time::Instant::now());
-    });
-}
-
-pub fn set_progress_hover(active: bool) {
-    PROGRESS_HOVER.with(|cell| {
-        cell.borrow_mut().0 = active;
-    });
-}
-
-pub fn get_pause_btn_rect(
-    ox: f32,
-    oy: f32,
-    w: f32,
-    _h: f32,
-    scale: f32,
-    _cover_shape: &str,
-) -> (f32, f32, f32, f32) {
-    let (img_size, img_y) = (72.0 * scale, oy + 24.0 * scale);
-    let bar_y = img_y + img_size + 18.0 * scale;
-    let btn_cy = bar_y + 42.0 * scale;
-    let hit = 40.0 * scale;
-    let btn_cx = ox + w / 2.0;
-    (btn_cx - hit / 2.0, btn_cy - hit / 2.0, hit, hit)
-}
-
-pub fn get_prev_btn_rect(
-    ox: f32,
-    oy: f32,
-    w: f32,
-    _h: f32,
-    scale: f32,
-    _cover_shape: &str,
-) -> (f32, f32, f32, f32) {
-    let (img_size, img_y) = (72.0 * scale, oy + 24.0 * scale);
-    let bar_y = img_y + img_size + 18.0 * scale;
-    let btn_cy = bar_y + 42.0 * scale;
-    let hit = 36.0 * scale;
-    let btn_cx = ox + w / 2.0 - 75.0 * scale;
-    (btn_cx - hit / 2.0, btn_cy - hit / 2.0, hit, hit)
-}
-
-pub fn get_next_btn_rect(
-    ox: f32,
-    oy: f32,
-    w: f32,
-    _h: f32,
-    scale: f32,
-    _cover_shape: &str,
-) -> (f32, f32, f32, f32) {
-    let (img_size, img_y) = (72.0 * scale, oy + 24.0 * scale);
-    let bar_y = img_y + img_size + 18.0 * scale;
-    let btn_cy = bar_y + 42.0 * scale;
-    let hit = 36.0 * scale;
-    let btn_cx = ox + w / 2.0 + 75.0 * scale;
-    (btn_cx - hit / 2.0, btn_cy - hit / 2.0, hit, hit)
-}
-
-pub fn get_progress_bar_rect(
-    ox: f32,
-    oy: f32,
-    w: f32,
-    _media: &MediaInfo,
-    music_active: bool,
-    scale: f32,
-    _cover_shape: &str,
-) -> Option<(f32, f32, f32, f32)> {
-    if !music_active {
-        return None;
-    }
-    let (img_size, img_y) = (72.0 * scale, oy + 24.0 * scale);
-    let bar_y = img_y + img_size + 18.0 * scale;
-    let time_w = 36.0 * scale;
-    let bar_full_left = ox + 28.0 * scale;
-    let bar_full_right = ox + w - 28.0 * scale;
-    let bar_left = bar_full_left + time_w + 4.0 * scale;
-    let bar_right = bar_full_right - time_w - 4.0 * scale;
-    let hit_h = 16.0 * scale;
-    Some((bar_left, bar_right, bar_y - hit_h / 2.0, hit_h))
 }
 
 pub fn draw_text_cached(params: DrawTextCachedParams<'_>) {
@@ -197,15 +87,24 @@ pub fn get_cached_media_image_with_key(media: &MediaInfo) -> Option<(Image, Stri
     result
 }
 
-pub fn get_media_palette(media: &MediaInfo) -> Vec<Color> {
+pub fn get_media_palette(media: &MediaInfo) -> Arc<[Color]> {
     if let Some((img, cache_key)) = get_cached_media_image_with_key(media) {
         get_palette_from_image(&img, &cache_key)
     } else {
-        vec![
-            Color::from_rgb(180, 180, 180),
-            Color::from_rgb(100, 100, 100),
-        ]
+        default_media_palette()
     }
+}
+
+pub fn default_media_palette() -> Arc<[Color]> {
+    static DEFAULT_PALETTE: OnceLock<Arc<[Color]>> = OnceLock::new();
+    DEFAULT_PALETTE
+        .get_or_init(|| {
+            Arc::from([
+                Color::from_rgb(180, 180, 180),
+                Color::from_rgb(100, 100, 100),
+            ])
+        })
+        .clone()
 }
 
 pub fn clear_cover_cache() {
@@ -217,7 +116,6 @@ pub fn clear_cover_cache() {
     });
 }
 
-#[allow(dead_code)]
 pub struct DrawMusicPageParams<'a> {
     pub canvas: &'a Canvas,
     pub ox: f32,
@@ -233,25 +131,10 @@ pub struct DrawMusicPageParams<'a> {
     pub viz_h_scale: f32,
     pub use_blur: bool,
     pub font_size: f32,
-    pub cover_shape: &'a str,
-    pub cover_rotate: bool,
     pub dt: f32,
     pub text_color: Color,
     pub text_color_sec: Color,
-    pub palette: Vec<Color>,
-}
-
-pub struct DrawVisualizerParams<'a> {
-    pub canvas: &'a Canvas,
-    pub x: f32,
-    pub y: f32,
-    pub alpha: u8,
-    pub is_playing: bool,
     pub palette: &'a [Color],
-    pub spectrum: &'a [f32; 6],
-    pub w_scale: f32,
-    pub h_scale: f32,
-    pub smooth_factors: (f32, f32),
 }
 
 pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
@@ -270,8 +153,6 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         viz_h_scale,
         use_blur,
         font_size,
-        cover_shape: _,
-        cover_rotate: _,
         dt,
         text_color,
         text_color_sec,
@@ -823,7 +704,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         y: title_y - 4.0 * scale,
         alpha,
         is_playing: music_active && media.is_playing,
-        palette: &palette,
+        palette,
         spectrum: &media.spectrum,
         w_scale: scale,
         h_scale: viz_h_scale,
@@ -831,158 +712,6 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
     });
 
     false
-}
-
-pub fn draw_visualizer(params: DrawVisualizerParams<'_>) {
-    let DrawVisualizerParams {
-        canvas,
-        x,
-        y,
-        alpha,
-        is_playing,
-        palette,
-        spectrum,
-        w_scale,
-        h_scale,
-        smooth_factors,
-    } = params;
-
-    let (rise, fall) = smooth_factors;
-    let bar_count = 6;
-    let bar_w = 3.0 * w_scale;
-    let spacing = 2.0 * w_scale;
-    let max_h = 28.0 * h_scale;
-    VIZ_HEIGHTS.with(|h_cell| {
-        let mut heights = h_cell.borrow_mut();
-        for i in 0..bar_count {
-            let target = if is_playing {
-                (spectrum[i] * max_h).max(3.0 * h_scale)
-            } else {
-                3.0 * h_scale
-            };
-            if target > heights[i] {
-                heights[i] = heights[i] * (1.0 - rise) + target * rise;
-            } else {
-                heights[i] = heights[i] * (1.0 - fall) + target * fall;
-            }
-            heights[i] = heights[i].max(3.0 * h_scale);
-        }
-        let start_x = x - (bar_count as f32 * (bar_w + spacing)) / 2.0;
-        let mut paint = Paint::default();
-        paint.set_anti_alias(true);
-        let colors_with_alpha: Vec<Color> = palette
-            .iter()
-            .map(|c| Color::from_argb(alpha, c.r(), c.g(), c.b()))
-            .collect();
-        if colors_with_alpha.len() >= 2 {
-            let shader = gradient_shader::linear(
-                (
-                    Point::new(start_x, y - max_h / 2.0),
-                    Point::new(start_x + (20.0 * w_scale), y + max_h / 2.0),
-                ),
-                colors_with_alpha.as_slice(),
-                None,
-                TileMode::Mirror,
-                None,
-                None,
-            )
-            .unwrap();
-            paint.set_shader(shader);
-        } else {
-            paint.set_color(colors_with_alpha.first().cloned().unwrap_or(Color::WHITE));
-        }
-        for i in 0..bar_count {
-            let h = heights[i];
-            let rect = Rect::from_xywh(
-                start_x + i as f32 * (bar_w + spacing),
-                y - h / 2.0,
-                bar_w,
-                h,
-            );
-            let r = bar_w / 2.0;
-            canvas.draw_round_rect(rect, r, r, &paint);
-        }
-    });
-}
-
-fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color> {
-    COLOR_CACHE.with(|cache| {
-        let mut cache_mut = cache.borrow_mut();
-        if cache_mut.len() > 50
-            && let Some(oldest_key) = cache_mut.keys().next().cloned()
-        {
-            cache_mut.remove(&oldest_key);
-        }
-        if let Some(palette) = cache_mut.get(cache_key) {
-            return palette.clone();
-        }
-        let mut palette = Vec::new();
-        let info = skia_safe::ImageInfo::new(
-            skia_safe::ISize::new(img.width(), img.height()),
-            skia_safe::ColorType::BGRA8888,
-            skia_safe::AlphaType::Premul,
-            None,
-        );
-        let mut pixels = vec![0u8; (img.width() * img.height() * 4) as usize];
-        if img.read_pixels(
-            &info,
-            &mut pixels,
-            (img.width() * 4) as usize,
-            (0, 0),
-            skia_safe::image::CachingHint::Allow,
-        ) {
-            let step_x = img.width() / 8;
-            let step_y = img.height() / 8;
-            let mut r_total = 0u32;
-            let mut g_total = 0u32;
-            let mut b_total = 0u32;
-            let mut count = 0u32;
-            for y in 1..8 {
-                for x in 1..8 {
-                    let idx = ((y * step_y * img.width() + x * step_x) * 4) as usize;
-                    if idx + 2 < pixels.len() {
-                        b_total += pixels[idx] as u32;
-                        g_total += pixels[idx + 1] as u32;
-                        r_total += pixels[idx + 2] as u32;
-                        count += 1;
-                    }
-                }
-            }
-            if count > 0 {
-                let r_avg = r_total as f32 / count as f32;
-                let g_avg = g_total as f32 / count as f32;
-                let b_avg = b_total as f32 / count as f32;
-
-                let brighten = |r: f32, g: f32, b: f32, factor: f32| -> Color {
-                    let mut r = r * factor;
-                    let mut g = g * factor;
-                    let mut b = b * factor;
-
-                    let brightness = r * 0.299 + g * 0.587 + b * 0.114;
-                    if brightness < 80.0 {
-                        let boost = 80.0 - brightness;
-                        r += boost;
-                        g += boost;
-                        b += boost;
-                    }
-
-                    Color::from_rgb(r.min(255.0) as u8, g.min(255.0) as u8, b.min(255.0) as u8)
-                };
-
-                let primary = brighten(r_avg, g_avg, b_avg, 1.3);
-                let secondary = brighten(r_avg, g_avg, b_avg, 1.5);
-
-                palette.push(primary);
-                palette.push(secondary);
-                palette.push(primary);
-            }
-        }
-        if palette.is_empty() {
-            palette.push(Color::from_rgb(200, 200, 200));
-        }
-        cache_mut.insert(cache_key.to_string(), palette.clone());
-        palette
-    })
 }
 
 fn draw_placeholder(

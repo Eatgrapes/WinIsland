@@ -42,7 +42,6 @@ pub struct SettingsTheme {
     pub separator: Color,
     pub popup_bg: Color,
     pub popup_border: Color,
-    pub hover_row: Color,
 }
 
 pub fn dark_settings_theme() -> SettingsTheme {
@@ -63,7 +62,6 @@ pub fn dark_settings_theme() -> SettingsTheme {
         separator: color_separator(),
         popup_bg: Color::from_rgb(50, 50, 52),
         popup_border: Color::from_argb(40, 255, 255, 255),
-        hover_row: Color::from_argb(28, 255, 255, 255),
     }
 }
 
@@ -72,7 +70,7 @@ pub fn light_settings_theme() -> SettingsTheme {
         win_bg: Color::from_rgb(242, 242, 247),
         sidebar_bg: Color::from_rgb(232, 232, 237),
         group_bg: Color::from_rgb(255, 255, 255),
-        card_highlight: Color::from_rgb(218, 218, 223),
+        card_highlight: Color::from_rgb(235, 235, 240),
         text_pri: Color::from_rgb(0, 0, 0),
         text_sec: Color::from_rgb(99, 99, 102),
         disabled: Color::from_rgb(194, 194, 199),
@@ -85,6 +83,5 @@ pub fn light_settings_theme() -> SettingsTheme {
         separator: Color::from_argb(26, 0, 0, 0),
         popup_bg: Color::from_rgb(255, 255, 255),
         popup_border: Color::from_argb(40, 0, 0, 0),
-        hover_row: Color::from_argb(22, 0, 0, 0),
     }
 }

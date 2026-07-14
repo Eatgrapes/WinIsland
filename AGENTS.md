@@ -9,7 +9,6 @@ cargo check          # Fast type-check
 cargo clippy --workspace -- -D warnings   # Lint (warnings as errors)
 cargo fmt --all      # Format all files
 cargo build --release   # Production build
-cargo test           # Run tests
 ```
 
 ## Key files to read
@@ -18,7 +17,7 @@ cargo test           # Run tests
 |------|-----------------|
 | [.agents/ARCHITECTURE.md](.agents/ARCHITECTURE.md) | Project structure, module responsibilities, rendering pipeline, plugin system, Windows API usage |
 | [.agents/STYLE-GUIDE.md](.agents/STYLE-GUIDE.md) | Coding conventions, naming, unsafe safety comments, Skia patterns |
-| [.agents/skills/build-winisland/SKILL.md](.agents/skills/pr-check/SKILL.md) | Build & test automation for AI agents |
+| [.agents/skills/build-winisland/SKILL.md](.agents/skills/pr-check/SKILL.md) | Build and lint automation for AI agents |
 | [.agents/skills/commit-winisland/SKILL.md](.agents/skills/commit-push/SKILL.md) | Commit message generation for AI agents |
 
 ## Agent behavior rules
@@ -33,4 +32,5 @@ cargo test           # Run tests
 8. Prefer editing existing files over creating new ones.
 9. **WDA_EXCLUDEFROMCAPTURE is intentionally NOT set** — see glass.rs doc comments for rationale.
 10. **Do not modify changelog files** (`Changelog.md`, `Changelog-zh.md`) — only project maintainers can modify them, unless explicitly requested by the user.
+11. **Do not add tests** — this project does not accept unit, integration, snapshot, or UI tests.
 

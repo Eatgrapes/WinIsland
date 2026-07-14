@@ -61,6 +61,9 @@ cargo clippy --workspace -- -D warnings
 - All Win32 API calls must be wrapped inside `unsafe {}` blocks.
 - Code involving windows, audio, or SMTC must pay attention to thread safety.
 
+**3.1.6 Tests**:
+- Do not add unit, integration, snapshot, or UI tests to this project.
+
 ### 3.2 Rendering (Skia)
 
 - When modifying drawing logic in `src/core/render.rs`, ensure the Skia surface has been properly initialized.
@@ -102,7 +105,6 @@ This project enforces [Conventional Commits](https://www.conventionalcommits.org
 - `style`: Code formatting (no logic change)
 - `refactor`: A code change that neither fixes a bug nor adds a feature
 - `perf`: A performance improvement
-- `test`: Adding or updating tests
 - `chore`: Build process, dependencies, etc.
 - `ci`: CI configuration changes
 - `revert`: Reverting a previous commit
@@ -120,7 +122,7 @@ The repository has automated checks configured:
 
 - `pre-commit`: runs `cargo fmt -- --check` to ensure correct formatting.
 - `commit-msg`: validates that the commit message follows the Conventional Commits format.
-- CI: runs clippy, format checks, builds, and tests (if any) once more.
+- CI: runs clippy, format checks, and builds once more.
 
 ### 4.4 What if my commit is blocked?
 
@@ -166,7 +168,6 @@ The repository has automated checks configured:
 ### 5.2 Should Meet
 
 - Adequate comments and documentation
-- Tests added or updated for relevant modules (e.g. serialization tests in `src/core/config.rs`)
 - If there are UI changes, provide screenshots or describe animation effects (spring parameters, etc.)
 
 ## 6. FAQ

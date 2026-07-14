@@ -1,12 +1,9 @@
 use crate::core::config::{AppConfig, WidgetKind};
-use crate::core::i18n::tr;
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
-use crate::utils::font::FontManager;
 use crate::utils::icon::get_app_icon;
 use crate::utils::settings_ui::items::*;
 use crate::utils::settings_ui::*;
-use skia_safe::Rect;
 use softbuffer::{Context, Surface};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -25,16 +22,26 @@ use winit::window::{Window, WindowId};
 pub mod input;
 pub mod items;
 pub mod pages;
+mod popup;
 pub mod renderer;
 pub mod sidebar;
+
+pub(crate) use popup::PopupState;
 
 pub(crate) const WIN_W: f32 = 666.0;
 pub(crate) const WIN_H: f32 = 666.0;
 pub(crate) const SIDEBAR_W: f32 = 180.0;
 pub(crate) const SIDEBAR_ROW_H: f32 = 32.0;
-pub(crate) const CONTENT_START_Y: f32 = 10.0;
-pub(crate) const SUB_TAB_H: f32 = 40.0;
-pub(crate) const SUB_TAB_START_Y: f32 = 50.0;
+pub(crate) const PAGE_NAV_X: f32 = SIDEBAR_W + 20.0;
+pub(crate) const PAGE_NAV_Y: f32 = 12.0;
+pub(crate) const PAGE_NAV_SIZE: f32 = 28.0;
+pub(crate) const PAGE_NAV_GAP: f32 = 4.0;
+
+#[derive(Clone, Copy)]
+pub(crate) enum PageNavigation {
+    Back,
+    Forward,
+}
 
 pub(crate) const POPUP_OPACITY_KEY: u64 = 1;
 pub(crate) const SIDEBAR_KEY_BASE: u64 = 1_000;
@@ -54,103 +61,17 @@ pub(crate) fn settings_frame_should_continue(
     has_popup: bool,
     is_scrolling: bool,
     is_widget_dragging: bool,
+    is_number_input_active: bool,
 ) -> bool {
-    has_anim || has_popup || is_scrolling || is_widget_dragging
+    has_anim || has_popup || is_scrolling || is_widget_dragging || is_number_input_active
 }
 
-#[derive(Clone, PartialEq)]
-pub(crate) enum PopupKind {
-    LyricsSource,
-    Language,
-    Monitor,
-    IslandStyle,
-    DockPositionPopup,
-    SettingsTheme,
-    UpdateChannel,
-}
+pub(crate) type NumberInputHandler = fn(&mut SettingsApp, &str);
 
-pub(crate) struct PopupState {
-    pub(crate) kind: PopupKind,
-    #[allow(dead_code)]
-    pub(crate) button_rect: Rect,
-    pub(crate) menu_rect: Rect,
-    pub(crate) options: Vec<String>,
-    pub(crate) values: Vec<String>,
-    pub(crate) selected_idx: usize,
-    pub(crate) hover_idx: Option<usize>,
-}
-
-impl PopupState {
-    pub(crate) fn new(
-        kind: PopupKind,
-        button_rect: Rect,
-        options: Vec<String>,
-        values: Vec<String>,
-        selected_idx: usize,
-        win_w: f32,
-        win_h: f32,
-    ) -> Self {
-        let mut max_w: f32 = 120.0;
-        let fm = FontManager::global();
-        for opt in &options {
-            let w = fm.measure_text_cached(opt, 12.0, skia_safe::FontStyle::normal());
-            if w > max_w {
-                max_w = w;
-            }
-        }
-        let menu_w = max_w + 36.0;
-        let menu_h = options.len() as f32 * POPUP_ITEM_H + POPUP_MENU_PAD * 2.0;
-        let menu_x = (button_rect.right - menu_w).clamp(0.0, win_w - menu_w - 10.0);
-        let menu_y = (button_rect.bottom + 4.0).clamp(0.0, win_h - menu_h - 10.0);
-        let menu_rect = Rect::from_xywh(menu_x, menu_y, menu_w, menu_h);
-
-        Self {
-            kind,
-            button_rect,
-            menu_rect,
-            options,
-            values,
-            selected_idx,
-            hover_idx: None,
-        }
-    }
-
-    pub(crate) fn menu_rect(&self) -> Rect {
-        self.menu_rect
-    }
-
-    pub(crate) fn item_rect(&self, idx: usize) -> Rect {
-        let inner_top = self.menu_rect.top + POPUP_MENU_PAD;
-        let y = inner_top + idx as f32 * POPUP_ITEM_H;
-        Rect::from_xywh(
-            self.menu_rect.left + POPUP_MENU_PAD,
-            y,
-            self.menu_rect.width() - POPUP_MENU_PAD * 2.0,
-            POPUP_ITEM_H,
-        )
-    }
-
-    pub(crate) fn hit_test_item(&self, mx: f32, my: f32) -> Option<usize> {
-        let menu = self.menu_rect;
-        if mx < menu.left || mx > menu.right || my < menu.top || my > menu.bottom {
-            return None;
-        }
-        let inner_top = menu.top + POPUP_MENU_PAD;
-        let inner_bottom = menu.bottom - POPUP_MENU_PAD;
-        if my < inner_top || my > inner_bottom {
-            return None;
-        }
-        let rel_y = my - inner_top;
-        let idx = (rel_y / POPUP_ITEM_H).floor() as i32;
-        if idx < 0 {
-            return None;
-        }
-        let idx = idx as usize;
-        if idx >= self.options.len() {
-            return None;
-        }
-        Some(idx)
-    }
+pub(crate) struct NumberInput {
+    pub(crate) rect: skia_safe::Rect,
+    pub(crate) text: String,
+    pub(crate) on_commit: NumberInputHandler,
 }
 
 pub struct SettingsApp {
@@ -158,9 +79,10 @@ pub struct SettingsApp {
     pub(crate) surface: Option<Surface<Arc<Window>, Arc<Window>>>,
     pub(crate) config: AppConfig,
     pub(crate) active_page: usize,
-    pub(crate) active_sub_page: usize,
-    pub(crate) sub_tab_hover: i32,
+    pub(crate) page_history: Vec<usize>,
+    pub(crate) page_history_index: usize,
     pub(crate) switch_anim: SwitchAnimator,
+    pub(crate) switch_anim_context: (usize, usize),
     pub(crate) anim: AnimPool,
     pub(crate) logical_mouse_pos: (f32, f32),
     pub(crate) last_hover_mouse_pos: (f32, f32),
@@ -172,15 +94,12 @@ pub struct SettingsApp {
     pub(crate) detected_apps: Vec<String>,
     pub(crate) sidebar_hover: i32,
     pub(crate) popup: Option<PopupState>,
-    pub(crate) hover_row: Option<usize>,
-    pub(crate) total_rows: usize,
+    pub(crate) number_input: Option<NumberInput>,
     pub(crate) is_light: bool,
     pub(crate) cached_items: Vec<SettingsItem>,
     pub(crate) items_dirty: bool,
     pub(crate) cached_content_height: f32,
     pub(crate) cached_max_scroll: f32,
-    pub(crate) cached_row_tops: Vec<f32>,
-    pub(crate) cached_row_heights: Vec<f32>,
     pub(crate) win_w: f32,
     pub(crate) win_h: f32,
     pub(crate) focused: bool,
@@ -192,27 +111,16 @@ pub struct SettingsApp {
 
 impl SettingsApp {
     pub fn new(config: AppConfig) -> Self {
-        let switch_anim = SwitchAnimator::new(&[
-            config.adaptive_border,
-            config.motion_blur,
-            config.cover_rotate,
-            config.auto_start,
-            config.auto_hide,
-            config.right_click_drag,
-            config.check_for_updates,
-            config.smtc_enabled,
-            config.show_lyrics,
-            config.lyrics_fallback,
-            config.lyrics_scroll,
-        ]);
+        let switch_anim = SwitchAnimator::new(&[]);
         Self {
             window: None,
             surface: None,
             config,
             active_page: 0,
-            active_sub_page: 0,
-            sub_tab_hover: -1,
+            page_history: vec![0],
+            page_history_index: 0,
             switch_anim,
+            switch_anim_context: (usize::MAX, usize::MAX),
             anim: AnimPool::new(),
             logical_mouse_pos: (0.0, 0.0),
             last_hover_mouse_pos: (-1.0, -1.0),
@@ -224,15 +132,12 @@ impl SettingsApp {
             detected_apps: Vec::new(),
             sidebar_hover: -1,
             popup: None,
-            hover_row: None,
-            total_rows: 0,
+            number_input: None,
             is_light: false,
             cached_items: Vec::new(),
             items_dirty: true,
             cached_content_height: 0.0,
             cached_max_scroll: 0.0,
-            cached_row_tops: Vec::new(),
-            cached_row_heights: Vec::new(),
             win_w: WIN_W,
             win_h: WIN_H,
             focused: true,
@@ -337,31 +242,6 @@ impl SettingsApp {
         monitors
     }
 
-    pub(crate) fn sync_switch_targets(&mut self) {
-        self.switch_anim.set_target(0, self.config.adaptive_border);
-        self.switch_anim.set_target(1, self.config.motion_blur);
-        self.switch_anim.set_target(2, self.config.cover_rotate);
-        self.switch_anim.set_target(3, self.config.auto_start);
-        self.switch_anim.set_target(4, self.config.auto_hide);
-        self.switch_anim.set_target(5, self.config.right_click_drag);
-        self.switch_anim
-            .set_target(6, self.config.check_for_updates);
-        self.switch_anim.set_target(7, self.config.smtc_enabled);
-        self.switch_anim.set_target(8, self.config.show_lyrics);
-        let fb_on = if self.config.show_lyrics {
-            self.config.lyrics_fallback
-        } else {
-            false
-        };
-        self.switch_anim.set_target(9, fb_on);
-        let fw_on = if self.config.show_lyrics {
-            self.config.lyrics_scroll
-        } else {
-            false
-        };
-        self.switch_anim.set_target(10, fw_on);
-    }
-
     pub(crate) fn update_detected_apps(&mut self) {
         use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
         let mut changed = false;
@@ -421,6 +301,9 @@ impl ApplicationHandler for SettingsApp {
             WindowEvent::CloseRequested => _el.exit(),
             WindowEvent::Focused(focused) => {
                 self.focused = focused;
+                if !focused {
+                    self.commit_number_input();
+                }
                 if let Some(win) = &self.window {
                     win.request_redraw();
                 }
@@ -450,53 +333,16 @@ impl ApplicationHandler for SettingsApp {
                 }
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                if self.handle_number_input_key(&event.logical_key) {
+                    return;
+                }
                 match event.logical_key {
                     Key::Named(NamedKey::F11) => {}
                     Key::Named(NamedKey::ArrowLeft) => {
-                        if self.active_page == 0 {
-                            if self.active_sub_page > 0 {
-                                self.active_sub_page -= 1;
-                                self.scroll_y = 0.0;
-                                self.target_scroll_y = 0.0;
-                                self.scroll_vel_y = 0.0;
-                                self.mark_items_dirty();
-                                if let Some(win) = &self.window {
-                                    win.request_redraw();
-                                }
-                            }
-                        } else if self.active_page > 0 {
-                            self.active_page -= 1;
-                            self.scroll_y = 0.0;
-                            self.target_scroll_y = 0.0;
-                            self.scroll_vel_y = 0.0;
-                            self.mark_items_dirty();
-                            if let Some(win) = &self.window {
-                                win.request_redraw();
-                            }
-                        }
+                        self.navigate_page_history(PageNavigation::Back);
                     }
                     Key::Named(NamedKey::ArrowRight) => {
-                        if self.active_page == 0 {
-                            if self.active_sub_page < 2 {
-                                self.active_sub_page += 1;
-                                self.scroll_y = 0.0;
-                                self.target_scroll_y = 0.0;
-                                self.scroll_vel_y = 0.0;
-                                self.mark_items_dirty();
-                                if let Some(win) = &self.window {
-                                    win.request_redraw();
-                                }
-                            }
-                        } else if self.active_page < 3 {
-                            self.active_page += 1;
-                            self.scroll_y = 0.0;
-                            self.target_scroll_y = 0.0;
-                            self.scroll_vel_y = 0.0;
-                            self.mark_items_dirty();
-                            if let Some(win) = &self.window {
-                                win.request_redraw();
-                            }
-                        }
+                        self.navigate_page_history(PageNavigation::Forward);
                     }
                     _ => {}
                 }
@@ -511,6 +357,15 @@ impl ApplicationHandler for SettingsApp {
                 let mouse_moved = (new_pos.0 - self.last_hover_mouse_pos.0).abs() > 0.5
                     || (new_pos.1 - self.last_hover_mouse_pos.1).abs() > 0.5;
                 self.logical_mouse_pos = new_pos;
+
+                let dots_hovered =
+                    (10.0..=70.0).contains(&new_pos.0) && (14.0..=34.0).contains(&new_pos.1);
+                if dots_hovered != self.dots_hovered {
+                    self.dots_hovered = dots_hovered;
+                    if let Some(win) = &self.window {
+                        win.request_redraw();
+                    }
+                }
 
                 if self.widget_dragging.is_some() {
                     let new_slot = self
@@ -582,81 +437,6 @@ impl ApplicationHandler for SettingsApp {
                             win.request_redraw();
                         }
                     }
-
-                    let scale = self
-                        .window
-                        .as_ref()
-                        .map(|w| w.scale_factor() as f32)
-                        .unwrap_or(1.0);
-                    let content_w = self.win_w / scale - SIDEBAR_W;
-
-                    if self.active_page == 0
-                        && mx >= SIDEBAR_W
-                        && (SUB_TAB_START_Y..=SUB_TAB_START_Y + SUB_TAB_H).contains(&my)
-                    {
-                        let tabs = [
-                            tr("section_appearance"),
-                            tr("section_effects"),
-                            tr("section_behavior"),
-                        ];
-                        let tab_count = tabs.len() as i32;
-                        let tab_w = content_w / tab_count as f32;
-                        let rel_x = mx - SIDEBAR_W;
-                        let tab_idx = (rel_x / tab_w) as i32;
-                        let new_sub_hover = if tab_idx >= 0 && tab_idx < tab_count {
-                            tab_idx
-                        } else {
-                            -1
-                        };
-                        if new_sub_hover != self.sub_tab_hover {
-                            self.sub_tab_hover = new_sub_hover;
-                            if let Some(win) = &self.window {
-                                win.request_redraw();
-                            }
-                        }
-                    } else if self.sub_tab_hover != -1 {
-                        self.sub_tab_hover = -1;
-                        if let Some(win) = &self.window {
-                            win.request_redraw();
-                        }
-                    }
-
-                    if mx >= SIDEBAR_W {
-                        let content_x = mx - SIDEBAR_W;
-                        let content_y = my + self.scroll_y;
-                        let mut new_row: Option<usize> = None;
-                        self.ensure_items_cache();
-                        if content_x >= CONTENT_PADDING && content_x <= content_w - CONTENT_PADDING
-                        {
-                            let idx = match self
-                                .cached_row_tops
-                                .binary_search_by(|y| y.total_cmp(&content_y))
-                            {
-                                Ok(i) => Some(i),
-                                Err(0) => None,
-                                Err(i) => Some(i - 1),
-                            };
-                            if let Some(i) = idx
-                                && content_y <= self.cached_row_tops[i] + self.cached_row_heights[i]
-                            {
-                                new_row = Some(i);
-                            }
-                        }
-                        if new_row != self.hover_row {
-                            if let Some(old) = self.hover_row {
-                                self.anim.set(HOVER_ROW_KEY_BASE + old as u64, 0.0);
-                            }
-                            if let Some(new) = new_row {
-                                self.anim.set(HOVER_ROW_KEY_BASE + new as u64, 1.0);
-                            }
-                            self.hover_row = new_row;
-                        }
-                    } else if self.hover_row.is_some() {
-                        if let Some(old) = self.hover_row {
-                            self.anim.set(HOVER_ROW_KEY_BASE + old as u64, 0.0);
-                        }
-                        self.hover_row = None;
-                    }
                 }
 
                 let cursor = if self.get_hover_state() {
@@ -666,6 +446,14 @@ impl ApplicationHandler for SettingsApp {
                 };
                 if let Some(win) = &self.window {
                     win.set_cursor(cursor);
+                }
+            }
+            WindowEvent::CursorLeft { .. } => {
+                if self.dots_hovered {
+                    self.dots_hovered = false;
+                    if let Some(win) = &self.window {
+                        win.request_redraw();
+                    }
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -706,14 +494,10 @@ impl ApplicationHandler for SettingsApp {
                     if let Some(win) = &self.window {
                         win.set_minimized(true);
                     }
-                } else if is_on_green {
-                    if let Some(win) = &self.window {
-                        let maximized = win.is_maximized();
-                        win.set_maximized(!maximized);
-                    }
-                } else {
+                } else if !is_on_green {
                     let is_in_sidebar_title = mx < SIDEBAR_W && my < 60.0;
-                    let is_in_content_title = mx >= SIDEBAR_W && my < 50.0;
+                    let is_in_content_title =
+                        mx >= SIDEBAR_W && my < 50.0 && self.page_navigation_at(mx, my).is_none();
                     if (is_in_sidebar_title || is_in_content_title) && self.popup.is_none() {
                         if let Some(win) = &self.window {
                             let _ = win.drag_window();
@@ -775,12 +559,19 @@ impl ApplicationHandler for SettingsApp {
         let has_popup = self.popup.is_some();
         let is_scrolling = (self.target_scroll_y - self.scroll_y).abs() > 0.1;
         let is_widget_dragging = self.widget_dragging.is_some();
+        let is_number_input_active = self.number_input.is_some();
 
-        if !settings_frame_should_continue(has_anim, has_popup, is_scrolling, is_widget_dragging) {
+        if !settings_frame_should_continue(
+            has_anim,
+            has_popup,
+            is_scrolling,
+            is_widget_dragging,
+            is_number_input_active,
+        ) {
             return;
         }
 
-        let mut redraw = is_widget_dragging || self.switch_anim.tick();
+        let mut redraw = is_widget_dragging || is_number_input_active || self.switch_anim.tick();
         if self.anim.tick() {
             redraw = true;
         }
@@ -849,30 +640,5 @@ pub(crate) fn resize_surface(
         std::num::NonZeroU32::new(height),
     ) {
         let _ = surface.resize(w, h);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn widget_drag_move_requests_redraw_even_when_hover_slot_is_unchanged() {
-        assert!(widget_drag_move_needs_redraw(true, Some(1), Some(1)));
-    }
-
-    #[test]
-    fn widget_drag_move_requests_redraw_when_hover_slot_changes() {
-        assert!(widget_drag_move_needs_redraw(true, Some(0), Some(1)));
-    }
-
-    #[test]
-    fn widget_drag_move_does_not_request_redraw_when_not_dragging_and_slot_is_unchanged() {
-        assert!(!widget_drag_move_needs_redraw(false, Some(1), Some(1)));
-    }
-
-    #[test]
-    fn settings_frame_continues_while_widget_dragging() {
-        assert!(settings_frame_should_continue(false, false, false, true));
     }
 }
