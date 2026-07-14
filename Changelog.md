@@ -1,5 +1,12 @@
 # Changelog
 
+### v1.2.3
+- Add Kugou as a lyrics source, including improved lookup for English songs
+- Improve island dragging and upward hide interactions
+- Improve settings navigation, numeric input, and option menus
+- Refresh settings sidebar icons
+- Keep the music page open when media is paused
+
 ### v1.2.2
 - Add configurable time, calendar, and settings widgets
 - Support drag-and-drop placement with a square snapping grid
