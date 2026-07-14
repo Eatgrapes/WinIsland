@@ -8,5 +8,6 @@ Page/node_modules/
 Page/.vitepress/cache
 Page/package-lock.json
 /release_notes.txt
+target/identity-dev/
 Page/changelog.md
 Page/zh/changelog.md

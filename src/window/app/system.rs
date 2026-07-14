@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::mpsc;
 
+use windows::ApplicationModel::Package;
 use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 use windows::core::PCWSTR;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -17,6 +18,9 @@ use super::App;
 
 impl App {
     pub(super) fn set_aumid() {
+        if Package::Current().is_ok() {
+            return;
+        }
         let aumid = "WinIsland.PluginManager";
         let wide: Vec<u16> = aumid.encode_utf16().chain(std::iter::once(0)).collect();
         // SAFETY: SetCurrentProcessExplicitAppUserModelID sets a process-wide string identifier.
@@ -55,9 +59,14 @@ impl App {
                 return;
             }
         };
-        let notifier = match ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(
-            "WinIsland.PluginManager",
-        )) {
+        let notifier_result = if Package::Current().is_ok() {
+            ToastNotificationManager::CreateToastNotifier()
+        } else {
+            ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(
+                "WinIsland.PluginManager",
+            ))
+        };
+        let notifier = match notifier_result {
             Ok(n) => n,
             Err(e) => {
                 log::error!("CreateToastNotifier failed: {:?}", e);

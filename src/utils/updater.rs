@@ -25,8 +25,37 @@ pub struct VersionInfo {
 
 const UPDATE_URL_JSON: &str =
     "https://github.com/Eatgrapes/WinIsland/releases/download/nightly/version_info.json";
-const UPDATE_URL_EXE: &str =
-    "https://github.com/Eatgrapes/WinIsland/releases/download/nightly/WinIsland.exe";
+const UPDATE_URL_NIGHTLY_INSTALLER: &str =
+    "https://github.com/Eatgrapes/WinIsland/releases/download/nightly/WinIsland-Nightly-Setup.exe";
+
+#[derive(Clone, Copy)]
+enum InstallerChannel {
+    Stable,
+    Nightly,
+}
+
+impl InstallerChannel {
+    fn installer_name(self) -> &'static str {
+        match self {
+            Self::Stable => "WinIsland-Setup.exe",
+            Self::Nightly => "WinIsland-Nightly-Setup.exe",
+        }
+    }
+
+    fn install_directory_name(self) -> &'static str {
+        match self {
+            Self::Stable => "WinIsland",
+            Self::Nightly => "WinIsland Nightly",
+        }
+    }
+
+    fn installed_executable(self) -> PathBuf {
+        let mut path = dirs::data_local_dir().unwrap_or_else(get_app_dir);
+        path.push(self.install_directory_name());
+        path.push("WinIsland.exe");
+        path
+    }
+}
 
 fn is_version_newer(current: &str, remote: &str) -> bool {
     let current_parts: Vec<&str> = current.split('.').collect();
@@ -192,7 +221,13 @@ async fn do_beta_check(app_dir: &Path, manual: bool) {
         if let Ok(r) = result
             && (r == IDOK || r == IDYES)
         {
-            perform_update(UPDATE_URL_EXE, remote_json_str, app_dir.to_path_buf()).await;
+            perform_update(
+                UPDATE_URL_NIGHTLY_INSTALLER,
+                remote_json_str,
+                app_dir.to_path_buf(),
+                InstallerChannel::Nightly,
+            )
+            .await;
         }
     } else {
         log::info!(
@@ -257,7 +292,7 @@ async fn do_stable_check(app_dir: &Path, manual: bool) {
         );
 
         let download_url = format!(
-            "https://github.com/Eatgrapes/WinIsland/releases/download/{}/WinIsland.exe",
+            "https://github.com/Eatgrapes/WinIsland/releases/download/{}/WinIsland-Setup.exe",
             tag_name
         );
 
@@ -289,7 +324,13 @@ async fn do_stable_check(app_dir: &Path, manual: bool) {
                 timestamp: None,
             };
             let serialized = serde_json::to_string(&local_version_info).unwrap_or_default();
-            perform_update(&download_url, serialized, app_dir.to_path_buf()).await;
+            perform_update(
+                &download_url,
+                serialized,
+                app_dir.to_path_buf(),
+                InstallerChannel::Stable,
+            )
+            .await;
         }
     } else {
         log::info!(
@@ -302,8 +343,13 @@ async fn do_stable_check(app_dir: &Path, manual: bool) {
     }
 }
 
-async fn perform_update(download_url: &str, remote_json_str: String, app_dir: PathBuf) {
-    log::info!("Update: downloading new executable from {}", download_url);
+async fn perform_update(
+    download_url: &str,
+    remote_json_str: String,
+    app_dir: PathBuf,
+    channel: InstallerChannel,
+) {
+    log::info!("Update: downloading installer from {}", download_url);
     let resp = match HTTP_CLIENT.get(download_url).send().await {
         Ok(r) => r,
         Err(_) => {
@@ -329,20 +375,21 @@ async fn perform_update(download_url: &str, remote_json_str: String, app_dir: Pa
     };
     log::info!("Update: downloaded {} bytes", bytes.len());
 
-    let current_exe = match std::env::current_exe() {
-        Ok(path) => path,
-        Err(_) => {
-            log::error!("Update: failed to get current exe path");
-            show_error_box(tr("update_failed_title"), tr("update_failed_save")).await;
-            return;
-        }
-    };
-    let new_exe_path = current_exe.with_extension("exe.new");
-
-    if fs::write(&new_exe_path, &bytes).is_err() {
+    let installer_directory = app_dir.join("updates");
+    if fs::create_dir_all(&installer_directory).is_err() {
         log::error!(
-            "Update: failed to write new exe to {}",
-            new_exe_path.display()
+            "Update: failed to create installer directory {}",
+            installer_directory.display()
+        );
+        show_error_box(tr("update_failed_title"), tr("update_failed_save")).await;
+        return;
+    }
+    let installer_path = installer_directory.join(channel.installer_name());
+
+    if fs::write(&installer_path, &bytes).is_err() {
+        log::error!(
+            "Update: failed to write installer to {}",
+            installer_path.display()
         );
         show_error_box(tr("update_failed_title"), tr("update_failed_save")).await;
         return;
@@ -351,26 +398,26 @@ async fn perform_update(download_url: &str, remote_json_str: String, app_dir: Pa
     let local_json_path = app_dir.join("version_info.json");
     let _ = fs::write(local_json_path, remote_json_str);
     log::info!(
-        "Update: new exe written to {}, spawning installer",
-        new_exe_path.display()
+        "Update: installer written to {}, scheduling update",
+        installer_path.display()
     );
 
-    let current_exe_str = current_exe.to_string_lossy().into_owned();
-    let new_exe_str = new_exe_path.to_string_lossy().into_owned();
+    let installer_path = installer_path.to_string_lossy().into_owned();
+    let installed_executable = channel
+        .installed_executable()
+        .to_string_lossy()
+        .into_owned();
 
-    // Escape single quotes for PowerShell: '' -> ''
     let ps_escape = |s: &str| s.replace('\'', "''");
 
     let pid = std::process::id();
     let script = format!(
-        "Start-Sleep -Seconds 1; \
-         while (Get-Process -Id {} -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 100 }}; \
-         Move-Item -Path '{}' -Destination '{}' -Force; \
-         Start-Process -FilePath '{}'",
+        "while (Get-Process -Id {} -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 100 }}; \
+         $installer = Start-Process -FilePath '{}' -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS') -PassThru -Wait; \
+         if ($installer.ExitCode -eq 0) {{ Start-Process -FilePath '{}' }}",
         pid,
-        ps_escape(&new_exe_str),
-        ps_escape(&current_exe_str),
-        ps_escape(&current_exe_str)
+        ps_escape(&installer_path),
+        ps_escape(&installed_executable)
     );
 
     let _ = Command::new("powershell")
