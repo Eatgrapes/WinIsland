@@ -68,6 +68,10 @@ impl CompactOverlay {
         self.active().is_some()
     }
 
+    pub fn is_notification_visible(&self) -> bool {
+        self.notification_indicator.is_visible()
+    }
+
     pub fn target_size(
         &self,
         base_width: f32,

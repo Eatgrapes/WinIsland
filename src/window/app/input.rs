@@ -96,6 +96,11 @@ impl App {
                 hidden_handle_h,
             );
 
+        if !self.expanded && self.compact_overlay.is_notification_visible() && is_hovering_visible {
+            self.expand();
+            return;
+        }
+
         if self.expanded {
             let view_val = self.spring_view.value as f64;
             let w = self.spring_w.value as f64;
@@ -261,13 +266,7 @@ impl App {
                     self.spring_hide.velocity = -0.45;
                     self.idle_timer = Instant::now();
                 } else {
-                    let media = self.smtc.get_info();
-                    let widget_view =
-                        should_show_widget_view(self.config.smtc_enabled, !media.title.is_empty());
-                    self.widget_view = widget_view;
-                    self.spring_view.value = f32::from(widget_view);
-                    self.spring_view.velocity = 0.0;
-                    self.expanded = true;
+                    self.expand();
                 }
             } else if self.spring_hide.value > 0.3 {
                 self.manually_hidden = true;
@@ -277,5 +276,15 @@ impl App {
                 self.auto_hidden = false;
             }
         }
+    }
+
+    fn expand(&mut self) {
+        let media = self.smtc.get_info();
+        let widget_view =
+            should_show_widget_view(self.config.smtc_enabled, !media.title.is_empty());
+        self.widget_view = widget_view;
+        self.spring_view.value = f32::from(widget_view);
+        self.spring_view.velocity = 0.0;
+        self.expanded = true;
     }
 }

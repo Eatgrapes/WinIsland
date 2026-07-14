@@ -23,6 +23,7 @@ use crate::ui::compact::CompactSize;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 
 const DISPLAY_DURATION: Duration = Duration::from_secs(5);
+const ENTER_DURATION: Duration = Duration::from_millis(220);
 const FADE_DURATION: Duration = Duration::from_millis(280);
 const MAX_ICON_BYTES: u64 = 2 * 1024 * 1024;
 const RETRY_INTERVAL: Duration = Duration::from_secs(5);
@@ -287,6 +288,7 @@ pub(super) struct NotificationIndicator {
     detail: String,
     icon: Option<Image>,
     pending: Option<NotificationPayload>,
+    display_started: Option<Instant>,
     display_until: Option<Instant>,
 }
 
@@ -309,7 +311,7 @@ impl NotificationIndicator {
             detail,
             icon_bytes,
         } = notification;
-        self.app_name = if title == app_name && detail.is_empty() {
+        self.app_name = if title.trim().eq_ignore_ascii_case(app_name.trim()) {
             String::new()
         } else {
             app_name
@@ -317,6 +319,7 @@ impl NotificationIndicator {
         self.title = title;
         self.detail = detail;
         self.icon = icon_bytes.and_then(|bytes| Image::from_encoded(Data::new_copy(&bytes)));
+        self.display_started = Some(Instant::now());
         self.display_until = Some(Instant::now() + DISPLAY_DURATION);
     }
 
@@ -326,6 +329,7 @@ impl NotificationIndicator {
     }
 
     fn clear_display(&mut self) {
+        self.display_started = None;
         self.display_until = None;
         self.icon = None;
     }
@@ -343,10 +347,14 @@ impl NotificationIndicator {
     }
 
     pub(super) fn draw(&self, canvas: &Canvas, rect: Rect, scale: f32, alpha: f32) {
-        let alpha = (alpha * self.opacity() * 255.0).round().clamp(0.0, 255.0) as u8;
+        let (opacity, offset_y) = self.presentation();
+        let alpha = (alpha * opacity * 255.0).round().clamp(0.0, 255.0) as u8;
         if alpha == 0 {
             return;
         }
+
+        canvas.save();
+        canvas.translate((0.0, offset_y * scale));
 
         let has_icon = self.icon.is_some();
         let content_left = if has_icon {
@@ -356,6 +364,7 @@ impl NotificationIndicator {
         };
         let content_width = rect.right() - 18.0 * scale - content_left;
         if content_width <= 0.0 {
+            canvas.restore();
             return;
         }
 
@@ -388,8 +397,10 @@ impl NotificationIndicator {
                 content_width,
             );
         }
-        let title_y = if self.app_name.is_empty() {
-            top + 37.0 * scale
+        let title_y = if self.app_name.is_empty() && self.detail.is_empty() {
+            top + (rect.height() + 13.0 * scale) / 2.0
+        } else if self.app_name.is_empty() {
+            top + 35.0 * scale
         } else {
             top + 43.0 * scale
         };
@@ -419,19 +430,33 @@ impl NotificationIndicator {
                 content_width,
             );
         }
+        canvas.restore();
     }
 
-    fn opacity(&self) -> f32 {
-        let Some(until) = self.display_until else {
-            return 0.0;
+    fn presentation(&self) -> (f32, f32) {
+        let Some(started) = self.display_started else {
+            return (0.0, 0.0);
         };
-        let elapsed = Instant::now().saturating_duration_since(until);
-        if elapsed.is_zero() {
+        let Some(until) = self.display_until else {
+            return (0.0, 0.0);
+        };
+        let now = Instant::now();
+        let enter = ease_out_cubic(
+            (now.saturating_duration_since(started).as_secs_f32() / ENTER_DURATION.as_secs_f32())
+                .clamp(0.0, 1.0),
+        );
+        let exit_elapsed = now.saturating_duration_since(until);
+        let exit = if exit_elapsed.is_zero() {
             1.0
         } else {
-            (1.0 - elapsed.as_secs_f32() / FADE_DURATION.as_secs_f32()).clamp(0.0, 1.0)
-        }
+            (1.0 - exit_elapsed.as_secs_f32() / FADE_DURATION.as_secs_f32()).clamp(0.0, 1.0)
+        };
+        (enter * exit, (1.0 - enter) * 7.0)
     }
+}
+
+fn ease_out_cubic(value: f32) -> f32 {
+    1.0 - (1.0 - value).powi(3)
 }
 
 fn draw_notification_text(params: DrawTextCachedParams<'_>, max_width: f32) {
