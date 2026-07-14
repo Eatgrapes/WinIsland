@@ -1,0 +1,404 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use skia_safe::{Canvas, Color, FontStyle, Paint, Rect};
+use tokio_util::sync::CancellationToken;
+use windows::Win32::Foundation::PROPERTYKEY;
+use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+use windows::Win32::Media::Audio::{
+    DEVICE_STATE, EDataFlow, ERole, IMMDeviceEnumerator, IMMNotificationClient,
+    IMMNotificationClient_Impl, MMDeviceEnumerator, eConsole, eRender,
+};
+use windows::Win32::System::Com::{
+    CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
+};
+use windows::core::{PCWSTR, Result};
+
+use crate::core::i18n::tr;
+use crate::icons::volume::draw_volume_icon;
+use crate::ui::compact::CompactSize;
+use crate::utils::font::{DrawTextCachedParams, FontManager};
+
+const POLL_INTERVAL: Duration = Duration::from_millis(50);
+const ENDPOINT_RETRY_INTERVAL: Duration = Duration::from_millis(500);
+const NOTIFIER_RETRY_INTERVAL: Duration = Duration::from_secs(5);
+const DISPLAY_DURATION: Duration = Duration::from_millis(1600);
+const FADE_DURATION: Duration = Duration::from_millis(240);
+const VOLUME_CHANGE_THRESHOLD: f32 = 0.002;
+
+#[derive(Clone, Copy)]
+pub(super) struct VolumeSnapshot {
+    level: f32,
+    muted: bool,
+    revision: u64,
+}
+
+struct SharedVolumeState {
+    snapshot: Mutex<VolumeSnapshot>,
+}
+
+pub(super) struct VolumeMonitor {
+    state: Arc<SharedVolumeState>,
+    cancellation: CancellationToken,
+}
+
+impl VolumeMonitor {
+    pub(super) fn new() -> Self {
+        let state = Arc::new(SharedVolumeState {
+            snapshot: Mutex::new(VolumeSnapshot {
+                level: 0.0,
+                muted: false,
+                revision: 0,
+            }),
+        });
+        let cancellation = CancellationToken::new();
+        spawn_volume_monitor(state.clone(), cancellation.clone());
+        Self {
+            state,
+            cancellation,
+        }
+    }
+
+    pub(super) fn snapshot(&self) -> VolumeSnapshot {
+        *self
+            .state
+            .snapshot
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+}
+
+impl Drop for VolumeMonitor {
+    fn drop(&mut self) {
+        self.cancellation.cancel();
+    }
+}
+
+fn spawn_volume_monitor(state: Arc<SharedVolumeState>, cancellation: CancellationToken) {
+    tokio::task::spawn_blocking(move || {
+        // SAFETY: This worker owns its COM apartment and releases every COM interface before
+        // uninitializing it when the monitor stops.
+        let com_initialized = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).is_ok() };
+        if !com_initialized {
+            log::warn!("Volume monitor could not initialize COM");
+            return;
+        }
+
+        let mut enumerator = create_endpoint_enumerator();
+        let mut notifier = enumerator.as_ref().and_then(register_endpoint_notifier);
+        let mut endpoint = None;
+        let mut next_endpoint_retry = Instant::now();
+        let mut next_notifier_retry = Instant::now() + NOTIFIER_RETRY_INTERVAL;
+        let mut previous: Option<VolumeSnapshot> = None;
+
+        while !cancellation.is_cancelled() {
+            let now = Instant::now();
+            if notifier
+                .as_ref()
+                .is_some_and(|notifier| notifier.take_change())
+            {
+                endpoint = None;
+                previous = None;
+                next_endpoint_retry = now;
+            }
+
+            if enumerator.is_none() && now >= next_endpoint_retry {
+                enumerator = create_endpoint_enumerator();
+                next_endpoint_retry = if enumerator.is_some() {
+                    now
+                } else {
+                    now + ENDPOINT_RETRY_INTERVAL
+                };
+            }
+
+            if notifier.is_none() && now >= next_notifier_retry {
+                notifier = enumerator.as_ref().and_then(register_endpoint_notifier);
+                next_notifier_retry = now + NOTIFIER_RETRY_INTERVAL;
+            }
+
+            if endpoint.is_none() && now >= next_endpoint_retry {
+                endpoint = enumerator.as_ref().and_then(create_default_endpoint);
+                previous = None;
+                next_endpoint_retry = now + ENDPOINT_RETRY_INTERVAL;
+            }
+
+            if let Some(current) = endpoint.as_ref().and_then(read_volume) {
+                publish_volume_snapshot(&state, current, previous);
+
+                previous = Some(current);
+            } else {
+                endpoint = None;
+            }
+
+            std::thread::sleep(POLL_INTERVAL);
+        }
+
+        drop(endpoint);
+        drop(notifier);
+        drop(enumerator);
+        // SAFETY: COM was initialized successfully on this worker and all COM interfaces have
+        // been dropped before the apartment is uninitialized.
+        unsafe {
+            CoUninitialize();
+        }
+    });
+}
+
+fn create_endpoint_enumerator() -> Option<IMMDeviceEnumerator> {
+    // SAFETY: The monitor calls this only from its initialized COM worker thread. The returned
+    // interface is retained and used only by that thread.
+    unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok() }
+}
+
+fn create_default_endpoint(enumerator: &IMMDeviceEnumerator) -> Option<IAudioEndpointVolume> {
+    // SAFETY: enumerator was created on the monitor's initialized COM thread and is used only
+    // there to obtain the current default render endpoint.
+    unsafe {
+        let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
+        device.Activate(CLSCTX_ALL, None).ok()
+    }
+}
+
+fn read_volume(endpoint: &IAudioEndpointVolume) -> Option<VolumeSnapshot> {
+    // SAFETY: endpoint was created on the monitor's initialized COM thread and is used only
+    // there for read-only endpoint volume queries.
+    unsafe {
+        let level = endpoint.GetMasterVolumeLevelScalar().ok()?.clamp(0.0, 1.0);
+        let muted = endpoint.GetMute().ok()?.as_bool();
+        Some(VolumeSnapshot {
+            level,
+            muted,
+            revision: 0,
+        })
+    }
+}
+
+fn publish_volume_snapshot(
+    state: &SharedVolumeState,
+    current: VolumeSnapshot,
+    previous: Option<VolumeSnapshot>,
+) {
+    let changed = previous.is_some_and(|last| {
+        (last.level - current.level).abs() > VOLUME_CHANGE_THRESHOLD || last.muted != current.muted
+    });
+    let mut snapshot = state
+        .snapshot
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let revision = if changed {
+        snapshot.revision.wrapping_add(1)
+    } else {
+        snapshot.revision
+    };
+    *snapshot = VolumeSnapshot {
+        revision,
+        ..current
+    };
+}
+
+struct DefaultEndpointNotifier {
+    enumerator: IMMDeviceEnumerator,
+    client: IMMNotificationClient,
+    changed: Arc<AtomicBool>,
+}
+
+impl DefaultEndpointNotifier {
+    fn take_change(&self) -> bool {
+        self.changed.swap(false, Ordering::Acquire)
+    }
+}
+
+impl Drop for DefaultEndpointNotifier {
+    fn drop(&mut self) {
+        // SAFETY: The callback was registered with the default-device enumerator on this COM
+        // worker thread. Unregistering it before dropping the callback prevents future calls.
+        unsafe {
+            let _ = self
+                .enumerator
+                .UnregisterEndpointNotificationCallback(&self.client);
+        }
+    }
+}
+
+fn register_endpoint_notifier(enumerator: &IMMDeviceEnumerator) -> Option<DefaultEndpointNotifier> {
+    let changed = Arc::new(AtomicBool::new(false));
+    let client: IMMNotificationClient = DefaultEndpointNotification {
+        changed: changed.clone(),
+    }
+    .into();
+
+    // SAFETY: enumerator and callback are owned by the monitor's initialized COM thread. The
+    // notifier retains the callback until it can be unregistered during worker shutdown.
+    unsafe {
+        enumerator
+            .RegisterEndpointNotificationCallback(&client)
+            .ok()?;
+    }
+
+    Some(DefaultEndpointNotifier {
+        enumerator: enumerator.clone(),
+        client,
+        changed,
+    })
+}
+
+#[windows::core::implement(IMMNotificationClient)]
+struct DefaultEndpointNotification {
+    changed: Arc<AtomicBool>,
+}
+
+impl IMMNotificationClient_Impl for DefaultEndpointNotification_Impl {
+    fn OnDeviceStateChanged(&self, _device_id: &PCWSTR, _state: DEVICE_STATE) -> Result<()> {
+        Ok(())
+    }
+
+    fn OnDeviceAdded(&self, _device_id: &PCWSTR) -> Result<()> {
+        Ok(())
+    }
+
+    fn OnDeviceRemoved(&self, _device_id: &PCWSTR) -> Result<()> {
+        Ok(())
+    }
+
+    fn OnDefaultDeviceChanged(
+        &self,
+        flow: EDataFlow,
+        role: ERole,
+        _device_id: &PCWSTR,
+    ) -> Result<()> {
+        if flow == eRender && role == eConsole {
+            self.changed.store(true, Ordering::Release);
+        }
+        Ok(())
+    }
+
+    fn OnPropertyValueChanged(&self, _device_id: &PCWSTR, _key: &PROPERTYKEY) -> Result<()> {
+        Ok(())
+    }
+}
+
+pub(super) struct VolumeIndicator {
+    snapshot: VolumeSnapshot,
+    label: String,
+    seen_revision: u64,
+    display_until: Option<Instant>,
+}
+
+impl Default for VolumeIndicator {
+    fn default() -> Self {
+        Self {
+            snapshot: VolumeSnapshot {
+                level: 0.0,
+                muted: false,
+                revision: 0,
+            },
+            label: tr("volume"),
+            seen_revision: 0,
+            display_until: None,
+        }
+    }
+}
+
+impl VolumeIndicator {
+    pub(super) fn update(&mut self, snapshot: VolumeSnapshot, can_present: bool) {
+        if !can_present {
+            self.seen_revision = snapshot.revision;
+            self.snapshot = snapshot;
+            self.display_until = None;
+            return;
+        }
+
+        if snapshot.revision == self.seen_revision {
+            return;
+        }
+
+        self.seen_revision = snapshot.revision;
+        self.snapshot = snapshot;
+        self.label = tr("volume");
+        self.display_until = Some(Instant::now() + DISPLAY_DURATION);
+    }
+
+    pub(super) fn is_visible(&self) -> bool {
+        self.display_until
+            .is_some_and(|until| until + FADE_DURATION > Instant::now())
+    }
+
+    pub(super) fn target_size(&self, base_width: f32, base_height: f32, scale: f32) -> CompactSize {
+        CompactSize {
+            width: (base_width + 72.0) * scale,
+            height: (base_height + 10.0) * scale,
+        }
+    }
+
+    pub(super) fn draw(&self, canvas: &Canvas, rect: Rect, scale: f32, alpha: f32) {
+        let alpha = (alpha * self.opacity() * 255.0).round().clamp(0.0, 255.0) as u8;
+        if alpha == 0 {
+            return;
+        }
+
+        let center_y = rect.center_y();
+        let icon_size = 20.0 * scale;
+        let icon_center = skia_safe::Point::new(rect.left() + 21.0 * scale, center_y);
+        let muted = self.snapshot.muted || self.snapshot.level <= VOLUME_CHANGE_THRESHOLD;
+        draw_volume_icon(canvas, icon_center, icon_size, alpha, muted, Color::WHITE);
+
+        let label_size = 12.0 * scale;
+        let label_x = rect.left() + 37.0 * scale;
+        let label_width =
+            FontManager::global().measure_text_cached(&self.label, label_size, FontStyle::normal());
+        let mut label_paint = Paint::default();
+        label_paint.set_anti_alias(true);
+        label_paint.set_color(Color::from_argb((alpha as f32 * 0.9) as u8, 255, 255, 255));
+        FontManager::global().draw_text_cached(DrawTextCachedParams {
+            canvas,
+            text: &self.label,
+            x: label_x,
+            y: center_y + 4.0 * scale,
+            size: label_size,
+            bold: false,
+            paint: &label_paint,
+        });
+
+        let track_left = label_x + label_width + 26.0 * scale;
+        let track_right = rect.right() - 14.0 * scale;
+        let track_width = (track_right - track_left).max(1.0);
+        let track_height = 4.0 * scale;
+        let track_top = center_y - track_height / 2.0;
+        let thumb_x = track_left + track_width * self.snapshot.level;
+
+        let mut track_paint = Paint::default();
+        track_paint.set_anti_alias(true);
+        track_paint.set_color(Color::from_argb((alpha as f32 * 0.28) as u8, 255, 255, 255));
+        canvas.draw_round_rect(
+            Rect::from_xywh(track_left, track_top, track_width, track_height),
+            track_height / 2.0,
+            track_height / 2.0,
+            &track_paint,
+        );
+
+        if thumb_x > track_left {
+            let mut fill_paint = Paint::default();
+            fill_paint.set_anti_alias(true);
+            fill_paint.set_color(Color::from_argb(alpha, 255, 255, 255));
+            canvas.draw_round_rect(
+                Rect::from_xywh(track_left, track_top, thumb_x - track_left, track_height),
+                track_height / 2.0,
+                track_height / 2.0,
+                &fill_paint,
+            );
+        }
+    }
+
+    fn opacity(&self) -> f32 {
+        let Some(until) = self.display_until else {
+            return 0.0;
+        };
+        let elapsed = Instant::now().saturating_duration_since(until);
+        if elapsed.is_zero() {
+            1.0
+        } else {
+            (1.0 - elapsed.as_secs_f32() / FADE_DURATION.as_secs_f32()).clamp(0.0, 1.0)
+        }
+    }
+}

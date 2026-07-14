@@ -127,3 +127,4 @@ check_updates_manual=手动检查更新
 update_no_update_title=检查更新
 update_no_update_desc=您当前已是最新版本的 WinIsland。
 update_failed_desc=检查更新失败，请稍后重试。
+volume=音量

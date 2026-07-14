@@ -127,3 +127,4 @@ check_updates_manual=Buscar actualizaciones manualmente
 update_no_update_title=Buscar Actualizaciones
 update_no_update_desc=Ya está utilizando la última versión de WinIsland.
 update_failed_desc=Error al comprobar las actualizaciones. Por favor, inténtelo de nuevo más tarde.
+volume=Volumen

@@ -26,6 +26,7 @@ dependencies = [
  "toml 1.1.2+spec-1.1.0",
  "tray-icon",
  "windows",
+ "windows-core",
  "winisland-plugin-api",
  "winit",
  "winres",

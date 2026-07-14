@@ -8,6 +8,7 @@ use self::mini::{MiniContentParams, draw_mini_content};
 
 use crate::core::config::WidgetSlot;
 use crate::core::smtc::MediaInfo;
+use crate::ui::compact::CompactOverlay;
 use crate::ui::expanded::music_view::{default_media_palette, get_media_palette};
 use skia_safe::{
     ClipOp, Color, ISize, Paint, RRect, Rect, Surface as SkSurface, image_filters, surfaces,
@@ -76,6 +77,7 @@ pub struct DrawIslandParams<'a> {
     pub media: MediaParams<'a>,
     pub lyrics: LyricsParams<'a>,
     pub mini_content: Option<MiniContent<'a>>,
+    pub compact_overlay: &'a CompactOverlay,
     pub window: WindowParams,
     pub style: StyleParams<'a>,
 }
@@ -89,6 +91,7 @@ pub fn draw_island(
         media,
         lyrics,
         mini_content,
+        compact_overlay,
         window,
         style,
     } = params;
@@ -224,27 +227,31 @@ pub fn draw_island(
         lyrics_delay,
         widget_layout,
     });
-    draw_mini_content(MiniContentParams {
-        canvas,
-        content: mini_content,
-        mini_alpha: mini_alpha_f,
-        current_w,
-        global_scale,
-        media,
-        offset_x,
-        stable_offset_y,
-        base_h,
-        palette: &palette,
-        viz_h_scale,
-        current_lyric,
-        old_lyric,
-        expansion_progress,
-        font_size,
-        lyric_scroll_offset,
-        use_blur,
-        lyric_transition,
-        text_color,
-    });
+    if compact_overlay.is_visible() {
+        compact_overlay.draw(canvas, rect, global_scale, mini_alpha_f);
+    } else {
+        draw_mini_content(MiniContentParams {
+            canvas,
+            content: mini_content,
+            mini_alpha: mini_alpha_f,
+            current_w,
+            global_scale,
+            media,
+            offset_x,
+            stable_offset_y,
+            base_h,
+            palette: &palette,
+            viz_h_scale,
+            current_lyric,
+            old_lyric,
+            expansion_progress,
+            font_size,
+            lyric_scroll_offset,
+            use_blur,
+            lyric_transition,
+            text_color,
+        });
+    }
     canvas.restore();
 
     {
