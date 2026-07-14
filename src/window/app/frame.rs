@@ -173,8 +173,10 @@ impl App {
         }
 
         let is_paused_idle = music_active && !media.is_playing;
-        self.compact_overlay
-            .update(!self.expanded && !self.auto_hidden && !self.manually_hidden);
+        self.compact_overlay.update(
+            !self.expanded && !self.auto_hidden && !self.manually_hidden,
+            self.config.notification_display,
+        );
         let compact_overlay_visible = self.compact_overlay.is_visible();
         let is_idle = !is_hovering_visible
             && !self.expanded

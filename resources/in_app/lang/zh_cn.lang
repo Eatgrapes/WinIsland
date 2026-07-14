@@ -83,6 +83,7 @@ font_preview_custom=自定义字体
 start_boot=开机启动
 auto_hide=自动隐藏
 right_click_drag=右键长按移动
+notification_display=通知显示
 check_updates=检查更新
 update_interval=检查更新间隔 (h)
 language=语言

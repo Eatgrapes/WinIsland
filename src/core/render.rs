@@ -193,8 +193,17 @@ pub fn draw_island(
     canvas.save();
     canvas.clip_rrect(rrect, ClipOp::Intersect, true);
 
-    let expanded_alpha_f = (expansion_progress.powf(2.0)).clamp(0.0, 1.0) * (1.0 - hide_progress);
-    let mini_alpha_f = (1.0 - expansion_progress * 1.5).clamp(0.0, 1.0) * (1.0 - hide_progress);
+    let compact_overlay_visible = compact_overlay.is_visible();
+    let expanded_alpha_f = if compact_overlay_visible {
+        0.0
+    } else {
+        (expansion_progress.powf(2.0)).clamp(0.0, 1.0) * (1.0 - hide_progress)
+    };
+    let mini_alpha_f = if compact_overlay_visible {
+        0.0
+    } else {
+        (1.0 - expansion_progress * 1.5).clamp(0.0, 1.0) * (1.0 - hide_progress)
+    };
 
     let palette = if expanded_alpha_f > 0.01 || mini_alpha_f > 0.01 {
         get_media_palette(media)
@@ -227,8 +236,8 @@ pub fn draw_island(
         lyrics_delay,
         widget_layout,
     });
-    if compact_overlay.is_visible() {
-        compact_overlay.draw(canvas, rect, global_scale, mini_alpha_f);
+    if compact_overlay_visible {
+        compact_overlay.draw(canvas, rect, global_scale, 1.0 - hide_progress);
     } else {
         draw_mini_content(MiniContentParams {
             canvas,

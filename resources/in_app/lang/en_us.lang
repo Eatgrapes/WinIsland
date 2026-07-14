@@ -83,6 +83,7 @@ font_preview_custom=Custom Font
 start_boot=Start at Boot
 auto_hide=Auto Hide
 right_click_drag=Right click long press to move
+notification_display=Notification Display
 check_updates=Check for Updates
 update_interval=Update Interval (h)
 language=Language

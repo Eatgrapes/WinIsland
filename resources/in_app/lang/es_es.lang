@@ -83,6 +83,7 @@ font_preview_custom=Fuente Personalizada
 start_boot=Iniciar al Arrancar
 auto_hide=Ocultar Automáticamente
 right_click_drag=Clic derecho largo para mover
+notification_display=Mostrar notificaciones
 check_updates=Buscar Actualizaciones
 update_interval=Intervalo de Actualización (h)
 language=Idioma
