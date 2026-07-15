@@ -12,6 +12,13 @@ pub struct CompactSize {
     pub height: f32,
 }
 
+#[derive(Clone, Copy)]
+pub enum CompactOverlayState {
+    Present,
+    Defer,
+    Discard,
+}
+
 pub struct CompactOverlay {
     volume_monitor: VolumeMonitor,
     volume_indicator: VolumeIndicator,
@@ -52,15 +59,17 @@ impl Default for CompactOverlay {
 }
 
 impl CompactOverlay {
-    pub fn update(&mut self, can_present: bool, notification_display: bool) {
-        self.volume_indicator
-            .update(self.volume_monitor.snapshot(), can_present);
+    pub fn update(&mut self, state: CompactOverlayState, notification_display: bool) -> bool {
+        let volume_changed = self
+            .volume_indicator
+            .update(self.volume_monitor.snapshot(), state);
         let notification = self.notification_monitor.update(notification_display);
         if notification_display {
-            self.notification_indicator
-                .update(notification, can_present);
+            let notification_received = self.notification_indicator.update(notification, state);
+            volume_changed || notification_received
         } else {
             self.notification_indicator.clear();
+            volume_changed
         }
     }
 

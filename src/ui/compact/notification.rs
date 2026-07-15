@@ -19,7 +19,7 @@ use windows::UI::Notifications::{
     UserNotificationChangedKind,
 };
 
-use crate::ui::compact::CompactSize;
+use crate::ui::compact::{CompactOverlayState, CompactSize};
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 
 const DISPLAY_DURATION: Duration = Duration::from_secs(5);
@@ -294,16 +294,24 @@ pub(super) struct NotificationIndicator {
 }
 
 impl NotificationIndicator {
-    pub(super) fn update(&mut self, notification: Option<NotificationPayload>, can_present: bool) {
+    pub(super) fn update(
+        &mut self,
+        notification: Option<NotificationPayload>,
+        state: CompactOverlayState,
+    ) -> bool {
+        let received_notification = notification.is_some();
         if let Some(notification) = notification {
             self.pending = Some(notification);
         }
-        if !can_present {
+        if !matches!(state, CompactOverlayState::Present) {
             self.clear_display();
-            return;
+            if matches!(state, CompactOverlayState::Discard) {
+                self.pending = None;
+            }
+            return received_notification;
         }
         let Some(notification) = self.pending.take() else {
-            return;
+            return received_notification;
         };
 
         let NotificationPayload {
@@ -322,6 +330,7 @@ impl NotificationIndicator {
         self.icon = icon_bytes.and_then(|bytes| Image::from_encoded(Data::new_copy(&bytes)));
         self.display_started = Some(Instant::now());
         self.display_until = Some(Instant::now() + DISPLAY_DURATION);
+        received_notification
     }
 
     pub(super) fn clear(&mut self) {

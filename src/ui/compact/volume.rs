@@ -17,7 +17,7 @@ use windows::core::{PCWSTR, Result};
 
 use crate::core::i18n::tr;
 use crate::icons::volume::draw_volume_icon;
-use crate::ui::compact::CompactSize;
+use crate::ui::compact::{CompactOverlayState, CompactSize};
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -282,6 +282,7 @@ pub(super) struct VolumeIndicator {
     snapshot: VolumeSnapshot,
     label: String,
     seen_revision: u64,
+    pending: bool,
     display_until: Option<Instant>,
 }
 
@@ -295,28 +296,38 @@ impl Default for VolumeIndicator {
             },
             label: tr("volume"),
             seen_revision: 0,
+            pending: false,
             display_until: None,
         }
     }
 }
 
 impl VolumeIndicator {
-    pub(super) fn update(&mut self, snapshot: VolumeSnapshot, can_present: bool) {
-        if !can_present {
+    pub(super) fn update(&mut self, snapshot: VolumeSnapshot, state: CompactOverlayState) -> bool {
+        let changed = snapshot.revision != self.seen_revision;
+        if changed {
             self.seen_revision = snapshot.revision;
             self.snapshot = snapshot;
+        }
+
+        if !matches!(state, CompactOverlayState::Present) {
+            if matches!(state, CompactOverlayState::Defer) && changed {
+                self.pending = true;
+            } else if matches!(state, CompactOverlayState::Discard) {
+                self.pending = false;
+            }
             self.display_until = None;
-            return;
+            return changed;
         }
 
-        if snapshot.revision == self.seen_revision {
-            return;
+        if !changed && !self.pending {
+            return false;
         }
 
-        self.seen_revision = snapshot.revision;
-        self.snapshot = snapshot;
+        self.pending = false;
         self.label = tr("volume");
         self.display_until = Some(Instant::now() + DISPLAY_DURATION);
+        changed
     }
 
     pub(super) fn is_visible(&self) -> bool {

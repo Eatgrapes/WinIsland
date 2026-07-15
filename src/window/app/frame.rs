@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use winit::dpi::PhysicalPosition;
 use winit::event_loop::ActiveEventLoop;
 
+use crate::ui::compact::CompactOverlayState;
 use crate::ui::expanded::music_view::{
     get_progress_bar_rect, set_progress_dragging, set_progress_hover,
 };
@@ -173,10 +174,26 @@ impl App {
         }
 
         let is_paused_idle = music_active && !media.is_playing;
-        self.compact_overlay.update(
-            !self.expanded && !self.auto_hidden && !self.manually_hidden,
-            self.config.notification_display,
-        );
+        let compact_state = if !self.expanded && !self.auto_hidden && !self.manually_hidden {
+            CompactOverlayState::Present
+        } else if self.auto_hidden && !self.manually_hidden {
+            CompactOverlayState::Defer
+        } else {
+            CompactOverlayState::Discard
+        };
+        let compact_event = self
+            .compact_overlay
+            .update(compact_state, self.config.notification_display);
+        if compact_event && self.auto_hidden && !self.manually_hidden {
+            self.auto_hidden = false;
+            self.idle_timer = Instant::now();
+            self.spring_hide.velocity = -0.65;
+            self.compact_overlay.update(
+                CompactOverlayState::Present,
+                self.config.notification_display,
+            );
+            log::info!("Island un-hidden (compact overlay event)");
+        }
         let compact_overlay_visible = self.compact_overlay.is_visible();
         let is_idle = !is_hovering_visible
             && !self.expanded
