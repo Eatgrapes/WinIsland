@@ -122,7 +122,11 @@ impl App {
     }
 
     pub(super) fn current_hide_edge(&self) -> HideEdge {
-        if self.auto_hidden || self.manually_hidden || self.hide_origin.is_some() {
+        if self.auto_hidden
+            || self.manually_hidden
+            || self.hide_origin.is_some()
+            || (self.config.fully_hide && self.is_dragging)
+        {
             self.hide_edge
         } else if self.config.dock_position.is_bottom() {
             HideEdge::Bottom
@@ -165,6 +169,16 @@ impl App {
             self.win_y = win_y;
             window.set_outer_position(PhysicalPosition::new(win_x, win_y));
         }
+    }
+
+    pub(super) fn capture_fully_hidden_hitbox(&mut self) {
+        let layout = self.compute_island_layout();
+        self.fully_hidden_hitbox = Some(super::IslandHitbox {
+            x: layout.current_island_x,
+            y: layout.current_island_y,
+            width: self.spring_w.value as f64,
+            height: self.spring_h.value as f64,
+        });
     }
 
     pub(super) fn compute_island_layout(&self) -> IslandLayout {

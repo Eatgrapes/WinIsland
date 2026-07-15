@@ -26,6 +26,8 @@ mod system;
 
 type InstallResult = Result<(PluginManifest, PathBuf, Vec<String>), String>;
 const RIGHT_DRAG_THRESHOLD: i32 = 4;
+const FULLY_HIDE_FADE_DELAY: std::time::Duration = std::time::Duration::from_millis(600);
+const FULLY_HIDE_FADE_DURATION: std::time::Duration = std::time::Duration::from_millis(250);
 
 #[derive(Clone, Copy)]
 enum HideEdge {
@@ -33,6 +35,14 @@ enum HideEdge {
     Bottom,
     Left,
     Right,
+}
+
+#[derive(Clone, Copy)]
+struct IslandHitbox {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
 }
 
 fn should_show_widget_view(smtc_enabled: bool, has_media: bool) -> bool {
@@ -70,6 +80,9 @@ pub struct App {
     last_glass_refresh: Instant,
     spring_hide: Spring,
     auto_hidden: bool,
+    fully_hide_opacity: f32,
+    fully_hidden_at: Option<Instant>,
+    fully_hidden_hitbox: Option<IslandHitbox>,
     hide_origin: Option<(i32, i32)>,
     hide_edge: HideEdge,
     is_dragging: bool,
@@ -139,6 +152,9 @@ impl Default for App {
             last_glass_refresh: Instant::now(),
             spring_hide: Spring::new(0.0),
             auto_hidden: false,
+            fully_hide_opacity: 1.0,
+            fully_hidden_at: None,
+            fully_hidden_hitbox: None,
             hide_origin: None,
             hide_edge: HideEdge::Top,
             is_dragging: false,

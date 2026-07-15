@@ -166,6 +166,7 @@ impl App {
                                     view_offset: self.spring_view.value,
                                     global_scale: self.config.global_scale,
                                     hide_progress: self.spring_hide.value,
+                                    visibility_alpha: self.fully_hide_opacity,
                                     island_x: island_layout.current_island_x as f32,
                                     island_y: island_layout.current_island_y as f32,
                                     stable_island_y: island_layout.stable_island_y as f32,

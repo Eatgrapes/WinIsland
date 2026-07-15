@@ -146,6 +146,8 @@ pub struct AppConfig {
     pub auto_hide: bool,
     #[serde(default = "default_auto_hide_delay")]
     pub auto_hide_delay: f32,
+    #[serde(default = "default_fully_hide")]
+    pub fully_hide: bool,
     #[serde(default = "default_check_for_updates")]
     pub check_for_updates: bool,
     #[serde(default = "default_update_check_interval")]
@@ -228,6 +230,10 @@ fn default_auto_hide() -> bool {
 
 fn default_auto_hide_delay() -> f32 {
     5.0
+}
+
+fn default_fully_hide() -> bool {
+    false
 }
 
 fn default_check_for_updates() -> bool {
@@ -466,6 +472,7 @@ impl Default for AppConfig {
             auto_start: false,
             auto_hide: false,
             auto_hide_delay: 5.0,
+            fully_hide: false,
             check_for_updates: true,
             update_check_interval: 4.0,
             language: "auto".to_string(),

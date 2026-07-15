@@ -72,21 +72,32 @@ impl App {
         let offset_x = layout.offset_x;
         let current_island_x = layout.current_island_x;
         let current_island_y = layout.current_island_y;
+        let fully_hidden = self.config.fully_hide && (self.auto_hidden || self.manually_hidden);
+        let hitbox = fully_hidden
+            .then_some(self.fully_hidden_hitbox)
+            .flatten()
+            .unwrap_or(super::IslandHitbox {
+                x: current_island_x,
+                y: current_island_y,
+                width: self.spring_w.value as f64,
+                height: self.spring_h.value as f64,
+            });
 
         let is_hovering_visible = is_point_in_rect(
             rel_x as f64,
             rel_y as f64,
-            current_island_x,
-            current_island_y,
-            self.spring_w.value as f64,
-            self.spring_h.value as f64,
+            hitbox.x,
+            hitbox.y,
+            hitbox.width,
+            hitbox.height,
         );
 
         let hidden_handle_x = layout.hidden_handle_x;
         let hidden_handle_y = layout.hidden_handle_y;
         let hidden_handle_w = layout.hidden_handle_w;
         let hidden_handle_h = layout.hidden_handle_h;
-        let is_on_hidden_handle = (self.auto_hidden || self.manually_hidden)
+        let is_on_hidden_handle = !fully_hidden
+            && (self.auto_hidden || self.manually_hidden)
             && is_point_in_rect(
                 rel_x as f64,
                 rel_y as f64,
@@ -241,6 +252,16 @@ impl App {
                 self.widget_view = false;
             }
         } else if is_hovering_visible || is_on_hidden_handle {
+            if fully_hidden {
+                self.auto_hidden = false;
+                self.manually_hidden = false;
+                self.spring_hide.velocity = -0.65;
+                self.idle_timer = Instant::now();
+                return;
+            }
+            if self.config.fully_hide {
+                self.capture_fully_hidden_hitbox();
+            }
             self.is_dragging = true;
             self.drag_start_px = rel_x + self.win_x;
             self.drag_start_py = rel_y + self.win_y;

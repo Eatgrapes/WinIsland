@@ -149,6 +149,10 @@ impl App {
             let old_mini_shape = self.config.mini_cover_shape.clone();
             let old_expanded_shape = self.config.expanded_cover_shape.clone();
             let old_font = self.config.custom_font_path.clone();
+            let old_position_x_offset = self.config.position_x_offset;
+            let old_position_y_offset = self.config.position_y_offset;
+            let old_dock_position = self.config.dock_position;
+            let old_monitor_index = self.config.monitor_index;
 
             log::info!("Config changed, reloaded");
             self.config = current_config;
@@ -194,6 +198,10 @@ impl App {
                 || (old_scale - self.config.global_scale).abs() > 0.001
                 || (old_max_w - self.config.expanded_width).abs() > 0.1
                 || (old_max_h - self.config.expanded_height).abs() > 0.1;
+            let position_changed = old_position_x_offset != self.config.position_x_offset
+                || old_position_y_offset != self.config.position_y_offset
+                || old_dock_position != self.config.dock_position
+                || old_monitor_index != self.config.monitor_index;
 
             if size_changed {
                 self.os_w = new_os_w;
@@ -207,7 +215,9 @@ impl App {
                 }
             }
 
-            if let Some(monitor) = Self::get_target_monitor(window, self.config.monitor_index) {
+            if (size_changed || position_changed)
+                && let Some(monitor) = Self::get_target_monitor(window, self.config.monitor_index)
+            {
                 let mon_size = monitor.size();
                 let mon_pos = monitor.position();
                 if mon_size.width > 0 && mon_size.height > 0 {

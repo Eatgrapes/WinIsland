@@ -13,6 +13,7 @@ use super::SettingsApp;
 pub(super) enum BehaviorAction {
     AutoStart,
     AutoHide,
+    FullyHide,
     RightClickDrag,
     NotificationDisplay,
     HideDelay,
@@ -46,6 +47,14 @@ impl SettingsApp {
                 enabled: true,
             },
             BehaviorAction::AutoHide,
+        );
+        page.push_action(
+            SettingsItem::RowSwitch {
+                label: tr("fully_hide"),
+                on: self.config.fully_hide,
+                enabled: true,
+            },
+            BehaviorAction::FullyHide,
         );
         page.push_action(
             SettingsItem::RowSwitch {
@@ -175,6 +184,10 @@ impl SettingsApp {
             }
             (BehaviorAction::AutoHide, ClickResult::Switch(_)) => {
                 self.config.auto_hide = !self.config.auto_hide;
+                true
+            }
+            (BehaviorAction::FullyHide, ClickResult::Switch(_)) => {
+                self.config.fully_hide = !self.config.fully_hide;
                 true
             }
             (BehaviorAction::RightClickDrag, ClickResult::Switch(_)) => {

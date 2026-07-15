@@ -33,6 +33,7 @@ pub struct LayoutParams {
     pub view_offset: f32,
     pub global_scale: f32,
     pub hide_progress: f32,
+    pub visibility_alpha: f32,
     pub island_x: f32,
     pub island_y: f32,
     pub stable_island_y: f32,
@@ -107,6 +108,7 @@ pub fn draw_island(
         view_offset,
         global_scale,
         hide_progress,
+        visibility_alpha,
         island_x,
         island_y,
         stable_island_y,
@@ -155,6 +157,12 @@ pub fn draw_island(
     });
     let canvas = sk_surface.canvas();
     canvas.clear(Color::TRANSPARENT);
+    let fade_layer = visibility_alpha < 0.999;
+    if fade_layer {
+        let mut paint = Paint::default();
+        paint.set_alpha_f(visibility_alpha);
+        canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&paint));
+    }
 
     let offset_x = island_x;
     let offset_y = island_y;
@@ -284,6 +292,9 @@ pub fn draw_island(
             current_r,
         );
         canvas.draw_rrect(border_rrect, &border_paint);
+    }
+    if fade_layer {
+        canvas.restore();
     }
 
     let info = skia_safe::ImageInfo::new(

@@ -15,7 +15,7 @@ use crate::utils::mouse::{
     is_point_in_rect,
 };
 
-use super::{App, HideEdge, RIGHT_DRAG_THRESHOLD};
+use super::{App, FULLY_HIDE_FADE_DELAY, FULLY_HIDE_FADE_DURATION, HideEdge, RIGHT_DRAG_THRESHOLD};
 
 impl App {
     pub(super) fn on_about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -111,19 +111,30 @@ impl App {
         let offset_x = layout.offset_x;
         let current_island_x = layout.current_island_x;
         let current_island_y = layout.current_island_y;
+        let fully_hidden = self.config.fully_hide && (self.auto_hidden || self.manually_hidden);
+        let hitbox = fully_hidden
+            .then_some(self.fully_hidden_hitbox)
+            .flatten()
+            .unwrap_or(super::IslandHitbox {
+                x: current_island_x,
+                y: current_island_y,
+                width: self.spring_w.value as f64,
+                height: self.spring_h.value as f64,
+            });
         let is_hovering_visible = is_point_in_rect(
             rel_x as f64,
             rel_y as f64,
-            current_island_x,
-            current_island_y,
-            self.spring_w.value as f64,
-            self.spring_h.value as f64,
+            hitbox.x,
+            hitbox.y,
+            hitbox.width,
+            hitbox.height,
         );
         let hidden_handle_x = layout.hidden_handle_x;
         let hidden_handle_y = layout.hidden_handle_y;
         let hidden_handle_w = layout.hidden_handle_w;
         let hidden_handle_h = layout.hidden_handle_h;
-        let is_on_hidden_handle = (self.auto_hidden || self.manually_hidden)
+        let is_on_hidden_handle = !fully_hidden
+            && (self.auto_hidden || self.manually_hidden)
             && is_point_in_rect(
                 rel_x as f64,
                 rel_y as f64,
@@ -211,9 +222,17 @@ impl App {
             log::info!("Island un-hidden (media playing)");
         } else if !self.auto_hidden && is_idle && !self.manually_hidden {
             if self.idle_timer.elapsed().as_secs_f32() > self.config.auto_hide_delay {
-                self.hide_edge = self.nearest_hide_edge();
-                self.hide_origin = Some((self.win_x, self.win_y));
-                self.snap_to_hide_edge(&window);
+                self.hide_edge = if self.config.fully_hide {
+                    HideEdge::Top
+                } else {
+                    self.nearest_hide_edge()
+                };
+                if !self.config.fully_hide {
+                    self.hide_origin = Some((self.win_x, self.win_y));
+                    self.snap_to_hide_edge(&window);
+                } else {
+                    self.capture_fully_hidden_hitbox();
+                }
                 self.auto_hidden = true;
                 log::info!(
                     "Island auto-hidden (idle {:.1}s)",
@@ -281,10 +300,12 @@ impl App {
             }
             if upward_distance > 3 && self.hide_origin.is_none() {
                 self.hide_edge = HideEdge::Top;
-                self.hide_origin = Some((self.win_x, self.win_y));
-                self.snap_to_hide_edge(&window);
+                if !self.config.fully_hide {
+                    self.hide_origin = Some((self.win_x, self.win_y));
+                    self.snap_to_hide_edge(&window);
+                }
             }
-            if self.hide_origin.is_some() {
+            if self.hide_origin.is_some() || self.config.fully_hide {
                 let drag_layout = self.compute_island_layout();
                 if drag_layout.hide_distance > 0.0 {
                     let mut new_val = self.drag_start_hide_val
@@ -309,8 +330,10 @@ impl App {
             self.spring_hide
                 .update_dt(hide_target, stiffness, damping, dt);
         }
+        let hide_opacity_changed = self.update_fully_hide_opacity();
         if !self.auto_hidden && !self.manually_hidden {
             self.restore_hide_origin(&window);
+            self.fully_hidden_hitbox = None;
         }
 
         if self.spring_hide.velocity.abs() > 0.001
@@ -425,21 +448,30 @@ impl App {
             && !self.auto_hidden
             && !self.manually_hidden
             && self.last_glass_refresh.elapsed().as_millis() >= 1000;
+        let fully_hidden = self.config.fully_hide
+            && (self.auto_hidden || self.manually_hidden)
+            && self.fully_hide_opacity <= 0.001;
+        let fully_hide_animating = self.config.fully_hide
+            && (self.auto_hidden || self.manually_hidden)
+            && self.fully_hide_opacity > 0.001;
 
         if should_periodic_redraw {
             self.last_glass_refresh = Instant::now();
         }
 
-        if self.expanded
-            || (music_active && media.is_playing)
-            || self.spring_w.velocity.abs() > 0.001
-            || self.spring_h.velocity.abs() > 0.001
-            || self.spring_r.velocity.abs() > 0.001
-            || self.spring_view.velocity.abs() > 0.001
-            || compact_overlay_visible
-            || should_periodic_redraw
-            || self.right_press_cursor.is_some()
-            || self.is_right_dragging
+        if !fully_hidden
+            && (self.expanded
+                || (music_active && media.is_playing)
+                || self.spring_w.velocity.abs() > 0.001
+                || self.spring_h.velocity.abs() > 0.001
+                || self.spring_r.velocity.abs() > 0.001
+                || self.spring_view.velocity.abs() > 0.001
+                || compact_overlay_visible
+                || should_periodic_redraw
+                || self.right_press_cursor.is_some()
+                || self.is_right_dragging)
+            || fully_hide_animating
+            || hide_opacity_changed
         {
             window.request_redraw();
         }
@@ -448,5 +480,29 @@ impl App {
         if elapsed < target_frame_time {
             std::thread::sleep(target_frame_time - elapsed);
         }
+    }
+
+    fn update_fully_hide_opacity(&mut self) -> bool {
+        let previous_opacity = self.fully_hide_opacity;
+        if !self.config.fully_hide || (!self.auto_hidden && !self.manually_hidden) {
+            self.fully_hide_opacity = 1.0;
+            self.fully_hidden_at = None;
+            return self.fully_hide_opacity != previous_opacity;
+        }
+        if self.spring_hide.value < 0.999 || self.spring_hide.velocity.abs() > 0.001 {
+            self.fully_hide_opacity = 1.0;
+            self.fully_hidden_at = None;
+            return self.fully_hide_opacity != previous_opacity;
+        }
+        let hidden_at = self.fully_hidden_at.get_or_insert_with(Instant::now);
+        let elapsed = hidden_at.elapsed();
+        if elapsed <= FULLY_HIDE_FADE_DELAY {
+            self.fully_hide_opacity = 1.0;
+            return self.fully_hide_opacity != previous_opacity;
+        }
+        let fade_progress = (elapsed - FULLY_HIDE_FADE_DELAY).as_secs_f32()
+            / FULLY_HIDE_FADE_DURATION.as_secs_f32();
+        self.fully_hide_opacity = (1.0 - fade_progress).clamp(0.0, 1.0);
+        self.fully_hide_opacity != previous_opacity
     }
 }
