@@ -1,5 +1,6 @@
 fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows" {
+        println!("cargo:rerun-if-env-changed=WINISLAND_PACKAGE_CHANNEL");
         let output = std::process::Command::new("powershell")
             .args([
                 "-NoProfile",
@@ -34,9 +35,16 @@ fn main() {
         res.set("ProductName", "WinIsland");
         res.set("LegalCopyright", "Copyright (c) Eatgrapes");
 
-        let manifest = r#"
+        let package = package_identity();
+        let manifest = format!(
+            r#"
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity version="0.0.0.0" name="{}"/>
+  <msix xmlns="urn:schemas-microsoft-com:msix.v1"
+    publisher="CN=Eatgrapes.WinIsland"
+    packageName="{}"
+    applicationId="WinIsland"/>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
@@ -45,8 +53,28 @@ fn main() {
     </security>
   </trustInfo>
 </assembly>
-"#;
-        res.set_manifest(manifest);
+"#,
+            package.name, package.name
+        );
+        res.set_manifest(&manifest);
         res.compile().unwrap();
+    }
+}
+
+struct PackageIdentity {
+    name: &'static str,
+}
+
+fn package_identity() -> PackageIdentity {
+    match std::env::var("WINISLAND_PACKAGE_CHANNEL").as_deref() {
+        Ok("nightly") => PackageIdentity {
+            name: "Eatgrapes.WinIsland.Nightly",
+        },
+        Ok("stable") => PackageIdentity {
+            name: "Eatgrapes.WinIsland",
+        },
+        _ => PackageIdentity {
+            name: "Eatgrapes.WinIsland.Dev",
+        },
     }
 }

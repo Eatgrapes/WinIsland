@@ -14,6 +14,7 @@ pub(super) enum BehaviorAction {
     AutoStart,
     AutoHide,
     RightClickDrag,
+    NotificationDisplay,
     HideDelay,
     Language,
     CheckForUpdates,
@@ -53,6 +54,14 @@ impl SettingsApp {
                 enabled: true,
             },
             BehaviorAction::RightClickDrag,
+        );
+        page.push_action(
+            SettingsItem::RowSwitch {
+                label: tr("notification_display"),
+                on: self.config.notification_display,
+                enabled: true,
+            },
+            BehaviorAction::NotificationDisplay,
         );
         if self.config.auto_hide {
             page.push_action(
@@ -170,6 +179,10 @@ impl SettingsApp {
             }
             (BehaviorAction::RightClickDrag, ClickResult::Switch(_)) => {
                 self.config.right_click_drag = !self.config.right_click_drag;
+                true
+            }
+            (BehaviorAction::NotificationDisplay, ClickResult::Switch(_)) => {
+                self.config.notification_display = !self.config.notification_display;
                 true
             }
             (BehaviorAction::CheckForUpdates, ClickResult::Switch(_)) => {

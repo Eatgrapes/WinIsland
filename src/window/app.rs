@@ -5,6 +5,7 @@ use crate::core::persistence::load_config;
 use crate::core::smtc::SmtcListener;
 use crate::plugin::PluginManager;
 use crate::plugin::zip_loader::PluginManifest;
+use crate::ui::compact::CompactOverlay;
 use crate::utils::physics::Spring;
 use crate::window::tray::TrayManager;
 use softbuffer::{Context, Surface};
@@ -45,6 +46,7 @@ pub struct App {
     tray: Option<TrayManager>,
     smtc: SmtcListener,
     audio: AudioProcessor,
+    compact_overlay: CompactOverlay,
     config: AppConfig,
     expanded: bool,
     widget_view: bool,
@@ -123,6 +125,7 @@ impl Default for App {
                 config.smtc_apps.clone(),
             ),
             audio: AudioProcessor::new(),
+            compact_overlay: CompactOverlay::default(),
             os_w: 0,
             os_h: 0,
             win_x: 0,

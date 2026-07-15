@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "WinIsland"
-version = "1.2.3"
+version = "1.2.4"
 dependencies = [
  "base64",
  "bytemuck",
@@ -26,6 +26,7 @@ dependencies = [
  "toml 1.1.2+spec-1.1.0",
  "tray-icon",
  "windows",
+ "windows-core",
  "winisland-plugin-api",
  "winit",
  "winres",

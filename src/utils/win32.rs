@@ -1,7 +1,8 @@
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowW, GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, PostMessageW, SW_RESTORE,
-    SWP_NOACTIVATE, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_CLOSE,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_CLOSE,
 };
 use windows::core::PCWSTR;
 
@@ -47,13 +48,22 @@ pub fn bring_window_to_front(title: &str) {
 }
 
 // SAFETY: GetWindowLongPtrW reads and SetWindowLongPtrW writes the extended
-// window style of a validated HWND. Bitwise operations on the style flags are
-// safe and the updated style takes effect immediately.
+// window style of a validated HWND. SetWindowPos refreshes the non-client
+// frame after the update without changing size, position, z-order, or focus.
 pub fn modify_window_ex_style(hwnd: HWND, add_flags: isize, remove_flags: isize) {
     unsafe {
         let current = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
         let new_style = (current | add_flags) & !remove_flags;
         let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_style);
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
     }
 }
 

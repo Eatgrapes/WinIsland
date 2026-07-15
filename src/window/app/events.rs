@@ -199,6 +199,7 @@ impl App {
                                     widget_layout: &self.config.widget_layout,
                                 },
                                 mini_content,
+                                compact_overlay: &self.compact_overlay,
                             },
                         );
                         if widget_animating && let Some(win) = &self.window {

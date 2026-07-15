@@ -1,0 +1,72 @@
+#ifndef Channel
+  #define Channel "stable"
+#endif
+
+#ifndef SourceDirectory
+  #error "SourceDirectory must be provided."
+#endif
+
+#ifndef OutputDirectory
+  #error "OutputDirectory must be provided."
+#endif
+
+#ifndef Version
+  #error "Version must be provided."
+#endif
+
+#if Channel == "nightly"
+  #define AppName "WinIsland Nightly"
+  #define AppId "{{B835C9EA-88D3-4CF3-9837-324EEDC65BD0}"
+  #define InstallDirectory "WinIsland Nightly"
+  #define IdentityPackageName "Eatgrapes.WinIsland.Nightly"
+  #define IdentityPackageFile "Eatgrapes.WinIsland.Nightly.msix"
+  #define IdentityCertificateFile "Eatgrapes.WinIsland.Nightly.cer"
+  #define OutputFile "WinIsland-Nightly-Setup"
+#else
+  #define AppName "WinIsland"
+  #define AppId "{{AA737034-4733-47BF-A8D4-3D7DB5B986D5}"
+  #define InstallDirectory "WinIsland"
+  #define IdentityPackageName "Eatgrapes.WinIsland"
+  #define IdentityPackageFile "Eatgrapes.WinIsland.msix"
+  #define IdentityCertificateFile "Eatgrapes.WinIsland.cer"
+  #define OutputFile "WinIsland-Setup"
+#endif
+
+[Setup]
+AppId={#AppId}
+AppName={#AppName}
+AppVersion={#Version}
+AppPublisher=Eatgrapes
+DefaultDirName={localappdata}\{#InstallDirectory}
+DisableProgramGroupPage=yes
+OutputDir={#OutputDirectory}
+OutputBaseFilename={#OutputFile}
+SetupIconFile={#SourceDirectory}\resources\icon-dark.ico
+UninstallDisplayIcon={app}\WinIsland.exe
+PrivilegesRequired=lowest
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+Compression=lzma2
+SolidCompression=yes
+WizardStyle=modern
+CloseApplications=yes
+RestartApplications=no
+
+[Files]
+Source: "{#SourceDirectory}\WinIsland.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
+Source: "{#SourceDirectory}\resources\icon-dark.png"; DestDir: "{app}\resources"; Flags: ignoreversion
+Source: "{#SourceDirectory}\resources\icon-dark.ico"; DestDir: "{app}\resources"; Flags: ignoreversion
+Source: "{#SourceDirectory}\identity\{#IdentityPackageFile}"; DestDir: "{app}\identity"; Flags: ignoreversion
+Source: "{#SourceDirectory}\identity\{#IdentityCertificateFile}"; DestDir: "{app}\identity"; Flags: ignoreversion
+Source: "{#SourceDirectory}\identity\Install-Identity.ps1"; DestDir: "{app}\identity"; Flags: ignoreversion
+Source: "{#SourceDirectory}\identity\Remove-Identity.ps1"; DestDir: "{app}\identity"; Flags: ignoreversion
+
+[Icons]
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\WinIsland.exe"
+
+[Run]
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\identity\Install-Identity.ps1"" -PackagePath ""{app}\identity\{#IdentityPackageFile}"" -CertificatePath ""{app}\identity\{#IdentityCertificateFile}"" -ExternalLocation ""{app}"" -PackageName ""{#IdentityPackageName}"""; Flags: runhidden waituntilterminated
+Filename: "{app}\WinIsland.exe"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\identity\Remove-Identity.ps1"" -PackageName ""{#IdentityPackageName}"""; Flags: runhidden waituntilterminated; RunOnceId: "Remove{#IdentityPackageName}"

@@ -4,9 +4,9 @@ Ready to experience a modern dynamic island on your Windows desktop? Follow thes
 
 ## Installation
 
-1.  **Download**: Head over to the [Download Page](/download) and grab the latest `WinIsland.exe`.
-2.  **Run**: No installation required! Just double-click the `.exe` file.
-3.  **Permissions**: If Windows SmartScreen pops up, click "More info" and "Run anyway". This is because the nightly build is not yet signed.
+1.  **Download**: Head over to the [Download Page](/download) and grab the installer for your preferred channel.
+2.  **Install**: Run the installer and keep its default installation location.
+3.  **Permissions**: Approve the Windows administrator prompt so the installer can register WinIsland's Windows identity. This enables features such as notification access.
 
 ## Basic Controls
 

@@ -173,9 +173,15 @@ impl App {
         }
 
         let is_paused_idle = music_active && !media.is_playing;
+        self.compact_overlay.update(
+            !self.expanded && !self.auto_hidden && !self.manually_hidden,
+            self.config.notification_display,
+        );
+        let compact_overlay_visible = self.compact_overlay.is_visible();
         let is_idle = !is_hovering_visible
             && !self.expanded
             && !self.is_dragging
+            && !compact_overlay_visible
             && (!music_active || is_paused_idle);
         if !self.config.auto_hide {
             self.auto_hidden = false;
@@ -368,16 +374,25 @@ impl App {
             window.request_redraw();
         }
 
-        let target_w = self.compute_lyric_target_width(&window, music_active, is_paused, dt);
-        let target_h = (if self.expanded {
+        let lyric_target_w = self.compute_lyric_target_width(&window, music_active, is_paused, dt);
+        let default_target_h = (if self.expanded {
             self.config.expanded_height
         } else {
             self.config.base_height
         }) * self.config.global_scale;
-        let target_r = if self.expanded {
+        let default_target_r = if self.expanded {
             32.0 * self.config.global_scale
         } else {
             (self.config.base_height * self.config.global_scale) / 2.0
+        };
+        let (target_w, target_h, target_r) = if let Some(size) = self.compact_overlay.target_size(
+            self.config.base_width,
+            self.config.base_height,
+            self.config.global_scale,
+        ) {
+            (size.width, size.height, size.height / 2.0)
+        } else {
+            (lyric_target_w, default_target_h, default_target_r)
         };
         let target_view = if self.widget_view { 1.0 } else { 0.0 };
         self.spring_w.update_dt(target_w, 0.10, 0.68, dt);
@@ -403,6 +418,7 @@ impl App {
             || self.spring_h.velocity.abs() > 0.001
             || self.spring_r.velocity.abs() > 0.001
             || self.spring_view.velocity.abs() > 0.001
+            || compact_overlay_visible
             || should_periodic_redraw
             || self.right_press_cursor.is_some()
             || self.is_right_dragging

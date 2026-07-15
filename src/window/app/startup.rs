@@ -4,7 +4,7 @@ use std::time::Duration;
 use softbuffer::{Context, Surface};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
+    WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
 };
 use windows::core::PCWSTR;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -46,22 +46,6 @@ impl App {
                 .with_skip_taskbar(true)
                 .with_window_icon(get_app_icon());
             let window = Arc::new(event_loop.create_window(attrs).unwrap());
-
-            if let Ok(handle) = window.window_handle()
-                && let RawWindowHandle::Win32(win32_handle) = handle.as_raw()
-            {
-                let hwnd = HWND(win32_handle.hwnd.get() as _);
-                crate::utils::win32::modify_window_ex_style(
-                    hwnd,
-                    WS_EX_TOOLWINDOW.0 as isize | WS_EX_NOACTIVATE.0 as isize,
-                    0,
-                );
-                crate::utils::win32::modify_window_style(
-                    hwnd,
-                    0,
-                    WS_MAXIMIZEBOX.0 as isize | WS_THICKFRAME.0 as isize,
-                );
-            }
 
             self.window = Some(window.clone());
             log::info!(
@@ -192,6 +176,21 @@ impl App {
             );
             Self::enforce_topmost(&window, self.win_x, self.win_y, self.os_w, self.os_h);
             window.set_visible(true);
+            if let Ok(handle) = window.window_handle()
+                && let RawWindowHandle::Win32(win32_handle) = handle.as_raw()
+            {
+                let hwnd = HWND(win32_handle.hwnd.get() as _);
+                crate::utils::win32::modify_window_ex_style(
+                    hwnd,
+                    WS_EX_TOOLWINDOW.0 as isize | WS_EX_NOACTIVATE.0 as isize,
+                    WS_EX_APPWINDOW.0 as isize,
+                );
+                crate::utils::win32::modify_window_style(
+                    hwnd,
+                    0,
+                    WS_MAXIMIZEBOX.0 as isize | WS_THICKFRAME.0 as isize,
+                );
+            }
             window.request_redraw();
         }
     }
