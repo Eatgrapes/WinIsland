@@ -1,5 +1,10 @@
 # Changelog
 
+### v1.2.5
+- Add an optional fully hidden mode
+- Restrict audio visualization to the active media process when Windows supports process loopback, with system audio fallback
+- Fix auto-hide reveal behavior for compact overlays
+
 ### v1.2.4
 - Add optional notification display
 - Package Stable and Nightly releases as installers
