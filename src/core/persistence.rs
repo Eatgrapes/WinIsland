@@ -15,7 +15,6 @@ pub fn load_config() -> AppConfig {
     let mut config: AppConfig = if let Ok(content) = fs::read_to_string(&path)
         && let Ok(config) = toml::from_str(&content)
     {
-        log::info!("Config loaded from: {}", path.display());
         config
     } else {
         log::info!("Config file not found, using defaults");
