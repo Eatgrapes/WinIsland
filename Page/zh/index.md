@@ -25,4 +25,6 @@ features:
     details: "实时的媒体控制。"
   - title: "高度可定制"
     details: "高自由度的配置选项，完美匹配你的桌面美学。"
+  - title: "加入社区"
+    details: "QQ群：435799156"
 ---

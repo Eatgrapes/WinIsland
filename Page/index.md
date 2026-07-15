@@ -25,4 +25,6 @@ features:
     details: "Real-time media control at your fingertips."
   - title: "Customizable"
     details: "Highly configurable to match your desktop aesthetic perfectly."
+  - title: "Join the Community"
+    details: "QQ Group: 435799156"
 ---

@@ -11,6 +11,9 @@ This is a project that can display **Dynamic Island** on Windows.
 ## Download it
 you can in [Release](https://github.com/Eatgrapes/WinIsland/releases) or our [website](https://tanikaze.icu/WinIsland) Download WinIsland
 
+## Community
+Join the QQ group: `435799156`
+
 ## Build it 
 
 - **Rust** environment

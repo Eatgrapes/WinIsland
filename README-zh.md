@@ -11,6 +11,9 @@
 ## 下载
 你可以在 [Release](https://github.com/Eatgrapes/WinIsland/releases) 或者我们的 [网站](https://tanikaze.icu/WinIsland) 下载WinIsland
 
+## 社区
+加入 QQ 群：`435799156`
+
 ## 构建项目
 
 - **Rust** 环境
