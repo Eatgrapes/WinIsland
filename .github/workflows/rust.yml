@@ -3,14 +3,6 @@ name: Rust Build & Docs
 on:
   push:
     branches: [ "master", "main" ]
-    paths-ignore:
-      - 'Docs/**/*.md'
-      - '*.md'
-      - '.github/**'
-      - '.ai/**'
-      - '.agents/**'
-      - 'AGENTS.md'
-      - 'crates/**/*.md'
   workflow_dispatch:
 
 permissions:
@@ -22,8 +14,38 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - '**/*.rs'
+              - '**/*.ps1'
+              - 'resources/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'build.rs'
+              - '.github/workflows/rust.yml'
+            web:
+              - 'Page/**'
+              - '**/*.md'
+              - '.github/workflows/rust.yml'
+
   build-rust:
-    if: ${{ !contains(github.event.head_commit.message, '[ci-skip]') && !contains(github.event.head_commit.message, '[docs]') }}
+    needs: changes
+    if: >-
+      (github.event_name == 'workflow_dispatch' || needs.changes.outputs.rust == 'true') &&
+      !contains(github.event.head_commit.message, '[ci-skip]') &&
+      !contains(github.event.head_commit.message, '[docs]')
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v4
@@ -96,7 +118,10 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-docs:
-    if: ${{ !contains(github.event.head_commit.message, '[ci-skip]') }}
+    needs: changes
+    if: >-
+      (github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true') &&
+      !contains(github.event.head_commit.message, '[ci-skip]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -115,11 +140,15 @@ jobs:
           path: Page/.vitepress/dist
 
   deploy-docs:
-    if: github.repository == 'Eatgrapes/WinIsland' && !contains(github.event.head_commit.message, '[ci-skip]')
+    if: >-
+      always() &&
+      github.repository == 'Eatgrapes/WinIsland' &&
+      !contains(github.event.head_commit.message, '[ci-skip]') &&
+      needs.build-docs.result == 'success'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    needs: build-docs
+    needs: [changes, build-docs]
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
