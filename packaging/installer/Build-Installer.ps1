@@ -17,6 +17,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 
 function Get-InnoCompiler {
     $command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
