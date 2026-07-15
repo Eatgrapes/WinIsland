@@ -25,6 +25,7 @@ dependencies = [
  "tokio-util",
  "toml 1.1.2+spec-1.1.0",
  "tray-icon",
+ "wasapi",
  "windows",
  "windows-core",
  "winisland-plugin-api",
@@ -4688,6 +4689,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfa7760aed19e106de2c7c0b581b509f2f25d3dacaf737cb82ac61bc6d760b0e"
 dependencies = [
  "try-lock",
+]
+
+[[package]]
+name = "wasapi"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "80c3aa5d6b0e7acc3ea10cb19c334df0c8d825060f14a30d9e3b03385e6e5175"
+dependencies = [
+ "log",
+ "num-integer",
+ "thiserror 2.0.18",
+ "windows",
+ "windows-core",
 ]
 
 [[package]]

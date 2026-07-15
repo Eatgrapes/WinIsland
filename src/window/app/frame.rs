@@ -157,6 +157,7 @@ impl App {
 
         let mut music_active = false;
         let media = self.smtc.get_info();
+        self.audio.set_target_app_id(&media.source_app_id);
         if self.config.smtc_enabled && !media.title.is_empty() {
             music_active = true;
             if media.title != self.last_media_title {

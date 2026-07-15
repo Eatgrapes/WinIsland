@@ -38,6 +38,10 @@ pub(super) fn fetch_properties(
     let new_title = props.Title()?.to_string();
     let new_artist = props.Artist()?.to_string();
     let new_album = props.AlbumTitle()?.to_string();
+    let source_app_id = session
+        .SourceAppUserModelId()
+        .map(|id| id.to_string())
+        .unwrap_or_default();
 
     let song_changed = {
         let info = info_tx.borrow();
@@ -154,6 +158,7 @@ pub(super) fn fetch_properties(
         let was_playing = info.is_playing;
         info.last_smtc_pos = smtc_pos;
         info.is_playing = is_playing;
+        info.source_app_id = source_app_id;
         if !song_changed && was_playing != is_playing {
             log::info!(
                 "SMTC: playback state -> {}",

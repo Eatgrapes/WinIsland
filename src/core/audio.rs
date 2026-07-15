@@ -1,25 +1,88 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SampleFormat, Stream, StreamConfig};
 use realfft::RealFftPlanner;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
-use windows::Win32::Foundation::S_OK;
+use wasapi::{AudioClient, Direction, SampleType, StreamMode, WaveFormat};
+use windows::Win32::Foundation::{CloseHandle, ERROR_INSUFFICIENT_BUFFER, S_OK};
 use windows::Win32::Media::Audio::{
     Endpoints::IAudioMeterInformation, IAudioSessionControl2, IAudioSessionManager2,
     IMMDeviceEnumerator, MMDeviceEnumerator, eConsole, eRender,
 };
+use windows::Win32::Storage::Packaging::Appx::GetApplicationUserModelId;
 use windows::Win32::System::Com::{
     CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
 };
-use windows::core::Interface;
+use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows::core::{Interface, PWSTR};
 
 const FFT_LEN: usize = 1024;
+
+struct SpectrumAnalyzer {
+    fft: Arc<dyn realfft::RealToComplex<f32>>,
+    output: Vec<realfft::num_complex::Complex32>,
+    input: Vec<f32>,
+    input_len: usize,
+    adaptive_max: [f32; 6],
+}
+
+impl SpectrumAnalyzer {
+    fn new() -> Self {
+        let mut planner = RealFftPlanner::<f32>::new();
+        let fft = planner.plan_fft_forward(FFT_LEN);
+        let output = fft.make_output_vec();
+        Self {
+            fft,
+            output,
+            input: vec![0.0; FFT_LEN],
+            input_len: 0,
+            adaptive_max: [0.1; 6],
+        }
+    }
+
+    fn push_sample(
+        &mut self,
+        sample: f32,
+        spectrum: &Arc<Mutex<[f32; 6]>>,
+        gate: &Arc<AtomicU32>,
+        gate_override: &Arc<AtomicU32>,
+    ) {
+        self.input[self.input_len] = sample;
+        self.input_len += 1;
+        if self.input_len == FFT_LEN {
+            update_spectrum(
+                &mut self.input,
+                &self.fft,
+                &mut self.output,
+                &mut self.adaptive_max,
+                spectrum,
+                gate,
+                gate_override,
+            );
+            self.input_len = 0;
+        }
+    }
+}
+
+struct ProcessCaptureContext {
+    cancel: CancellationToken,
+    target_process_id: Arc<AtomicU32>,
+    process_capture_active: Arc<AtomicBool>,
+    spectrum: Arc<Mutex<[f32; 6]>>,
+    gate: Arc<AtomicU32>,
+    gate_override: Arc<AtomicU32>,
+}
 
 pub struct AudioProcessor {
     spectrum: Arc<Mutex<[f32; 6]>>,
     gate: Arc<AtomicU32>,
     gate_override: Arc<AtomicU32>,
+    target_app_id: Arc<RwLock<String>>,
+    target_process_id: Arc<AtomicU32>,
+    process_capture_active: Arc<AtomicBool>,
     cancel_token: CancellationToken,
 }
 
@@ -30,16 +93,23 @@ impl AudioProcessor {
         // AtomicU32 stores f32 bit patterns since std::sync::atomic doesn't provide AtomicF32.
         // Relaxed ordering is sufficient: we only need eventual consistency for the gate value.
         let gate_override = Arc::new(AtomicU32::new(1.0f32.to_bits()));
+        let target_app_id = Arc::new(RwLock::new(String::new()));
+        let target_process_id = Arc::new(AtomicU32::new(0));
+        let process_capture_active = Arc::new(AtomicBool::new(false));
         let cancel_token = CancellationToken::new();
         let processor = Self {
             spectrum,
             gate,
             gate_override,
+            target_app_id,
+            target_process_id,
+            process_capture_active,
             cancel_token,
         };
         log::info!("AudioProcessor created, starting capture and meter threads");
         processor.start_capture();
         processor.start_meter_thread();
+        processor.start_process_capture();
         processor
     }
 
@@ -52,9 +122,21 @@ impl AudioProcessor {
         self.gate_override.store(v.to_bits(), Ordering::Relaxed);
     }
 
+    pub fn set_target_app_id(&self, app_id: &str) {
+        let mut target_app_id = self
+            .target_app_id
+            .write()
+            .unwrap_or_else(|error| error.into_inner());
+        if *target_app_id != app_id {
+            *target_app_id = app_id.to_string();
+        }
+    }
+
     fn start_meter_thread(&self) {
         let cancel = self.cancel_token.clone();
         let gate_clone = self.gate.clone();
+        let target_app_id = self.target_app_id.clone();
+        let target_process_id = self.target_process_id.clone();
         tokio::task::spawn_blocking(move || {
             // SAFETY: CoInitializeEx initializes COM for this thread. COINIT_MULTITHREADED
             // is safe as we don't use single-threaded COM apartments.
@@ -62,10 +144,14 @@ impl AudioProcessor {
             let host = cpal::default_host();
             let mut current_device_name = None;
             let mut session_manager: Option<IAudioSessionManager2> = None;
+            let mut current_target_app_id = String::new();
+            let mut current_target_process_id = 0;
+            let mut next_target_refresh = Instant::now();
 
             log::info!("Audio meter thread started (COM: {})", hr.is_ok());
 
             while !cancel.is_cancelled() {
+                let now = Instant::now();
                 let default_device = host.default_output_device();
                 let default_device_name = default_device
                     .as_ref()
@@ -74,6 +160,9 @@ impl AudioProcessor {
                 if default_device_name != current_device_name {
                     session_manager = None;
                     current_device_name = None;
+                    current_target_process_id = 0;
+                    target_process_id.store(0, Ordering::Relaxed);
+                    next_target_refresh = Instant::now();
 
                     if default_device_name.is_some() {
                         session_manager = unsafe {
@@ -93,6 +182,20 @@ impl AudioProcessor {
                     }
                 }
 
+                let requested_app_id = target_app_id
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .clone();
+                if requested_app_id != current_target_app_id || now >= next_target_refresh {
+                    current_target_app_id = requested_app_id;
+                    current_target_process_id = session_manager
+                        .as_ref()
+                        .and_then(|manager| find_target_process_id(manager, &current_target_app_id))
+                        .unwrap_or(0);
+                    target_process_id.store(current_target_process_id, Ordering::Relaxed);
+                    next_target_refresh = now + Duration::from_secs(1);
+                }
+
                 let mut max_peak = 0.0f32;
                 if let Some(ref mgr) = session_manager {
                     // SAFETY: GetSessionEnumerator and subsequent COM calls enumerate audio
@@ -106,6 +209,12 @@ impl AudioProcessor {
                                     && let Ok(session2) = session.cast::<IAudioSessionControl2>()
                                 {
                                     if session2.IsSystemSoundsSession() == S_OK {
+                                        continue;
+                                    }
+                                    if current_target_process_id != 0
+                                        && session2.GetProcessId().ok()
+                                            != Some(current_target_process_id)
+                                    {
                                         continue;
                                     }
                                     if let Ok(meter) = session.cast::<IAudioMeterInformation>()
@@ -133,12 +242,76 @@ impl AudioProcessor {
         });
     }
 
+    fn start_process_capture(&self) {
+        let context = ProcessCaptureContext {
+            cancel: self.cancel_token.clone(),
+            target_process_id: self.target_process_id.clone(),
+            process_capture_active: self.process_capture_active.clone(),
+            spectrum: self.spectrum.clone(),
+            gate: self.gate.clone(),
+            gate_override: self.gate_override.clone(),
+        };
+        tokio::task::spawn_blocking(move || {
+            let com_initialized = wasapi::initialize_mta().is_ok();
+            let mut active_process_id = 0;
+            let mut unavailable_process_id = None;
+            let mut retry_after = Instant::now();
+            let mut analyzer = SpectrumAnalyzer::new();
+
+            while !context.cancel.is_cancelled() {
+                let process_id = context.target_process_id.load(Ordering::Relaxed);
+                if process_id == 0 {
+                    active_process_id = 0;
+                    context
+                        .process_capture_active
+                        .store(false, Ordering::Release);
+                    std::thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+
+                if process_id != active_process_id {
+                    active_process_id = process_id;
+                    unavailable_process_id = None;
+                    retry_after = Instant::now();
+                }
+
+                if Instant::now() < retry_after {
+                    std::thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+
+                if let Err(error) = capture_process_audio(process_id, &context, &mut analyzer) {
+                    context
+                        .process_capture_active
+                        .store(false, Ordering::Release);
+                    retry_after = Instant::now() + Duration::from_secs(1);
+                    if unavailable_process_id != Some(process_id) {
+                        unavailable_process_id = Some(process_id);
+                        log::warn!(
+                            "Audio capture: process loopback unavailable for PID {}: {}",
+                            process_id,
+                            error
+                        );
+                    }
+                }
+            }
+
+            context
+                .process_capture_active
+                .store(false, Ordering::Release);
+            if com_initialized {
+                wasapi::deinitialize();
+            }
+        });
+    }
+
     #[allow(unused_variables, unused_assignments)]
     fn start_capture(&self) {
         let spectrum_arc = self.spectrum.clone();
         let cancel = self.cancel_token.clone();
         let gate_clone = self.gate.clone();
         let gate_override_clone = self.gate_override.clone();
+        let process_capture_active = self.process_capture_active.clone();
         tokio::task::spawn_blocking(move || {
             let host = cpal::default_host();
             let mut current_device_name = None;
@@ -202,6 +375,7 @@ impl AudioProcessor {
                                 spectrum_arc.clone(),
                                 gate_clone.clone(),
                                 gate_override_clone.clone(),
+                                process_capture_active.clone(),
                             ),
                             SampleFormat::I16 => build_capture_stream::<i16>(
                                 &device,
@@ -209,6 +383,7 @@ impl AudioProcessor {
                                 spectrum_arc.clone(),
                                 gate_clone.clone(),
                                 gate_override_clone.clone(),
+                                process_capture_active.clone(),
                             ),
                             SampleFormat::U16 => build_capture_stream::<u16>(
                                 &device,
@@ -216,6 +391,7 @@ impl AudioProcessor {
                                 spectrum_arc.clone(),
                                 gate_clone.clone(),
                                 gate_override_clone.clone(),
+                                process_capture_active.clone(),
                             ),
                             _ => {
                                 std::thread::sleep(std::time::Duration::from_millis(500));
@@ -286,42 +462,168 @@ impl AudioProcessor {
     }
 }
 
+fn capture_process_audio(
+    process_id: u32,
+    context: &ProcessCaptureContext,
+    analyzer: &mut SpectrumAnalyzer,
+) -> Result<(), wasapi::WasapiError> {
+    let format = WaveFormat::new(32, 32, &SampleType::Float, 48_000, 2, None);
+    let mut audio_client = AudioClient::new_application_loopback_client(process_id, true)?;
+    audio_client.initialize_client(
+        &format,
+        &Direction::Capture,
+        &StreamMode::EventsShared {
+            autoconvert: true,
+            buffer_duration_hns: 0,
+        },
+    )?;
+    let event = audio_client.set_get_eventhandle()?;
+    let capture_client = audio_client.get_audiocaptureclient()?;
+    audio_client.start_stream()?;
+    context
+        .process_capture_active
+        .store(true, Ordering::Release);
+
+    let mut bytes = VecDeque::new();
+    let result = (|| {
+        while !context.cancel.is_cancelled()
+            && context.target_process_id.load(Ordering::Relaxed) == process_id
+        {
+            let _ = event.wait_for_event(100);
+            let mut captured = false;
+            while capture_client.get_next_packet_size()?.unwrap_or(0) > 0 {
+                capture_client.read_from_device_to_deque(&mut bytes)?;
+                let samples = bytes.make_contiguous();
+                for sample in samples.chunks_exact(4) {
+                    analyzer.push_sample(
+                        f32::from_le_bytes([sample[0], sample[1], sample[2], sample[3]]),
+                        &context.spectrum,
+                        &context.gate,
+                        &context.gate_override,
+                    );
+                }
+                bytes.clear();
+                captured = true;
+            }
+            if !captured {
+                for _ in 0..FFT_LEN {
+                    analyzer.push_sample(
+                        0.0,
+                        &context.spectrum,
+                        &context.gate,
+                        &context.gate_override,
+                    );
+                }
+            }
+        }
+        Ok(())
+    })();
+
+    context
+        .process_capture_active
+        .store(false, Ordering::Release);
+    let _ = audio_client.stop_stream();
+    result
+}
+
+fn find_target_process_id(manager: &IAudioSessionManager2, target_app_id: &str) -> Option<u32> {
+    if target_app_id.is_empty() {
+        return None;
+    }
+
+    // SAFETY: The session manager is owned by the meter thread's COM apartment. Each audio
+    // session interface is used only while its enumerator and manager remain alive.
+    unsafe {
+        let Ok(enumerator) = manager.GetSessionEnumerator() else {
+            return None;
+        };
+        let Ok(count) = enumerator.GetCount() else {
+            return None;
+        };
+        for index in 0..count {
+            let Ok(session) = enumerator.GetSession(index) else {
+                continue;
+            };
+            let Ok(session_control) = session.cast::<IAudioSessionControl2>() else {
+                continue;
+            };
+            let Ok(process_id) = session_control.GetProcessId() else {
+                continue;
+            };
+            if process_id != 0
+                && process_app_user_model_id(process_id)
+                    .is_some_and(|app_id| app_id.eq_ignore_ascii_case(target_app_id))
+            {
+                return Some(process_id);
+            }
+        }
+    }
+    None
+}
+
+fn process_app_user_model_id(process_id: u32) -> Option<String> {
+    // SAFETY: The process ID comes from an active audio session. The requested access only reads
+    // the target process's application identity and does not modify its state.
+    let process =
+        unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id).ok()? };
+    let mut length = 0;
+    // SAFETY: The process handle is valid while this function runs. Passing a null output buffer
+    // requests the required UTF-16 buffer length without writing through a dangling pointer.
+    let first_result = unsafe { GetApplicationUserModelId(process, &mut length, None) };
+    if first_result != ERROR_INSUFFICIENT_BUFFER || length == 0 {
+        // SAFETY: `process` was opened above and has not been closed yet.
+        unsafe {
+            let _ = CloseHandle(process);
+        }
+        return None;
+    }
+
+    let mut app_id = vec![0u16; length as usize];
+    // SAFETY: `app_id` has the length requested by the previous call and remains allocated for
+    // the duration of this call. The process handle remains valid until it is closed below.
+    let result = unsafe {
+        GetApplicationUserModelId(process, &mut length, Some(PWSTR(app_id.as_mut_ptr())))
+    };
+    // SAFETY: `process` was opened above and is no longer used after this point.
+    unsafe {
+        let _ = CloseHandle(process);
+    }
+    if result.0 != 0 {
+        return None;
+    }
+
+    String::from_utf16(&app_id)
+        .ok()
+        .map(|app_id| app_id.trim_end_matches('\0').to_string())
+}
+
 fn build_capture_stream<T>(
     device: &cpal::Device,
     config: &StreamConfig,
     spectrum_arc: Arc<Mutex<[f32; 6]>>,
     gate_clone: Arc<AtomicU32>,
     gate_override_clone: Arc<AtomicU32>,
+    process_capture_active: Arc<AtomicBool>,
 ) -> Result<Stream, cpal::Error>
 where
     T: cpal::SizedSample + Copy,
     f32: FromSample<T>,
 {
-    let mut planner = RealFftPlanner::<f32>::new();
-    let fft = planner.plan_fft_forward(FFT_LEN);
-    let mut output = fft.make_output_vec();
-    let mut input = vec![0.0f32; FFT_LEN];
-    let mut input_len = 0;
-    let mut adaptive_max = [0.1f32; 6];
+    let mut analyzer = SpectrumAnalyzer::new();
 
     device.build_input_stream(
         *config,
         move |data: &[T], _: &_| {
+            if process_capture_active.load(Ordering::Acquire) {
+                return;
+            }
             for &sample in data {
-                input[input_len] = f32::from_sample(sample);
-                input_len += 1;
-                if input_len == FFT_LEN {
-                    update_spectrum(
-                        &mut input,
-                        &fft,
-                        &mut output,
-                        &mut adaptive_max,
-                        &spectrum_arc,
-                        &gate_clone,
-                        &gate_override_clone,
-                    );
-                    input_len = 0;
-                }
+                analyzer.push_sample(
+                    f32::from_sample(sample),
+                    &spectrum_arc,
+                    &gate_clone,
+                    &gate_override_clone,
+                );
             }
         },
         |err| log::error!("Audio error: {}", err),
