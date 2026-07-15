@@ -1,6 +1,6 @@
 # 快速开始
 
-准备好在你的 Windows 桌面上体验现代灵动岛了吗？按照以下简单的步骤来运行 WinIsland。
+准备好在你的 Windows 桌面上体验WinIsland了吗？按照以下简单的步骤来运行 WinIsland。
 
 ## 安装
 
@@ -10,8 +10,7 @@
 
 ## 基础操作
 
-- **悬停**：将鼠标移动到灵动岛上查看它的反应。
-- **点击**：点击灵动岛将其展开，显示媒体控制和工具。
+- **点击**：点击灵动岛将其展开，显示工具。
 - **右键（系统托盘）**：右键点击系统托盘中的灵动岛图标，访问设置、切换可见性或退出应用程序。
 
 ## 故障排除
@@ -26,7 +25,6 @@
   2. 下载并安装 [BetterNCM](https://github.com/std-microblock/chromatic/releases/tag/1.3.4) (或者 [chromatic](https://github.com/std-microblock/chromatic) 不确定是否能用)。
   3. 安装 [Inflink-rs](https://github.com/apoint123/inflink-rs) 插件。
   4. 在 BetterNCM 的设置中找到 Inflink，打开 SMTC 选项。
-  5. 体验你的 WinIsland！😋
 
   其他音乐软件暂无替代方案，等待更新适配。
 - **模糊效果无效？**：检查你的系统是否支持硬件加速，并且是否安装了最新的显卡驱动。

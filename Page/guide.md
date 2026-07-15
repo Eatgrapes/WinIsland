@@ -1,14 +1,14 @@
 # What is WinIsland?
 
-WinIsland is a modern, dynamic island implementation for Windows desktops. Inspired by iOS, it provides a centralized hub for media controls, system status, and various tools, all with a sleek and non-intrusive design.
+WinIsland is a dynamic island implementation for Windows desktops. Inspired by iOS, it provides a centralized hub for media controls and various tools with a sleek, non-intrusive design.
 
 ## Key Features
 
-- **Dynamic Resizing**: Seamless transitions between mini and expanded views.
 - **Media Control**: View album art, track info, and playback status.
-- **Spectrum Visualization**: Real-time audio spectrum analyzer.
+- **Widgets**: Customize the widgets shown in the expanded view to display different information.
+- **Notifications**: Display Windows notifications in WinIsland.
 - **Lightweight**: Written in Rust, it uses minimal system resources.
 
 ## Why WinIsland?
 
-Unlike other "dynamic island" clones, WinIsland focuses on being a functional tool rather than just a visual gimmick. It integrates deeply with Windows SMTC (System Media Transport Controls) to provide accurate and real-time information.
+Unlike other "dynamic island" clones, WinIsland focuses on being a functional tool rather than just a visual gimmick.

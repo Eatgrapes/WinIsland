@@ -1,6 +1,6 @@
 # Getting Started
 
-Ready to experience a modern dynamic island on your Windows desktop? Follow these simple steps to get WinIsland up and running.
+Ready to experience WinIsland on your Windows desktop? Follow these simple steps to get it up and running.
 
 ## Installation
 
@@ -10,8 +10,7 @@ Ready to experience a modern dynamic island on your Windows desktop? Follow thes
 
 ## Basic Controls
 
-- **Hover**: Move your mouse over the island to see it react.
-- **Click**: Click the island to expand it and reveal media controls and tools.
+- **Click**: Click the island to expand it and reveal its tools.
 - **Right-Click (System Tray)**: Right-click the island icon in your system tray to access settings, toggle visibility, or exit the application.
 
 ## Troubleshooting

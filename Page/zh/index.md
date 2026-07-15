@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "WinIsland"
   text: "流畅。灵动。Windows。"
-  tagline: "一个基于 Rust 构建的 Windows 桌面实用灵动岛。"
+  tagline: "一个Windows桌面实用灵动岛。"
   image:
     src: /icon.png
     alt: WinIsland
@@ -18,11 +18,11 @@ hero:
 
 features:
   - title: "Rust 强力驱动"
-    details: "使用 Rust 和 Skia 构建，提供高性能与低资源占用。"
+    details: "使用 Rust 构建，提供高性能与低资源占用。"
   - title: "灵动动画"
-    details: "基于弹簧物理的流体动画，带来极其流畅和现代的交互体验。"
+    details: "基于弹簧物理的动画，带来极其流畅和现代的交互体验。"
   - title: "多媒体集成"
-    details: "实时的媒体控制和跳动的音乐频谱，触手可及。"
+    details: "实时的媒体控制。"
   - title: "高度可定制"
     details: "高自由度的配置选项，完美匹配你的桌面美学。"
 ---
