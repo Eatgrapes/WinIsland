@@ -1,5 +1,10 @@
 # Changelog
 
+### v1.2.4
+- Add optional notification display
+- Package Stable and Nightly releases as installers
+- Keep the island out of the taskbar
+
 ### v1.2.3
 - Add Kugou as a lyrics source, including improved lookup for English songs
 - Improve island dragging and upward hide interactions

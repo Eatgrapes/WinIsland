@@ -25,6 +25,7 @@ use crate::utils::font::{DrawTextCachedParams, FontManager};
 const DISPLAY_DURATION: Duration = Duration::from_secs(5);
 const ENTER_DURATION: Duration = Duration::from_millis(220);
 const FADE_DURATION: Duration = Duration::from_millis(280);
+const DETAIL_LINE_GAP: f32 = 21.0;
 const MAX_ICON_BYTES: u64 = 2 * 1024 * 1024;
 const RETRY_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -400,7 +401,7 @@ impl NotificationIndicator {
         let title_y = if self.app_name.is_empty() && self.detail.is_empty() {
             top + (rect.height() + 13.0 * scale) / 2.0
         } else if self.app_name.is_empty() {
-            top + 35.0 * scale
+            top + 34.0 * scale
         } else {
             top + 43.0 * scale
         };
@@ -422,7 +423,7 @@ impl NotificationIndicator {
                     canvas,
                     text: &self.detail,
                     x: content_left,
-                    y: title_y + 18.0 * scale,
+                    y: title_y + DETAIL_LINE_GAP * scale,
                     size: 11.0 * scale,
                     bold: false,
                     paint: &detail_paint,
