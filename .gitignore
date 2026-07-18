@@ -5,8 +5,11 @@
 /.trae/
 /my-winisland-plugin/
 Page/node_modules/
+Page/dist/
 Page/.vitepress/cache
-Page/package-lock.json
+Page/*.tsbuildinfo
+Page/vite.config.js
+Page/vite.config.d.ts
 /release_notes.txt
 target/identity-dev/
 Page/changelog.md

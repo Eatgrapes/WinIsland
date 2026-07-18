@@ -123,21 +123,31 @@ jobs:
       (github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true') &&
       !contains(github.event.head_commit.message, '[ci-skip]')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
-          cache-dependency-path: Page/package.json
+          cache-dependency-path: Page/package-lock.json
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
       - name: Install dependencies
-        run: cd Page && npm install
-      - name: Build Docs
-        run: cd Page && npm run docs:build
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        working-directory: Page
+        run: npm ci
+      - name: Build website
+        working-directory: Page
+        run: npm run build
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v4
         with:
-          path: Page/.vitepress/dist
+          path: Page/dist
 
   deploy-docs:
     if: >-
@@ -150,6 +160,10 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     needs: [changes, build-docs]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
     steps:
       - name: Deploy to GitHub Pages
         id: deployment

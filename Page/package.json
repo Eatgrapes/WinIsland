@@ -1,14 +1,35 @@
 {
-  "name": "winisland-docs",
-  "version": "1.0.0",
-  "description": "WinIsland Documentation",
-  "main": "index.js",
+  "name": "winisland-site",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The WinIsland website",
   "scripts": {
-    "docs:dev": "node copy-changelog.js && vitepress dev .",
-    "docs:build": "node copy-changelog.js && vitepress build .",
-    "docs:preview": "node copy-changelog.js && vitepress preview ."
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "docs:dev": "vite",
+    "docs:build": "tsc -b && vite build",
+    "docs:preview": "vite preview"
+  },
+  "dependencies": {
+    "@primer/octicons-react": "^19.29.2",
+    "@sohumsuthar/liquid-glass": "^1.0.0",
+    "konsta": "^5.2.0",
+    "lucide-react": "^1.25.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.18.1",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
-    "vitepress": "^1.0.0"
+    "@tailwindcss/vite": "^4.1.18",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.5"
   }
 }
