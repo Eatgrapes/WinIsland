@@ -87,6 +87,7 @@ img, svg { display: block; }
     &.is-current { font-weight: 650; }
   }
 }
+.mobile-nav-download { display: none !important; }
 .external-nav-link svg { color: #24292f; opacity: .82; transition: transform 240ms var(--spring), opacity 180ms ease; }
 .external-nav-link:hover svg { opacity: 1; transform: translateY(-1px) scale(1.06); }
 
@@ -506,18 +507,29 @@ img, svg { display: block; }
 @media (max-width: 820px) {
   .section-shell { width: min(100% - 32px, 700px); }
   .site-header { top: 10px; width: calc(100% - 20px); }
+  .nav-glass {
+    overflow: visible !important;
+    contain: none !important;
+
+    > :is(.liquid-glass-effect, .liquid-glass-tint) { border-radius: inherit; }
+  }
   .nav-inner { position: relative; }
   .primary-nav {
-    position: absolute; top: calc(100% + 12px); right: 0; left: 0; display: none; align-items: stretch; flex-direction: column;
+    position: absolute; z-index: 10; top: calc(100% + 12px); right: 0; left: 0; display: flex; visibility: hidden;
+    align-items: stretch; flex-direction: column; opacity: 0; pointer-events: none; transform: translateY(-8px) scale(.985); transform-origin: top center;
     gap: 2px; margin: 0; border: 1px solid rgba(0, 0, 0, .08); border-radius: 22px; background: rgba(248, 248, 250, .9);
     box-shadow: 0 20px 50px rgba(0, 0, 0, .14); padding: 9px; backdrop-filter: blur(30px) saturate(180%);
-    &.is-open { display: flex; }
+    transition: visibility 0s linear 220ms, opacity 220ms ease, transform 320ms var(--ease);
+
+    &.is-open { visibility: visible; opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); transition-delay: 0s; }
     a { border-radius: 14px; padding: 12px 14px; font-size: 14px; }
     a:is(:hover, .is-current) { background: rgba(0, 0, 0, .055); }
+    .mobile-nav-download { display: inline-flex !important; }
   }
   .nav-indicator { display: none; }
+  .nav-actions { margin-left: auto; }
   .language-link span, .nav-download { display: none !important; }
-  .menu-button { display: flex; }
+  .menu-button { display: flex; width: 44px; height: 44px; }
   .hero { gap: 20px; padding-top: 140px; padding-bottom: 60px; }
   .hero h1 { font-size: clamp(55px, 12vw, 78px); }
   .hero-body { font-size: 18px; }

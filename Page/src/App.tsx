@@ -183,6 +183,8 @@ function Site() {
 function SiteHeader({ locale }: { locale: Locale }) {
   const [open, setOpen] = useState(false)
   const [indicator, setIndicator] = useState({ x: 0, width: 0, visible: false })
+  const headerRef = useRef<HTMLElement>(null)
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
   const navRef = useRef<HTMLElement>(null)
   const navLinks = useRef<Array<HTMLAnchorElement | null>>([])
   const location = useLocation()
@@ -207,6 +209,31 @@ function SiteHeader({ locale }: { locale: Locale }) {
 
   useEffect(() => setOpen(false), [location.pathname])
 
+  useEffect(() => {
+    if (!open) return
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+        menuButtonRef.current?.focus()
+      }
+    }
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!headerRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+
+    document.addEventListener('keydown', closeOnEscape)
+    document.addEventListener('pointerdown', closeOnOutsidePress)
+    const focusFrame = window.requestAnimationFrame(() => {
+      if (window.matchMedia('(max-width: 820px)').matches) navLinks.current[0]?.focus()
+    })
+    return () => {
+      window.cancelAnimationFrame(focusFrame)
+      document.removeEventListener('keydown', closeOnEscape)
+      document.removeEventListener('pointerdown', closeOnOutsidePress)
+    }
+  }, [open])
+
   useLayoutEffect(() => {
     const frame = window.requestAnimationFrame(() => moveIndicator(activeIndex))
     const sync = () => moveIndicator(activeIndex)
@@ -218,7 +245,7 @@ function SiteHeader({ locale }: { locale: Locale }) {
   }, [activeIndex, locale, moveIndicator])
 
   return (
-    <header className="site-header">
+    <header ref={headerRef} className="site-header">
       <LiquidGlass macro className="nav-glass" contentClassName="nav-inner">
         <Link className="brand" to={localePath(locale)} aria-label="WinIsland home">
           <img src={appIcon} alt="" />
@@ -226,9 +253,10 @@ function SiteHeader({ locale }: { locale: Locale }) {
         </Link>
 
         <nav
+          id="primary-navigation"
           ref={navRef}
           className={open ? 'primary-nav is-open' : 'primary-nav'}
-          aria-label="Primary navigation"
+          aria-label={locale === 'zh' ? '主要导航' : 'Primary navigation'}
           onMouseLeave={() => moveIndicator(activeIndex)}
         >
           <span
@@ -279,6 +307,14 @@ function SiteHeader({ locale }: { locale: Locale }) {
             <MarkGithubIcon size={16} />
             <span>GitHub</span>
           </a>
+          <Link
+            className={currentPath === '/download' ? 'mobile-nav-download is-current' : 'mobile-nav-download'}
+            aria-current={currentPath === '/download' ? 'page' : undefined}
+            to={localePath(locale, '/download')}
+          >
+            <Download size={16} />
+            <span>{text.nav.download}</span>
+          </Link>
         </nav>
 
         <div className="nav-actions">
@@ -298,9 +334,13 @@ function SiteHeader({ locale }: { locale: Locale }) {
             {text.nav.download}
           </Link>
           <button
+            ref={menuButtonRef}
             className="menu-button"
             type="button"
-            aria-label={open ? 'Close menu' : 'Open menu'}
+            aria-label={open
+              ? locale === 'zh' ? '关闭导航菜单' : 'Close navigation menu'
+              : locale === 'zh' ? '打开导航菜单' : 'Open navigation menu'}
+            aria-controls="primary-navigation"
             aria-expanded={open}
             onClick={() => setOpen((value) => !value)}
           >
