@@ -1,14 +1,12 @@
-use std::time::Instant;
-
 use winit::event::ElementState;
 
-use crate::core::config::WidgetKind;
+use crate::core::config::{MIN_HIDDEN_WIDTH, WidgetKind};
 use crate::ui::expanded::music_view::{
     get_next_btn_rect, get_pause_btn_rect, get_prev_btn_rect, get_progress_bar_rect,
     trigger_cover_flip, trigger_next_click, trigger_pause_click, trigger_prev_click,
 };
 use crate::ui::widget::widget_grid_layout;
-use crate::utils::mouse::is_point_in_rect;
+use crate::utils::mouse::{is_point_in_rect, is_point_in_rounded_rect};
 
 use super::{App, IslandLayout, should_show_widget_view};
 
@@ -37,13 +35,14 @@ impl App {
                 let rel_x = px - self.win_x;
                 let rel_y = py - self.win_y;
                 let layout = self.compute_island_layout();
-                let is_hovering = is_point_in_rect(
+                let is_hovering = is_point_in_rounded_rect(
                     rel_x as f64,
                     rel_y as f64,
                     layout.current_island_x,
                     layout.current_island_y,
                     self.spring_w.value as f64,
                     self.spring_h.value as f64,
+                    self.spring_r.value as f64,
                 );
                 if is_hovering {
                     self.right_press_cursor = Some((px, py));
@@ -72,39 +71,25 @@ impl App {
         let offset_x = layout.offset_x;
         let current_island_x = layout.current_island_x;
         let current_island_y = layout.current_island_y;
-        let fully_hidden = self.config.fully_hide && (self.auto_hidden || self.manually_hidden);
-        let hitbox = fully_hidden
-            .then_some(self.fully_hidden_hitbox)
-            .flatten()
-            .unwrap_or(super::IslandHitbox {
-                x: current_island_x,
-                y: current_island_y,
-                width: self.spring_w.value as f64,
-                height: self.spring_h.value as f64,
-            });
-
-        let is_hovering_visible = is_point_in_rect(
+        let is_hovering_visible = is_point_in_rounded_rect(
             rel_x as f64,
             rel_y as f64,
-            hitbox.x,
-            hitbox.y,
-            hitbox.width,
-            hitbox.height,
+            current_island_x,
+            current_island_y,
+            self.spring_w.value as f64,
+            self.spring_h.value as f64,
+            self.spring_r.value as f64,
         );
-
-        let hidden_handle_x = layout.hidden_handle_x;
-        let hidden_handle_y = layout.hidden_handle_y;
-        let hidden_handle_w = layout.hidden_handle_w;
-        let hidden_handle_h = layout.hidden_handle_h;
-        let is_on_hidden_handle = !fully_hidden
-            && (self.auto_hidden || self.manually_hidden)
+        let is_on_hidden_reveal = self.is_hidden()
+            && self.config.hidden_width <= MIN_HIDDEN_WIDTH
+            && self.spring_hide.value >= 0.999
             && is_point_in_rect(
                 rel_x as f64,
                 rel_y as f64,
-                hidden_handle_x,
-                hidden_handle_y,
-                hidden_handle_w,
-                hidden_handle_h,
+                layout.hidden_reveal_x,
+                layout.hidden_reveal_y,
+                layout.hidden_reveal_w,
+                layout.hidden_reveal_h,
             );
 
         if !self.expanded && self.compact_overlay.is_notification_visible() && is_hovering_visible {
@@ -251,16 +236,10 @@ impl App {
                 self.expanded = false;
                 self.widget_view = false;
             }
-        } else if is_hovering_visible || is_on_hidden_handle {
-            if fully_hidden {
-                self.auto_hidden = false;
-                self.manually_hidden = false;
-                self.spring_hide.velocity = -0.65;
-                self.idle_timer = Instant::now();
+        } else if is_hovering_visible || is_on_hidden_reveal {
+            if self.is_hidden() {
+                self.reveal_island();
                 return;
-            }
-            if self.config.fully_hide {
-                self.capture_fully_hidden_hitbox();
             }
             self.is_dragging = true;
             self.drag_start_px = rel_x + self.win_x;
@@ -281,20 +260,19 @@ impl App {
         if self.is_dragging {
             self.is_dragging = false;
             if !self.drag_has_moved {
-                if self.auto_hidden || self.manually_hidden {
-                    self.auto_hidden = false;
-                    self.manually_hidden = false;
-                    self.spring_hide.velocity = -0.45;
-                    self.idle_timer = Instant::now();
+                if self.is_hidden() {
+                    self.reveal_island();
                 } else {
                     self.expand();
                 }
             } else if self.spring_hide.value > 0.3 {
                 self.manually_hidden = true;
                 self.auto_hidden = false;
+                self.fullscreen_hidden = false;
             } else {
                 self.manually_hidden = false;
                 self.auto_hidden = false;
+                self.fullscreen_hidden = false;
             }
         }
     }

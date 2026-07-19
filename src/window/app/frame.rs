@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use winit::dpi::PhysicalPosition;
 use winit::event_loop::ActiveEventLoop;
 
+use crate::core::config::MIN_HIDDEN_WIDTH;
 use crate::ui::compact::CompactOverlayState;
 use crate::ui::expanded::music_view::{
     get_progress_bar_rect, set_progress_dragging, set_progress_hover,
@@ -12,10 +13,10 @@ use crate::ui::expanded::music_view::{
 use crate::utils::color::get_island_border_weights;
 use crate::utils::mouse::{
     get_global_cursor_pos, is_cursor_hidden, is_foreground_fullscreen, is_left_button_pressed,
-    is_point_in_rect,
+    is_point_in_rect, is_point_in_rounded_rect,
 };
 
-use super::{App, FULLY_HIDE_FADE_DELAY, FULLY_HIDE_FADE_DURATION, HideEdge, RIGHT_DRAG_THRESHOLD};
+use super::{App, HideEdge, RIGHT_DRAG_THRESHOLD};
 
 impl App {
     pub(super) fn on_about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -27,6 +28,9 @@ impl App {
         let frame_start = Instant::now();
         self.handle_tray_events(&window, event_loop);
         self.reload_config_if_changed(&window);
+        if self.is_hidden() && !self.can_hide_to_edge(self.current_hide_edge()) {
+            self.reveal_island();
+        }
 
         if let Some(rx) = self.pending_install.take() {
             match rx.try_recv() {
@@ -69,9 +73,6 @@ impl App {
         } else {
             get_global_cursor_pos()
         };
-        let rel_x = px - self.win_x;
-        let rel_y = py - self.win_y;
-
         if let Some((start_cx, start_cy)) = self.right_press_cursor
             && let Some((start_ox, start_oy)) = self.right_drag_start_offset
         {
@@ -106,64 +107,80 @@ impl App {
             }
         }
 
+        if self.frame_count.is_multiple_of(10) {
+            let prev_fullscreen = self.is_fullscreen_suppressed;
+            self.is_fullscreen_suppressed = is_foreground_fullscreen(
+                self.last_mon_pos.0,
+                self.last_mon_pos.1,
+                self.last_mon_size.0,
+                self.last_mon_size.1,
+            );
+            self.is_cursor_suppressed = is_cursor_hidden();
+            if self.is_fullscreen_suppressed != prev_fullscreen {
+                if self.is_fullscreen_suppressed {
+                    let hide_started = if self.is_hidden() {
+                        true
+                    } else {
+                        let hide_edge = self.nearest_hide_edge();
+                        self.prepare_hide(&window, hide_edge)
+                    };
+                    if hide_started {
+                        self.expanded = false;
+                        self.widget_view = false;
+                        self.fullscreen_hidden = true;
+                    }
+                } else {
+                    let was_fullscreen_hidden = self.fullscreen_hidden;
+                    self.fullscreen_hidden = false;
+                    self.idle_timer = Instant::now();
+                    if was_fullscreen_hidden && !self.is_hidden() {
+                        self.spring_hide.velocity = -0.65;
+                    }
+                }
+                log::info!(
+                    "Fullscreen state: {}",
+                    if self.is_fullscreen_suppressed {
+                        "hidden"
+                    } else {
+                        "normal"
+                    }
+                );
+                window.request_redraw();
+            }
+        }
+
+        let rel_x = px - self.win_x;
+        let rel_y = py - self.win_y;
         let layout = self.compute_island_layout();
         let island_y = layout.island_y;
         let offset_x = layout.offset_x;
         let current_island_x = layout.current_island_x;
         let current_island_y = layout.current_island_y;
-        let fully_hidden = self.config.fully_hide && (self.auto_hidden || self.manually_hidden);
-        let hitbox = fully_hidden
-            .then_some(self.fully_hidden_hitbox)
-            .flatten()
-            .unwrap_or(super::IslandHitbox {
-                x: current_island_x,
-                y: current_island_y,
-                width: self.spring_w.value as f64,
-                height: self.spring_h.value as f64,
-            });
-        let is_hovering_visible = is_point_in_rect(
+        let is_hovering_visible = is_point_in_rounded_rect(
             rel_x as f64,
             rel_y as f64,
-            hitbox.x,
-            hitbox.y,
-            hitbox.width,
-            hitbox.height,
+            current_island_x,
+            current_island_y,
+            self.spring_w.value as f64,
+            self.spring_h.value as f64,
+            self.spring_r.value as f64,
         );
-        let hidden_handle_x = layout.hidden_handle_x;
-        let hidden_handle_y = layout.hidden_handle_y;
-        let hidden_handle_w = layout.hidden_handle_w;
-        let hidden_handle_h = layout.hidden_handle_h;
-        let is_on_hidden_handle = !fully_hidden
-            && (self.auto_hidden || self.manually_hidden)
+        let is_on_hidden_reveal = self.is_hidden()
+            && self.config.hidden_width <= MIN_HIDDEN_WIDTH
+            && self.spring_hide.value >= 0.999
             && is_point_in_rect(
                 rel_x as f64,
                 rel_y as f64,
-                hidden_handle_x,
-                hidden_handle_y,
-                hidden_handle_w,
-                hidden_handle_h,
+                layout.hidden_reveal_x,
+                layout.hidden_reveal_y,
+                layout.hidden_reveal_w,
+                layout.hidden_reveal_h,
             );
-
-        if self.frame_count.is_multiple_of(10) {
-            let prev_fullscreen = self.is_fullscreen_suppressed;
-            self.is_fullscreen_suppressed = is_foreground_fullscreen();
-            self.is_cursor_suppressed = is_cursor_hidden();
-            if self.is_fullscreen_suppressed != prev_fullscreen {
-                log::info!(
-                    "Fullscreen state: {}",
-                    if self.is_fullscreen_suppressed {
-                        "suppressed"
-                    } else {
-                        "normal"
-                    }
-                );
-            }
-        }
 
         if self.is_cursor_suppressed {
             let _ = window.set_cursor_hittest(false);
         } else {
-            let _ = window.set_cursor_hittest(is_hovering_visible || is_on_hidden_handle);
+            let _ = window.set_cursor_hittest(is_hovering_visible || is_on_hidden_reveal);
         }
 
         let mut music_active = false;
@@ -186,9 +203,9 @@ impl App {
         }
 
         let is_paused_idle = music_active && !media.is_playing;
-        let compact_state = if !self.expanded && !self.auto_hidden && !self.manually_hidden {
+        let compact_state = if !self.expanded && !self.is_hidden() {
             CompactOverlayState::Present
-        } else if self.auto_hidden && !self.manually_hidden {
+        } else if self.auto_hidden && !self.manually_hidden && !self.fullscreen_hidden {
             CompactOverlayState::Defer
         } else {
             CompactOverlayState::Discard
@@ -213,33 +230,31 @@ impl App {
             && !compact_overlay_visible
             && (!music_active || is_paused_idle);
         if !self.config.auto_hide {
+            let was_auto_hidden = self.auto_hidden;
             self.auto_hidden = false;
             self.idle_timer = Instant::now();
+            if was_auto_hidden && !self.is_hidden() {
+                self.spring_hide.velocity = -0.65;
+            }
         } else if media.is_playing && self.auto_hidden && !self.manually_hidden {
             self.auto_hidden = false;
             self.idle_timer = Instant::now();
-            self.spring_hide.velocity = -0.65;
-            log::info!("Island un-hidden (media playing)");
-        } else if !self.auto_hidden && is_idle && !self.manually_hidden {
-            if self.idle_timer.elapsed().as_secs_f32() > self.config.auto_hide_delay {
-                self.hide_edge = if self.config.fully_hide {
-                    HideEdge::Top
-                } else {
-                    self.nearest_hide_edge()
-                };
-                if !self.config.fully_hide {
-                    self.hide_origin = Some((self.win_x, self.win_y));
-                    self.snap_to_hide_edge(&window);
-                } else {
-                    self.capture_fully_hidden_hitbox();
-                }
-                self.auto_hidden = true;
-                log::info!(
-                    "Island auto-hidden (idle {:.1}s)",
-                    self.config.auto_hide_delay
-                );
+            if !self.is_hidden() {
+                self.spring_hide.velocity = -0.65;
             }
-        } else if !self.auto_hidden && !self.manually_hidden && !is_idle {
+            log::info!("Island un-hidden (media playing)");
+        } else if !self.is_hidden() && is_idle {
+            if self.idle_timer.elapsed().as_secs_f32() > self.config.auto_hide_delay {
+                let hide_edge = self.nearest_hide_edge();
+                if self.prepare_hide(&window, hide_edge) {
+                    self.auto_hidden = true;
+                    log::info!(
+                        "Island auto-hidden (idle {:.1}s)",
+                        self.config.auto_hide_delay
+                    );
+                }
+            }
+        } else if !self.is_hidden() && !is_idle {
             self.idle_timer = Instant::now();
         }
 
@@ -292,20 +307,16 @@ impl App {
         set_progress_hover(progress_hover_active);
         set_progress_dragging(self.seeking_progress);
 
-        if self.is_dragging && !self.auto_hidden && !self.manually_hidden {
+        if self.is_dragging && !self.is_hidden() {
             let upward_distance = self.drag_start_py - py;
             let horizontal_distance = px - self.drag_start_px;
             if upward_distance.abs() > 3 || horizontal_distance.abs() > 3 {
                 self.drag_has_moved = true;
             }
             if upward_distance > 3 && self.hide_origin.is_none() {
-                self.hide_edge = HideEdge::Top;
-                if !self.config.fully_hide {
-                    self.hide_origin = Some((self.win_x, self.win_y));
-                    self.snap_to_hide_edge(&window);
-                }
+                self.prepare_hide(&window, HideEdge::Top);
             }
-            if self.hide_origin.is_some() || self.config.fully_hide {
+            if self.hide_origin.is_some() {
                 let drag_layout = self.compute_island_layout();
                 if drag_layout.hide_distance > 0.0 {
                     let mut new_val = self.drag_start_hide_val
@@ -317,12 +328,8 @@ impl App {
                 }
             }
         } else {
-            let hide_target = if self.auto_hidden || self.manually_hidden {
-                1.0
-            } else {
-                0.0
-            };
-            let (stiffness, damping) = if self.auto_hidden || self.manually_hidden {
+            let hide_target = if self.is_hidden() { 1.0 } else { 0.0 };
+            let (stiffness, damping) = if self.is_hidden() {
                 (0.12, 0.70)
             } else {
                 (0.08, 0.78)
@@ -330,10 +337,8 @@ impl App {
             self.spring_hide
                 .update_dt(hide_target, stiffness, damping, dt);
         }
-        let hide_opacity_changed = self.update_fully_hide_opacity();
-        if !self.auto_hidden && !self.manually_hidden {
+        if !self.is_hidden() {
             self.restore_hide_origin(&window);
-            self.fully_hidden_hitbox = None;
         }
 
         if self.spring_hide.velocity.abs() > 0.001
@@ -445,33 +450,23 @@ impl App {
             || self.config.island_style == "dynamic"
             || self.config.island_style == "mica";
         let should_periodic_redraw = is_glass_or_mica
-            && !self.auto_hidden
-            && !self.manually_hidden
+            && !self.is_hidden()
             && self.last_glass_refresh.elapsed().as_millis() >= 1000;
-        let fully_hidden = self.config.fully_hide
-            && (self.auto_hidden || self.manually_hidden)
-            && self.fully_hide_opacity <= 0.001;
-        let fully_hide_animating = self.config.fully_hide
-            && (self.auto_hidden || self.manually_hidden)
-            && self.fully_hide_opacity > 0.001;
 
         if should_periodic_redraw {
             self.last_glass_refresh = Instant::now();
         }
 
-        if !fully_hidden
-            && (self.expanded
-                || (music_active && media.is_playing)
-                || self.spring_w.velocity.abs() > 0.001
-                || self.spring_h.velocity.abs() > 0.001
-                || self.spring_r.velocity.abs() > 0.001
-                || self.spring_view.velocity.abs() > 0.001
-                || compact_overlay_visible
-                || should_periodic_redraw
-                || self.right_press_cursor.is_some()
-                || self.is_right_dragging)
-            || fully_hide_animating
-            || hide_opacity_changed
+        if self.expanded
+            || (!self.is_hidden() && media.is_playing)
+            || self.spring_w.velocity.abs() > 0.001
+            || self.spring_h.velocity.abs() > 0.001
+            || self.spring_r.velocity.abs() > 0.001
+            || self.spring_view.velocity.abs() > 0.001
+            || compact_overlay_visible
+            || should_periodic_redraw
+            || self.right_press_cursor.is_some()
+            || self.is_right_dragging
         {
             window.request_redraw();
         }
@@ -480,29 +475,5 @@ impl App {
         if elapsed < target_frame_time {
             std::thread::sleep(target_frame_time - elapsed);
         }
-    }
-
-    fn update_fully_hide_opacity(&mut self) -> bool {
-        let previous_opacity = self.fully_hide_opacity;
-        if !self.config.fully_hide || (!self.auto_hidden && !self.manually_hidden) {
-            self.fully_hide_opacity = 1.0;
-            self.fully_hidden_at = None;
-            return self.fully_hide_opacity != previous_opacity;
-        }
-        if self.spring_hide.value < 0.999 || self.spring_hide.velocity.abs() > 0.001 {
-            self.fully_hide_opacity = 1.0;
-            self.fully_hidden_at = None;
-            return self.fully_hide_opacity != previous_opacity;
-        }
-        let hidden_at = self.fully_hidden_at.get_or_insert_with(Instant::now);
-        let elapsed = hidden_at.elapsed();
-        if elapsed <= FULLY_HIDE_FADE_DELAY {
-            self.fully_hide_opacity = 1.0;
-            return self.fully_hide_opacity != previous_opacity;
-        }
-        let fade_progress = (elapsed - FULLY_HIDE_FADE_DELAY).as_secs_f32()
-            / FULLY_HIDE_FADE_DURATION.as_secs_f32();
-        self.fully_hide_opacity = (1.0 - fade_progress).clamp(0.0, 1.0);
-        self.fully_hide_opacity != previous_opacity
     }
 }

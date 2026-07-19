@@ -1,4 +1,4 @@
-use crate::core::config::AppConfig;
+use crate::core::config::{AppConfig, MAX_HIDDEN_WIDTH, MIN_HIDDEN_WIDTH};
 use crate::core::i18n::{available_langs, current_lang, init_i18n, set_lang, tr};
 use crate::utils::autostart::set_autostart;
 use crate::utils::font::FontManager;
@@ -13,7 +13,7 @@ use super::SettingsApp;
 pub(super) enum BehaviorAction {
     AutoStart,
     AutoHide,
-    FullyHide,
+    HiddenWidth,
     RightClickDrag,
     NotificationDisplay,
     HideDelay,
@@ -48,13 +48,27 @@ impl SettingsApp {
             },
             BehaviorAction::AutoHide,
         );
+        if self.config.auto_hide {
+            page.push_action(
+                SettingsItem::RowStepper {
+                    label: tr("hide_delay"),
+                    value: format!("{:.0}", self.config.auto_hide_delay),
+                    enabled: true,
+                },
+                BehaviorAction::HideDelay,
+            );
+        }
         page.push_action(
-            SettingsItem::RowSwitch {
-                label: tr("fully_hide"),
-                on: self.config.fully_hide,
+            SettingsItem::RowStepper {
+                label: tr("hidden_width"),
+                value: if self.config.hidden_width >= MAX_HIDDEN_WIDTH {
+                    tr("hidden_width_off")
+                } else {
+                    format!("{:.0}", self.config.hidden_width)
+                },
                 enabled: true,
             },
-            BehaviorAction::FullyHide,
+            BehaviorAction::HiddenWidth,
         );
         page.push_action(
             SettingsItem::RowSwitch {
@@ -72,16 +86,6 @@ impl SettingsApp {
             },
             BehaviorAction::NotificationDisplay,
         );
-        if self.config.auto_hide {
-            page.push_action(
-                SettingsItem::RowStepper {
-                    label: tr("hide_delay"),
-                    value: format!("{:.0}", self.config.auto_hide_delay),
-                    enabled: true,
-                },
-                BehaviorAction::HideDelay,
-            );
-        }
 
         let language = current_lang();
         page.push_action(
@@ -162,6 +166,9 @@ impl SettingsApp {
                     format!("{:.0}", self.config.auto_hide_delay),
                     set_hide_delay,
                 ),
+                BehaviorAction::HiddenWidth => {
+                    (format!("{:.0}", self.config.hidden_width), set_hidden_width)
+                }
                 BehaviorAction::UpdateInterval => (
                     format!("{:.0}", self.config.update_check_interval),
                     set_update_interval,
@@ -186,10 +193,6 @@ impl SettingsApp {
                 self.config.auto_hide = !self.config.auto_hide;
                 true
             }
-            (BehaviorAction::FullyHide, ClickResult::Switch(_)) => {
-                self.config.fully_hide = !self.config.fully_hide;
-                true
-            }
             (BehaviorAction::RightClickDrag, ClickResult::Switch(_)) => {
                 self.config.right_click_drag = !self.config.right_click_drag;
                 true
@@ -208,6 +211,19 @@ impl SettingsApp {
                 };
                 self.config.auto_hide_delay =
                     step(self.config.auto_hide_delay, direction, 1.0, 1.0, 60.0);
+                true
+            }
+            (BehaviorAction::HiddenWidth, _) => {
+                let Some(direction) = result.step_direction() else {
+                    return;
+                };
+                self.config.hidden_width = step(
+                    self.config.hidden_width,
+                    direction,
+                    1.0,
+                    MIN_HIDDEN_WIDTH,
+                    MAX_HIDDEN_WIDTH,
+                );
                 true
             }
             (BehaviorAction::UpdateInterval, _) => {
@@ -297,6 +313,12 @@ fn select_update_channel(app: &mut SettingsApp, value: &str) {
 fn set_hide_delay(app: &mut SettingsApp, value: &str) {
     if let Ok(value) = value.parse::<f32>() {
         app.config.auto_hide_delay = value.clamp(1.0, 60.0);
+    }
+}
+
+fn set_hidden_width(app: &mut SettingsApp, value: &str) {
+    if let Ok(value) = value.parse::<f32>() {
+        app.config.hidden_width = value.clamp(MIN_HIDDEN_WIDTH, MAX_HIDDEN_WIDTH);
     }
 }
 

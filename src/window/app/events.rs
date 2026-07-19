@@ -72,6 +72,7 @@ impl App {
                 }
                 WindowEvent::RedrawRequested => {
                     let island_layout = self.compute_island_layout();
+                    let is_hidden = self.is_hidden();
                     if let Some(surface) = self.surface.as_mut() {
                         let dt =
                             (self.last_frame_time.elapsed().as_secs_f32() * 60.0).clamp(0.1, 3.0);
@@ -140,7 +141,6 @@ impl App {
                             media_info.position_ms = self.seeking_preview_ms;
                             media_info.last_update = Instant::now();
                         }
-                        let is_hidden = self.auto_hidden || self.manually_hidden;
                         self.audio.set_gate_override(!is_hidden);
                         media_info.spectrum = self.audio.get_spectrum();
                         let mut music_active = false;
@@ -165,8 +165,8 @@ impl App {
                                     expansion_progress: progress,
                                     view_offset: self.spring_view.value,
                                     global_scale: self.config.global_scale,
-                                    hide_progress: self.spring_hide.value,
-                                    visibility_alpha: self.fully_hide_opacity,
+                                    hide_progress: self.spring_hide.value
+                                        * island_layout.content_hide_ratio,
                                     island_x: island_layout.current_island_x as f32,
                                     island_y: island_layout.current_island_y as f32,
                                     stable_island_y: island_layout.stable_island_y as f32,

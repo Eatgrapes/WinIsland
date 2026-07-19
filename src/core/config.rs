@@ -5,6 +5,8 @@ pub const APP_HOMEPAGE: &str = "https://github.com/Eatgrapes/WinIsland";
 pub const WINDOW_TITLE: &str = "WinIsland";
 pub const TOP_OFFSET: i32 = 10;
 pub const PADDING: f32 = 80.0;
+pub const MIN_HIDDEN_WIDTH: f32 = 0.0;
+pub const MAX_HIDDEN_WIDTH: f32 = 400.0;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(from = "String", into = "String")]
@@ -146,8 +148,8 @@ pub struct AppConfig {
     pub auto_hide: bool,
     #[serde(default = "default_auto_hide_delay")]
     pub auto_hide_delay: f32,
-    #[serde(default = "default_fully_hide")]
-    pub fully_hide: bool,
+    #[serde(default = "default_hidden_width")]
+    pub hidden_width: f32,
     #[serde(default = "default_check_for_updates")]
     pub check_for_updates: bool,
     #[serde(default = "default_update_check_interval")]
@@ -232,8 +234,8 @@ fn default_auto_hide_delay() -> f32 {
     5.0
 }
 
-fn default_fully_hide() -> bool {
-    false
+fn default_hidden_width() -> f32 {
+    5.0
 }
 
 fn default_check_for_updates() -> bool {
@@ -472,7 +474,7 @@ impl Default for AppConfig {
             auto_start: false,
             auto_hide: false,
             auto_hide_delay: 5.0,
-            fully_hide: false,
+            hidden_width: 5.0,
             check_for_updates: true,
             update_check_interval: 4.0,
             language: "auto".to_string(),

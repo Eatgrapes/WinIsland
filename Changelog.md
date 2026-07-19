@@ -1,5 +1,8 @@
 # Changelog
 
+### v1.2.6
+- Improve island hiding settings
+
 ### v1.2.5
 - Add an optional fully hidden mode
 - Restrict audio visualization to the active media process when Windows supports process loopback, with system audio fallback

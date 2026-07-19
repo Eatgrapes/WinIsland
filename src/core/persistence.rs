@@ -1,4 +1,4 @@
-use crate::core::config::{AppConfig, ensure_settings_widget};
+use crate::core::config::{AppConfig, MAX_HIDDEN_WIDTH, MIN_HIDDEN_WIDTH, ensure_settings_widget};
 use std::fs;
 use std::path::PathBuf;
 pub fn get_config_path() -> PathBuf {
@@ -12,9 +12,18 @@ pub fn get_config_path() -> PathBuf {
 }
 pub fn load_config() -> AppConfig {
     let path = get_config_path();
+    let mut migrated = false;
     let mut config: AppConfig = if let Ok(content) = fs::read_to_string(&path)
-        && let Ok(config) = toml::from_str(&content)
+        && let Ok(mut config) = toml::from_str::<AppConfig>(&content)
     {
+        if let Ok(table) = toml::from_str::<toml::Table>(&content)
+            && let Some(fully_hide) = table.get("fully_hide").and_then(|value| value.as_bool())
+        {
+            if !table.contains_key("hidden_width") && fully_hide {
+                config.hidden_width = MIN_HIDDEN_WIDTH;
+            }
+            migrated = true;
+        }
         config
     } else {
         log::info!("Config file not found, using defaults");
@@ -27,7 +36,17 @@ pub fn load_config() -> AppConfig {
     config.base_height = config.base_height.clamp(15.0, 200.0);
     config.expanded_width = config.expanded_width.clamp(200.0, 2000.0);
     config.expanded_height = config.expanded_height.clamp(100.0, 1000.0);
+    let hidden_width = config
+        .hidden_width
+        .clamp(MIN_HIDDEN_WIDTH, MAX_HIDDEN_WIDTH);
+    if hidden_width != config.hidden_width {
+        config.hidden_width = hidden_width;
+        migrated = true;
+    }
     if ensure_settings_widget(&mut config.widget_layout) {
+        migrated = true;
+    }
+    if migrated {
         save_config(&config);
     }
     config

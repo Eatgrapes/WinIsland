@@ -24,6 +24,37 @@ pub fn is_point_in_rect(px: f64, py: f64, rx: f64, ry: f64, rw: f64, rh: f64) ->
     px >= rx && px <= rx + rw && py >= ry && py <= ry + rh
 }
 
+pub fn is_point_in_rounded_rect(
+    px: f64,
+    py: f64,
+    rx: f64,
+    ry: f64,
+    rw: f64,
+    rh: f64,
+    radius: f64,
+) -> bool {
+    if !px.is_finite()
+        || !py.is_finite()
+        || !rx.is_finite()
+        || !ry.is_finite()
+        || !rw.is_finite()
+        || !rh.is_finite()
+        || !radius.is_finite()
+        || rw <= 0.0
+        || rh <= 0.0
+        || !is_point_in_rect(px, py, rx, ry, rw, rh)
+    {
+        return false;
+    }
+
+    let half_w = rw / 2.0;
+    let half_h = rh / 2.0;
+    let radius = radius.max(0.0).min(half_w.min(half_h));
+    let dx = ((px - (rx + half_w)).abs() - (half_w - radius)).max(0.0);
+    let dy = ((py - (ry + half_h)).abs() - (half_h - radius)).max(0.0);
+    dx * dx + dy * dy <= radius * radius
+}
+
 pub fn is_left_button_pressed() -> bool {
     // SAFETY: GetAsyncKeyState queries virtual key state. VK_LBUTTON is a constant.
     // No pointers or handles are involved. Thread-safe (per-thread key state).
@@ -46,7 +77,12 @@ pub fn is_cursor_hidden() -> bool {
     false
 }
 
-pub fn is_foreground_fullscreen() -> bool {
+pub fn is_foreground_fullscreen(
+    target_x: i32,
+    target_y: i32,
+    target_width: u32,
+    target_height: u32,
+) -> bool {
     // SAFETY: All Win32 API calls in this function use valid stack-allocated
     // structs/buffers and query-only operations. GetForegroundWindow returns a
     // handle that may be null (checked). GetWindowThreadProcessId, GetClassNameW,
@@ -93,10 +129,19 @@ pub fn is_foreground_fullscreen() -> bool {
 
         if GetMonitorInfoW(monitor, &mut monitor_info).as_bool() {
             let monitor_rect = monitor_info.rcMonitor;
-            return window_rect.left <= monitor_rect.left
+            let is_fullscreen = window_rect.left <= monitor_rect.left
                 && window_rect.top <= monitor_rect.top
                 && window_rect.right >= monitor_rect.right
                 && window_rect.bottom >= monitor_rect.bottom;
+            let target_right = target_x.saturating_add(target_width as i32);
+            let target_bottom = target_y.saturating_add(target_height as i32);
+            let is_target_monitor = target_width == 0
+                || target_height == 0
+                || (monitor_rect.left == target_x
+                    && monitor_rect.top == target_y
+                    && monitor_rect.right == target_right
+                    && monitor_rect.bottom == target_bottom);
+            return is_fullscreen && is_target_monitor;
         }
     }
     false
