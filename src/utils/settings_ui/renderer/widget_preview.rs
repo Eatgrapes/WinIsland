@@ -177,7 +177,7 @@ pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
                 .map(|s| widget_footprint(kind, entry.slot).contains(&s))
                 .unwrap_or(false);
             if kind != WidgetKind::Settings && (dragging || hovered) {
-                let (bx, by) = widget_delete_button_center(tx, ty, tw, th);
+                let (bx, by) = widget_delete_button_center(tx, ty, tw, th, cap_scale);
                 let mut xbg = Paint::default();
                 xbg.set_anti_alias(true);
                 xbg.set_color(Color::from_argb(235, 255, 59, 48));

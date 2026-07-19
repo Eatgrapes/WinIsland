@@ -1,8 +1,8 @@
 use crate::core::smtc::MediaInfo;
 
 use super::{
-    COVER_FLIP_ANIM, COVER_FLIP_OLD_IMG, IMG_CACHE, LOCAL_PLAY_STATE, NEXT_SKIP_ANIM, PAUSE_SPRING,
-    PREV_SKIP_ANIM, PROGRESS_DRAGGING, PROGRESS_HOVER,
+    CONTENT_PADDING, COVER_FLIP_ANIM, COVER_FLIP_OLD_IMG, IMG_CACHE, LOCAL_PLAY_STATE,
+    NEXT_SKIP_ANIM, PAUSE_SPRING, PREV_SKIP_ANIM, PROGRESS_DRAGGING, PROGRESS_HOVER,
 };
 
 pub fn set_progress_dragging(active: bool) {
@@ -118,8 +118,8 @@ pub fn get_progress_bar_rect(
     let (img_size, img_y) = (72.0 * scale, oy + 24.0 * scale);
     let bar_y = img_y + img_size + 18.0 * scale;
     let time_w = 36.0 * scale;
-    let bar_full_left = ox + 28.0 * scale;
-    let bar_full_right = ox + w - 28.0 * scale;
+    let bar_full_left = ox + CONTENT_PADDING * scale;
+    let bar_full_right = ox + w - CONTENT_PADDING * scale;
     let bar_left = bar_full_left + time_w + 4.0 * scale;
     let bar_right = bar_full_right - time_w - 4.0 * scale;
     let hit_h = 16.0 * scale;

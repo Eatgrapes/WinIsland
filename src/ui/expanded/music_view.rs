@@ -26,6 +26,8 @@ use skia_safe::{
 use std::cell::RefCell;
 use std::sync::{Arc, OnceLock};
 
+const CONTENT_PADDING: f32 = 24.0;
+
 thread_local! {
     static IMG_CACHE: RefCell<Option<(String, Image)>> = const { RefCell::new(None) };
     static PROGRESS_SMOOTH: RefCell<f32> = const { RefCell::new(-1.0) };
@@ -171,7 +173,11 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         );
     }
     let base_img_size = 72.0 * scale;
-    let (img_size, img_x, img_y) = (base_img_size, ox + 36.0 * scale, oy + 24.0 * scale);
+    let (img_size, img_x, img_y) = (
+        base_img_size,
+        ox + CONTENT_PADDING * scale,
+        oy + CONTENT_PADDING * scale,
+    );
     let image_to_draw = if music_active {
         get_cached_media_image(media)
     } else {
@@ -434,11 +440,11 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             "--:--".to_string()
         };
 
-        let bar_full_left = ox + 36.0 * scale;
-        let bar_full_right = ox + w - 36.0 * scale;
+        let bar_full_left = ox + CONTENT_PADDING * scale;
+        let bar_full_right = ox + w - CONTENT_PADDING * scale;
 
-        let bar_left = ox + 28.0 * scale + time_w + 4.0 * scale;
-        let bar_right = ox + w - 28.0 * scale - time_w - 4.0 * scale;
+        let bar_left = bar_full_left + time_w + 4.0 * scale;
+        let bar_right = bar_full_right - time_w - 4.0 * scale;
         let bar_total_w = bar_right - bar_left;
 
         let hover_t = PROGRESS_HOVER.with(|cell| {
@@ -697,7 +703,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         canvas.restore();
     }
 
-    let viz_x_offset = 17.0 + (45.0 - 17.0) * expansion_progress;
+    let viz_x_offset = 17.0 + (37.0 - 17.0) * expansion_progress;
     draw_visualizer(DrawVisualizerParams {
         canvas,
         x: ox + w - viz_x_offset * scale,

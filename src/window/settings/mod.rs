@@ -36,6 +36,7 @@ pub(crate) const PAGE_NAV_X: f32 = SIDEBAR_W + 20.0;
 pub(crate) const PAGE_NAV_Y: f32 = 12.0;
 pub(crate) const PAGE_NAV_SIZE: f32 = 28.0;
 pub(crate) const PAGE_NAV_GAP: f32 = 4.0;
+pub(crate) const SETTINGS_HEADER_H: f32 = 50.0;
 
 #[derive(Clone, Copy)]
 pub(crate) enum PageNavigation {
@@ -496,8 +497,9 @@ impl ApplicationHandler for SettingsApp {
                     }
                 } else if !is_on_green {
                     let is_in_sidebar_title = mx < SIDEBAR_W && my < 60.0;
-                    let is_in_content_title =
-                        mx >= SIDEBAR_W && my < 50.0 && self.page_navigation_at(mx, my).is_none();
+                    let is_in_content_title = mx >= SIDEBAR_W
+                        && my < SETTINGS_HEADER_H
+                        && self.page_navigation_at(mx, my).is_none();
                     if (is_in_sidebar_title || is_in_content_title) && self.popup.is_none() {
                         if let Some(win) = &self.window {
                             let _ = win.drag_window();

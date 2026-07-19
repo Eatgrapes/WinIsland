@@ -4,7 +4,9 @@ use crate::core::i18n::tr;
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::settings_ui::items::*;
-use skia_safe::{Canvas, Color, Data, FilterMode, Image, MipmapMode, Paint, Rect, SamplingOptions};
+use skia_safe::{
+    Canvas, Color, Data, FilterMode, Image, MipmapMode, Paint, Rect, SamplingOptions, image_filters,
+};
 
 use super::{SIDEBAR_KEY_BASE, SIDEBAR_ROW_H, SIDEBAR_W, SettingsApp};
 
@@ -30,6 +32,14 @@ fn draw_sidebar_icon(canvas: &Canvas, index: usize, rect: Rect) {
         });
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
+        paint.set_image_filter(image_filters::drop_shadow(
+            (0.0, 1.2),
+            (1.4, 1.4),
+            Color::from_argb(90, 0, 0, 0),
+            None,
+            None,
+            None,
+        ));
         canvas.draw_image_rect_with_sampling_options(
             &icons[index],
             None,

@@ -2,6 +2,7 @@
 
 ### v1.2.6
 - Improve island hiding settings
+- Improve glass rendering and interface spacing consistency
 
 ### v1.2.5
 - Add an optional fully hidden mode

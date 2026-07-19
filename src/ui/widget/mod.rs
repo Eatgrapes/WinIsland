@@ -99,7 +99,7 @@ pub(crate) fn draw_widget_rounded_background(
     background.set_anti_alias(true);
     background.set_color(Color::from_argb((alpha as f32 * 0.05) as u8, 28, 28, 30));
     let rect = Rect::from_xywh(x, y, w, h);
-    let radius = widget_corner_radius(w, h);
+    let radius = widget_corner_radius(w, h, scale);
     canvas.draw_round_rect(rect, radius, radius, &background);
 
     let mut border = Paint::default();
@@ -110,9 +110,8 @@ pub(crate) fn draw_widget_rounded_background(
     canvas.draw_round_rect(rect, radius, radius, &border);
 }
 
-pub(crate) fn widget_corner_radius(w: f32, h: f32) -> f32 {
-    let radius_ratio = if w >= h * 1.5 { 0.28 } else { 0.20 };
-    w.min(h) * radius_ratio
+pub(crate) fn widget_corner_radius(w: f32, h: f32, scale: f32) -> f32 {
+    (12.0 * scale).min(w.min(h) / 2.0)
 }
 
 pub(crate) fn draw_widget_text_centered(

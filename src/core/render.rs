@@ -184,6 +184,8 @@ pub fn draw_island(
         offset_y,
         current_w,
         current_h,
+        os_w,
+        os_h,
         global_scale,
         monitor_x,
         monitor_y,

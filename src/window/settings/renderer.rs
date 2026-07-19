@@ -7,7 +7,7 @@ use skia_safe::{Canvas, Color, Paint, Rect, surfaces};
 
 use super::{
     PAGE_NAV_GAP, PAGE_NAV_SIZE, PAGE_NAV_X, PAGE_NAV_Y, POPUP_MENU_R, POPUP_OPACITY_KEY,
-    SIDEBAR_W, SettingsApp,
+    SETTINGS_HEADER_H, SIDEBAR_W, SettingsApp,
 };
 
 impl SettingsApp {
@@ -88,11 +88,11 @@ impl SettingsApp {
 
             let content_w = win_w - SIDEBAR_W;
 
-            let content_start_y = if self.active_page == 0 { 100.0 } else { 50.0 };
+            let content_start_y = SETTINGS_HEADER_H;
 
             self.target_scroll_y = self.target_scroll_y.clamp(0.0, self.cached_max_scroll);
 
-            let clip_start_y = if self.active_page == 0 { 100.0 } else { 50.0 };
+            let clip_start_y = SETTINGS_HEADER_H;
 
             canvas.save();
             canvas.clip_rect(
@@ -181,7 +181,7 @@ impl SettingsApp {
         if self.active_page != 2 {
             return None;
         }
-        let mut y = 50.0;
+        let mut y = SETTINGS_HEADER_H;
         for item in &self.cached_items {
             if matches!(item, SettingsItem::WidgetPreview) {
                 return Some(y);

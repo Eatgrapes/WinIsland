@@ -5,7 +5,7 @@ use winit::keyboard::{Key, NamedKey};
 use super::pages::PageInput;
 use super::{
     NumberInput, NumberInputHandler, PAGE_NAV_GAP, PAGE_NAV_SIZE, PAGE_NAV_X, PAGE_NAV_Y,
-    POPUP_OPACITY_KEY, PageNavigation, SIDEBAR_ROW_H, SIDEBAR_W, SettingsApp,
+    POPUP_OPACITY_KEY, PageNavigation, SETTINGS_HEADER_H, SIDEBAR_ROW_H, SIDEBAR_W, SettingsApp,
 };
 
 impl SettingsApp {
@@ -59,12 +59,11 @@ impl SettingsApp {
             .unwrap_or(1.0);
         let content_width = self.win_w / scale - SIDEBAR_W;
 
-        let start_y = if self.active_page == 0 { 100.0 } else { 50.0 };
         let input = PageInput {
             x: mouse_x - SIDEBAR_W,
             y: mouse_y + self.scroll_y,
             width: content_width,
-            start_y,
+            start_y: SETTINGS_HEADER_H,
         };
 
         match self.active_page {
@@ -152,13 +151,12 @@ impl SettingsApp {
             return true;
         }
 
-        let start_y = if self.active_page == 0 { 100.0 } else { 50.0 };
         self.ensure_items_cache();
         hover_test(
             &self.cached_items,
             mouse_x - SIDEBAR_W,
             mouse_y + self.scroll_y,
-            start_y,
+            SETTINGS_HEADER_H,
             content_width,
         )
     }

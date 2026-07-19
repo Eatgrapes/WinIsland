@@ -1,7 +1,7 @@
 use crate::utils::settings_ui::content_height;
 use crate::utils::settings_ui::items::SettingsItem;
 
-use super::SettingsApp;
+use super::{SETTINGS_HEADER_H, SettingsApp};
 
 impl SettingsApp {
     pub(crate) fn build_current_items(&self) -> Vec<SettingsItem> {
@@ -33,8 +33,7 @@ impl SettingsApp {
         } else {
             self.switch_anim.set_targets(&switch_states);
         }
-        let content_start_y = if self.active_page == 0 { 100.0 } else { 50.0 };
-        self.cached_content_height = content_height(&self.cached_items, content_start_y);
+        self.cached_content_height = content_height(&self.cached_items, SETTINGS_HEADER_H);
         let scale = self
             .window
             .as_ref()

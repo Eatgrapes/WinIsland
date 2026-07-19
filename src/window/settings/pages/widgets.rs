@@ -7,7 +7,7 @@ use crate::utils::settings_ui::{
     WidgetPreviewHit, widget_delete_button_hit, widget_grid_geom, widget_preview_hit_test,
 };
 
-use super::super::{SIDEBAR_W, SettingsApp};
+use super::super::{SETTINGS_HEADER_H, SIDEBAR_W, SettingsApp};
 
 impl SettingsApp {
     pub(crate) fn build_widget_items(&self) -> Vec<SettingsItem> {
@@ -19,7 +19,7 @@ impl SettingsApp {
             return None;
         }
         self.ensure_items_cache();
-        let mut y = 50.0;
+        let mut y = SETTINGS_HEADER_H;
         for item in &self.cached_items {
             if matches!(item, SettingsItem::WidgetPreview) {
                 return Some(y);
