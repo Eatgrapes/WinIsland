@@ -171,11 +171,15 @@ impl App {
                     let old_smtc_enabled = self.config.smtc_enabled;
                     let old_position_x_offset = self.config.position_x_offset;
                     let old_position_y_offset = self.config.position_y_offset;
-                    let old_dock_position = self.config.dock_position;
                     let old_monitor_index = self.config.monitor_index;
 
                     log::info!("Config changed, reloaded");
                     self.config = current_config;
+                    if let Some(monitor) =
+                        Self::get_target_monitor(window, self.config.monitor_index)
+                    {
+                        self.migrate_legacy_dock_position(monitor.position(), monitor.size());
+                    }
                     self.smtc
                         .set_lyrics_source(self.config.lyrics_source.clone());
                     self.smtc.set_lyrics_fallback(self.config.lyrics_fallback);
@@ -231,7 +235,6 @@ impl App {
                         || (old_max_h - self.config.expanded_height).abs() > 0.1;
                     let position_changed = old_position_x_offset != self.config.position_x_offset
                         || old_position_y_offset != self.config.position_y_offset
-                        || old_dock_position != self.config.dock_position
                         || old_monitor_index != self.config.monitor_index;
 
                     if size_changed {

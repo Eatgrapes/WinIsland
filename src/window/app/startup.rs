@@ -75,6 +75,7 @@ impl App {
                 self.update_animation_frame_interval(&monitor);
                 self.last_mon_size = (mon_size.width, mon_size.height);
                 self.last_mon_pos = (mon_pos.x, mon_pos.y);
+                self.migrate_legacy_dock_position(mon_pos, mon_size);
                 (self.win_x, self.win_y) = self.compute_window_position(mon_pos, mon_size);
                 window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
                 log::info!(

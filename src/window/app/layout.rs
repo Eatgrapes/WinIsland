@@ -5,7 +5,7 @@ use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
-use crate::core::config::{MAX_HIDDEN_WIDTH, PADDING, TOP_OFFSET};
+use crate::core::config::{DockPosition, MAX_HIDDEN_WIDTH, PADDING, TOP_OFFSET};
 
 use super::{App, DEFAULT_ANIMATION_REFRESH_RATE_MILLIHERTZ, HideEdge, IslandLayout};
 
@@ -89,32 +89,129 @@ impl App {
         mon_pos: PhysicalPosition<i32>,
         mon_size: PhysicalSize<u32>,
     ) -> (i32, i32) {
-        let center_x = mon_pos.x + (mon_size.width as i32) / 2;
-        let top_y = mon_pos.y + TOP_OFFSET;
-        let bottom_y = mon_pos.y + mon_size.height as i32 - TOP_OFFSET;
+        let dock_position = self.automatic_dock_position(mon_pos, mon_size);
+        let (collapsed_center_x, collapsed_center_y) =
+            self.collapsed_island_center(mon_pos, mon_size);
+        let scale = self.config.global_scale as f64;
+        let base_half_w = self.config.base_width as f64 * scale / 2.0;
+        let base_half_h = self.config.base_height as f64 * scale / 2.0;
 
-        let win_x = if self.config.dock_position.is_left() {
-            mon_pos.x - (PADDING / 2.0) as i32 + TOP_OFFSET + self.config.position_x_offset
-        } else if self.config.dock_position.is_right() {
-            mon_pos.x + mon_size.width as i32 - self.os_w as i32 + (PADDING / 2.0) as i32
-                - TOP_OFFSET
-                + self.config.position_x_offset
+        let (anchor_x, local_anchor_x) = if dock_position.is_left() {
+            (collapsed_center_x - base_half_w, PADDING as f64 / 2.0)
+        } else if dock_position.is_right() {
+            (
+                collapsed_center_x + base_half_w,
+                self.os_w as f64 - PADDING as f64 / 2.0,
+            )
         } else {
-            center_x - (self.os_w as i32) / 2 + self.config.position_x_offset
+            (collapsed_center_x, self.os_w as f64 / 2.0)
+        };
+        let (anchor_y, local_anchor_y) = if dock_position.is_bottom() {
+            (
+                collapsed_center_y + base_half_h,
+                self.os_h as f64 - PADDING as f64 / 2.0,
+            )
+        } else {
+            (collapsed_center_y - base_half_h, PADDING as f64 / 2.0)
         };
 
-        let win_y = if self.config.dock_position.is_bottom() {
-            bottom_y - self.os_h as i32 + (PADDING / 2.0) as i32 + self.config.position_y_offset
+        (
+            (anchor_x - local_anchor_x).round() as i32,
+            (anchor_y - local_anchor_y).round() as i32,
+        )
+    }
+
+    fn collapsed_island_center(
+        &self,
+        mon_pos: PhysicalPosition<i32>,
+        mon_size: PhysicalSize<u32>,
+    ) -> (f64, f64) {
+        let scale = self.config.global_scale as f64;
+        (
+            mon_pos.x as f64 + mon_size.width as f64 / 2.0 + self.config.position_x_offset as f64,
+            mon_pos.y as f64
+                + TOP_OFFSET as f64
+                + self.config.base_height as f64 * scale / 2.0
+                + self.config.position_y_offset as f64,
+        )
+    }
+
+    fn automatic_dock_position(
+        &self,
+        mon_pos: PhysicalPosition<i32>,
+        mon_size: PhysicalSize<u32>,
+    ) -> DockPosition {
+        let (center_x, center_y) = self.collapsed_island_center(mon_pos, mon_size);
+        let scale = self.config.global_scale as f64;
+        let base_half_h = self.config.base_height as f64 * scale / 2.0;
+        let expanded_half_w = self.config.expanded_width as f64 * scale / 2.0;
+        let expanded_h = self.config.expanded_height as f64 * scale;
+        let horizontal = if center_x - expanded_half_w <= mon_pos.x as f64 {
+            -1
+        } else if center_x + expanded_half_w >= mon_pos.x as f64 + mon_size.width as f64 {
+            1
         } else {
-            top_y - (PADDING / 2.0) as i32 + self.config.position_y_offset
+            0
+        };
+        let bottom =
+            center_y - base_half_h + expanded_h >= mon_pos.y as f64 + mon_size.height as f64;
+
+        match (bottom, horizontal) {
+            (false, -1) => DockPosition::TopLeft,
+            (false, 1) => DockPosition::TopRight,
+            (false, _) => DockPosition::TopCenter,
+            (true, -1) => DockPosition::BottomLeft,
+            (true, 1) => DockPosition::BottomRight,
+            (true, _) => DockPosition::BottomCenter,
+        }
+    }
+
+    pub(super) fn migrate_legacy_dock_position(
+        &mut self,
+        mon_pos: PhysicalPosition<i32>,
+        mon_size: PhysicalSize<u32>,
+    ) -> bool {
+        let Some(dock_position) = self.config.legacy_dock_position.take() else {
+            return false;
+        };
+        let scale = self.config.global_scale as f64;
+        let base_half_w = self.config.base_width as f64 * scale / 2.0;
+        let base_half_h = self.config.base_height as f64 * scale / 2.0;
+        let center_x = if dock_position.is_left() {
+            mon_pos.x as f64
+                + TOP_OFFSET as f64
+                + self.config.position_x_offset as f64
+                + base_half_w
+        } else if dock_position.is_right() {
+            mon_pos.x as f64 + mon_size.width as f64 - TOP_OFFSET as f64
+                + self.config.position_x_offset as f64
+                - base_half_w
+        } else {
+            mon_pos.x as f64 + mon_size.width as f64 / 2.0 + self.config.position_x_offset as f64
+        };
+        let center_y = if dock_position.is_bottom() {
+            mon_pos.y as f64 + mon_size.height as f64 - TOP_OFFSET as f64
+                + self.config.position_y_offset as f64
+                - base_half_h
+        } else {
+            mon_pos.y as f64
+                + TOP_OFFSET as f64
+                + self.config.position_y_offset as f64
+                + base_half_h
         };
 
-        (win_x, win_y)
+        self.config.position_x_offset =
+            (center_x - mon_pos.x as f64 - mon_size.width as f64 / 2.0).round() as i32;
+        self.config.position_y_offset =
+            (center_y - mon_pos.y as f64 - TOP_OFFSET as f64 - base_half_h).round() as i32;
+        crate::core::persistence::save_config(&self.config);
+        log::info!("Migrated legacy dock position to automatic placement");
+        true
     }
 
     pub(super) fn nearest_hide_edge(&self) -> HideEdge {
         if self.last_mon_size.0 == 0 || self.last_mon_size.1 == 0 {
-            return self.current_hide_edge();
+            return self.hide_edge;
         }
         let layout = self.compute_island_layout();
         let island_x = self.win_x + layout.current_island_x.round() as i32;
@@ -133,16 +230,6 @@ impl App {
         .min_by_key(|(distance, _)| *distance)
         .map(|(_, edge)| edge)
         .unwrap_or(HideEdge::Top)
-    }
-
-    pub(super) fn current_hide_edge(&self) -> HideEdge {
-        if self.is_hidden() || self.hide_origin.is_some() {
-            self.hide_edge
-        } else if self.config.dock_position.is_bottom() {
-            HideEdge::Bottom
-        } else {
-            HideEdge::Top
-        }
     }
 
     pub(super) fn snap_to_hide_edge(&mut self, window: &Window) {
@@ -214,22 +301,30 @@ impl App {
     }
 
     pub(super) fn compute_island_layout(&self) -> IslandLayout {
-        let dock_bottom = self.config.dock_position.is_bottom();
+        let dock_position = if self.last_mon_size.0 > 0 && self.last_mon_size.1 > 0 {
+            self.automatic_dock_position(
+                PhysicalPosition::new(self.last_mon_pos.0, self.last_mon_pos.1),
+                PhysicalSize::new(self.last_mon_size.0, self.last_mon_size.1),
+            )
+        } else {
+            DockPosition::TopCenter
+        };
+        let dock_bottom = dock_position.is_bottom();
         let island_y = if dock_bottom {
             self.os_h as f64 - PADDING as f64 / 2.0 - self.spring_h.value as f64
         } else {
             PADDING as f64 / 2.0
         };
 
-        let offset_x = if self.config.dock_position.is_left() {
+        let offset_x = if dock_position.is_left() {
             PADDING as f64 / 2.0
-        } else if self.config.dock_position.is_right() {
+        } else if dock_position.is_right() {
             (self.os_w as f64 - PADDING as f64 / 2.0 - self.spring_w.value as f64).max(0.0)
         } else {
             (self.os_w as f64 - self.spring_w.value as f64) / 2.0
         };
 
-        let hide_edge = self.current_hide_edge();
+        let hide_edge = self.hide_edge;
         let scale = self.config.global_scale as f64;
         let edge_size = match hide_edge {
             HideEdge::Top | HideEdge::Bottom => self.spring_h.value as f64,

@@ -1,4 +1,3 @@
-use crate::core::config::DockPosition;
 use crate::core::i18n::tr;
 use crate::utils::settings_ui::items::SettingsItem;
 use crate::utils::settings_ui::{ClickResult, StepDirection};
@@ -18,7 +17,6 @@ pub(super) enum AppearanceAction {
     PositionY,
     FontSize,
     Monitor,
-    DockPosition,
 }
 
 impl SettingsApp {
@@ -109,40 +107,6 @@ impl SettingsApp {
             AppearanceAction::Monitor,
         );
 
-        let dock_position = self.config.dock_position;
-        page.push_action(
-            SettingsItem::RowSourceSelect {
-                label: tr("dock_position"),
-                options: vec![
-                    (
-                        tr("dock_position_top_center"),
-                        dock_position == DockPosition::TopCenter,
-                    ),
-                    (
-                        tr("dock_position_top_left"),
-                        dock_position == DockPosition::TopLeft,
-                    ),
-                    (
-                        tr("dock_position_top_right"),
-                        dock_position == DockPosition::TopRight,
-                    ),
-                    (
-                        tr("dock_position_bottom_center"),
-                        dock_position == DockPosition::BottomCenter,
-                    ),
-                    (
-                        tr("dock_position_bottom_left"),
-                        dock_position == DockPosition::BottomLeft,
-                    ),
-                    (
-                        tr("dock_position_bottom_right"),
-                        dock_position == DockPosition::BottomRight,
-                    ),
-                ],
-                enabled: true,
-            },
-            AppearanceAction::DockPosition,
-        );
         page.push(SettingsItem::GroupEnd);
         page
     }
@@ -178,7 +142,7 @@ impl SettingsApp {
                 AppearanceAction::FontSize => {
                     (format!("{:.0}", self.config.font_size), set_font_size)
                 }
-                AppearanceAction::Monitor | AppearanceAction::DockPosition => return,
+                AppearanceAction::Monitor => return,
             };
             self.begin_number_input(
                 input.stepper_value_rect(&page, *item_index, self.scroll_y),
@@ -220,7 +184,7 @@ impl SettingsApp {
                 AppearanceAction::FontSize => {
                     self.config.font_size = step(self.config.font_size, direction, 1.0, 0.0, 30.0);
                 }
-                AppearanceAction::Monitor | AppearanceAction::DockPosition => return,
+                AppearanceAction::Monitor => return,
             }
             self.persist_settings_change();
             return;
@@ -252,39 +216,6 @@ impl SettingsApp {
                     self.win_h / scale,
                 )
             }
-            AppearanceAction::DockPosition => {
-                let selected = match self.config.dock_position {
-                    DockPosition::TopCenter => 0,
-                    DockPosition::TopLeft => 1,
-                    DockPosition::TopRight => 2,
-                    DockPosition::BottomCenter => 3,
-                    DockPosition::BottomLeft => 4,
-                    DockPosition::BottomRight => 5,
-                };
-                PopupState::new(
-                    select_dock_position,
-                    button_rect,
-                    vec![
-                        tr("dock_position_top_center"),
-                        tr("dock_position_top_left"),
-                        tr("dock_position_top_right"),
-                        tr("dock_position_bottom_center"),
-                        tr("dock_position_bottom_left"),
-                        tr("dock_position_bottom_right"),
-                    ],
-                    vec![
-                        "top_center".to_string(),
-                        "top_left".to_string(),
-                        "top_right".to_string(),
-                        "bottom_center".to_string(),
-                        "bottom_left".to_string(),
-                        "bottom_right".to_string(),
-                    ],
-                    selected,
-                    self.win_w / scale,
-                    self.win_h / scale,
-                )
-            }
             _ => return,
         };
         self.show_popup(popup);
@@ -308,10 +239,6 @@ fn signed_step(direction: StepDirection, amount: i32) -> i32 {
 
 fn select_monitor(app: &mut SettingsApp, value: &str) {
     app.config.monitor_index = value.parse().unwrap_or(0);
-}
-
-fn select_dock_position(app: &mut SettingsApp, value: &str) {
-    app.config.dock_position = value.parse().unwrap_or(DockPosition::TopCenter);
 }
 
 fn set_global_scale(app: &mut SettingsApp, value: &str) {

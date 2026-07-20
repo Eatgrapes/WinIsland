@@ -169,8 +169,12 @@ pub struct AppConfig {
     pub position_x_offset: i32,
     #[serde(default = "default_position_y_offset")]
     pub position_y_offset: i32,
-    #[serde(default = "default_dock_position")]
-    pub dock_position: DockPosition,
+    #[serde(
+        rename = "dock_position",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub legacy_dock_position: Option<DockPosition>,
     #[serde(default = "default_monitor_index")]
     pub monitor_index: i32,
     #[serde(default = "default_font_size")]
@@ -275,10 +279,6 @@ fn default_position_x_offset() -> i32 {
 
 fn default_position_y_offset() -> i32 {
     0
-}
-
-fn default_dock_position() -> DockPosition {
-    DockPosition::TopCenter
 }
 
 fn default_monitor_index() -> i32 {
@@ -483,7 +483,7 @@ impl Default for AppConfig {
             lyrics_scroll_max_width: 300.0,
             position_x_offset: 0,
             position_y_offset: 0,
-            dock_position: DockPosition::TopCenter,
+            legacy_dock_position: None,
             monitor_index: 0,
             font_size: 0.0,
             settings_theme: "system".to_string(),

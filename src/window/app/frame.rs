@@ -38,7 +38,7 @@ impl App {
         }
         self.handle_tray_events(&window, event_loop);
         self.reload_config_if_changed(&window);
-        if self.is_hidden() && !self.can_hide_to_edge(self.current_hide_edge()) {
+        if self.is_hidden() && !self.can_hide_to_edge(self.hide_edge) {
             self.reveal_island();
         }
 
