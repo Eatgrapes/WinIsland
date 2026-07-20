@@ -13,7 +13,7 @@ use super::App;
 impl App {
     pub(super) fn on_window_event(
         &mut self,
-        _event_loop: &ActiveEventLoop,
+        event_loop: &ActiveEventLoop,
         id: WindowId,
         event: WindowEvent,
     ) {
@@ -45,7 +45,7 @@ impl App {
                 WindowEvent::MouseInput { state, button, .. } => {
                     let (px, py) = get_global_cursor_pos();
                     if button == MouseButton::Left {
-                        self.handle_input(state, px, py);
+                        self.handle_input(event_loop, state, px, py);
                     } else if button == MouseButton::Right {
                         self.handle_right_input(state, px, py);
                     }
@@ -59,13 +59,13 @@ impl App {
                     match touch.phase {
                         TouchPhase::Started => {
                             self.touch_id = Some(touch.id);
-                            self.handle_input(ElementState::Pressed, px, py);
+                            self.handle_input(event_loop, ElementState::Pressed, px, py);
                         }
                         TouchPhase::Moved => {
                             self.touch_id = Some(touch.id);
                         }
                         TouchPhase::Ended | TouchPhase::Cancelled => {
-                            self.handle_input(ElementState::Released, px, py);
+                            self.handle_input(event_loop, ElementState::Released, px, py);
                             self.touch_id = None;
                         }
                     }

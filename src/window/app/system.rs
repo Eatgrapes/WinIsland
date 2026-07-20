@@ -98,8 +98,23 @@ impl App {
         log::info!("Plugin extraction started in background thread");
     }
 
-    pub(super) fn close_settings_window() {
-        crate::utils::win32::close_window("WinIsland Settings");
+    pub(super) fn open_settings(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(settings) = &self.settings {
+            settings.bring_to_front();
+            return;
+        }
+
+        let mut settings = crate::window::settings::SettingsApp::new(load_config());
+        settings.create_window(event_loop);
+        self.settings = Some(settings);
+        log::info!("Settings window opened in main process");
+    }
+
+    pub(super) fn close_settings(&mut self) {
+        if let Some(mut settings) = self.settings.take() {
+            settings.close();
+            log::info!("Settings window closed and resources released");
+        }
     }
 
     pub(super) fn handle_tray_events(&mut self, window: &Window, event_loop: &ActiveEventLoop) {
@@ -115,13 +130,11 @@ impl App {
                 }
                 Some(TrayAction::OpenSettings) => {
                     log::info!("Tray: opening settings");
-                    if let Ok(exe) = std::env::current_exe() {
-                        let _ = std::process::Command::new(exe).arg("--settings").spawn();
-                    }
+                    self.open_settings(event_loop);
                 }
                 Some(TrayAction::Restart) => {
                     log::info!("Tray: restarting application");
-                    Self::close_settings_window();
+                    self.close_settings();
                     if let Ok(exe) = std::env::current_exe() {
                         let _ = std::process::Command::new(exe).arg("--restart").spawn();
                     }
@@ -129,7 +142,7 @@ impl App {
                 }
                 Some(TrayAction::Exit) => {
                     log::info!("Tray: exiting application");
-                    Self::close_settings_window();
+                    self.close_settings();
                     event_loop.exit();
                 }
                 None => (),

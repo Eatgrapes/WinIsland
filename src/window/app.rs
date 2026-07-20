@@ -7,6 +7,7 @@ use crate::plugin::PluginManager;
 use crate::plugin::zip_loader::PluginManifest;
 use crate::ui::compact::CompactOverlay;
 use crate::utils::physics::Spring;
+use crate::window::settings::SettingsApp;
 use crate::window::tray::TrayManager;
 use softbuffer::{Context, Surface};
 use std::path::PathBuf;
@@ -43,6 +44,7 @@ pub struct App {
     window: Option<Arc<Window>>,
     context: Option<Context<Arc<Window>>>,
     surface: Option<Surface<Arc<Window>, Arc<Window>>>,
+    settings: Option<SettingsApp>,
     tray: Option<TrayManager>,
     smtc: SmtcListener,
     audio: AudioProcessor,
@@ -122,6 +124,7 @@ impl Default for App {
             window: None,
             context: None,
             surface: None,
+            settings: None,
             tray: None,
             config: config.clone(),
             expanded: false,

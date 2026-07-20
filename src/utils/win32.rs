@@ -1,8 +1,8 @@
-use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, PostMessageW, SW_RESTORE,
+    FindWindowW, GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, SW_RESTORE,
     SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow,
-    SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_CLOSE,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow,
 };
 use windows::core::PCWSTR;
 
@@ -19,17 +19,6 @@ pub fn find_window(title: &str) -> Option<HWND> {
             Some(hwnd)
         } else {
             None
-        }
-    }
-}
-
-// SAFETY: PostMessageW sends WM_CLOSE to a target HWND. The hwnd is obtained
-// from find_window which validates its validity. No memory is accessed through
-// the HWND — it's a message-only operation.
-pub fn close_window(title: &str) {
-    if let Some(hwnd) = find_window(title) {
-        unsafe {
-            let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
         }
     }
 }

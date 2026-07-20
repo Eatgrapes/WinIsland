@@ -1,11 +1,12 @@
-use std::cell::OnceCell;
+use std::cell::RefCell;
 
 use crate::core::i18n::tr;
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::settings_ui::items::*;
 use skia_safe::{
-    Canvas, Color, Data, FilterMode, Image, MipmapMode, Paint, Rect, SamplingOptions, image_filters,
+    Canvas, Color, Data, FilterMode, ISize, Image, MipmapMode, Paint, Rect, SamplingOptions,
+    image_filters, surfaces,
 };
 
 use super::{SIDEBAR_KEY_BASE, SIDEBAR_ROW_H, SIDEBAR_W, SettingsApp};
@@ -18,18 +19,30 @@ const SIDEBAR_ICON_BYTES: [&[u8]; 4] = [
 ];
 
 thread_local! {
-    static SIDEBAR_ICONS: OnceCell<[Image; 4]> = const { OnceCell::new() };
+    static SIDEBAR_ICONS: RefCell<Option<[Image; 4]>> = const { RefCell::new(None) };
+}
+
+fn load_sidebar_icon(bytes: &[u8]) -> Image {
+    let source = Image::from_encoded(Data::new_copy(bytes)).expect("Failed to load sidebar icon");
+    let mut surface = surfaces::raster_n32_premul(ISize::new(64, 64))
+        .expect("Failed to create sidebar icon surface");
+    surface.canvas().clear(Color::TRANSPARENT);
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    surface.canvas().draw_image_rect_with_sampling_options(
+        &source,
+        None,
+        Rect::from_xywh(0.0, 0.0, 64.0, 64.0),
+        SamplingOptions::new(FilterMode::Linear, MipmapMode::None),
+        &paint,
+    );
+    surface.image_snapshot()
 }
 
 fn draw_sidebar_icon(canvas: &Canvas, index: usize, rect: Rect) {
     SIDEBAR_ICONS.with(|cache| {
-        let icons = cache.get_or_init(|| {
-            SIDEBAR_ICON_BYTES.map(|bytes| {
-                let icon = Image::from_encoded(Data::new_copy(bytes))
-                    .expect("Failed to load sidebar icon");
-                icon.with_default_mipmaps().unwrap_or(icon)
-            })
-        });
+        let mut cache = cache.borrow_mut();
+        let icons = cache.get_or_insert_with(|| SIDEBAR_ICON_BYTES.map(load_sidebar_icon));
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
         paint.set_image_filter(image_filters::drop_shadow(
@@ -47,6 +60,12 @@ fn draw_sidebar_icon(canvas: &Canvas, index: usize, rect: Rect) {
             SamplingOptions::new(FilterMode::Linear, MipmapMode::Linear),
             &paint,
         );
+    });
+}
+
+pub(super) fn clear_sidebar_icon_cache() {
+    SIDEBAR_ICONS.with(|cache| {
+        *cache.borrow_mut() = None;
     });
 }
 

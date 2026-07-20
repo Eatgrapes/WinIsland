@@ -10,12 +10,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Dwm::{DWMWINDOWATTRIBUTE, DwmSetWindowAttribute};
-use windows::Win32::System::Threading::{MUTEX_ALL_ACCESS, OpenMutexW};
-use windows::core::w;
-use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, MouseButton, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{Key, NamedKey};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowId};
@@ -93,6 +90,7 @@ pub struct SettingsApp {
     pub(crate) target_scroll_y: f32,
     pub(crate) scroll_vel_y: f32,
     pub(crate) last_frame_time: Instant,
+    pub(crate) next_frame_deadline: Instant,
     pub(crate) detected_apps: Vec<String>,
     pub(crate) sidebar_hover: i32,
     pub(crate) popup: Option<PopupState>,
@@ -109,6 +107,7 @@ pub struct SettingsApp {
     pub(crate) widget_dragging: Option<WidgetKind>,
     pub(crate) widget_drag_hover_slot: Option<usize>,
     pub(crate) widget_preview_hover_slot: Option<usize>,
+    close_requested: bool,
 }
 
 impl SettingsApp {
@@ -132,6 +131,7 @@ impl SettingsApp {
             target_scroll_y: 0.0,
             scroll_vel_y: 0.0,
             last_frame_time: Instant::now(),
+            next_frame_deadline: Instant::now(),
             detected_apps: Vec::new(),
             sidebar_hover: -1,
             popup: None,
@@ -148,6 +148,7 @@ impl SettingsApp {
             widget_dragging: None,
             widget_drag_hover_slot: None,
             widget_preview_hover_slot: None,
+            close_requested: false,
         }
     }
 
@@ -277,8 +278,8 @@ impl SettingsApp {
     }
 }
 
-impl ApplicationHandler for SettingsApp {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+impl SettingsApp {
+    pub(crate) fn create_window(&mut self, event_loop: &ActiveEventLoop) {
         let attrs = Window::default_attributes()
             .with_title("WinIsland Settings")
             .with_inner_size(LogicalSize::new(WIN_W as f64, WIN_H as f64))
@@ -295,13 +296,15 @@ impl ApplicationHandler for SettingsApp {
         self.win_h = size.height as f32;
         resize_surface(&mut surface, size.width, size.height);
         self.surface = Some(surface);
+        self.close_requested = false;
+        self.next_frame_deadline = Instant::now();
         self.update_theme();
         self.update_detected_apps();
     }
 
-    fn window_event(&mut self, _el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+    pub(crate) fn handle_window_event(&mut self, event_loop: &ActiveEventLoop, event: WindowEvent) {
         match event {
-            WindowEvent::CloseRequested => _el.exit(),
+            WindowEvent::CloseRequested | WindowEvent::Destroyed => self.close_requested = true,
             WindowEvent::Focused(focused) => {
                 self.focused = focused;
                 if !focused {
@@ -492,7 +495,7 @@ impl ApplicationHandler for SettingsApp {
                 let is_on_green = (mx - 60.0).powi(2) + (my - 24.0).powi(2) <= 36.0;
 
                 if is_on_red {
-                    _el.exit();
+                    self.close_requested = true;
                 } else if is_on_yellow {
                     if let Some(win) = &self.window {
                         win.set_minimized(true);
@@ -511,7 +514,7 @@ impl ApplicationHandler for SettingsApp {
                             win.request_redraw();
                         }
                     } else {
-                        self.handle_click(_el);
+                        self.handle_click(event_loop);
                     }
                 }
             }
@@ -531,30 +534,10 @@ impl ApplicationHandler for SettingsApp {
         }
     }
 
-    fn about_to_wait(&mut self, _el: &ActiveEventLoop) {
-        if self.window.is_none() {
-            return;
-        }
+    pub(crate) fn update(&mut self) -> Option<Instant> {
+        self.window.as_ref()?;
 
-        let frame_start = Instant::now();
         self.frame_count += 1;
-        if self.frame_count.is_multiple_of(30) {
-            // SAFETY: OpenMutexW opens an existing named mutex. The mutex name is a static
-            // string literal. CloseHandle is called on the valid handle returned by OpenMutexW.
-            unsafe {
-                let h = OpenMutexW(
-                    MUTEX_ALL_ACCESS,
-                    false,
-                    w!("Local\\WinIsland_SingleInstance_Mutex"),
-                );
-                if let Ok(handle) = h {
-                    let _ = windows::Win32::Foundation::CloseHandle(handle);
-                } else {
-                    _el.exit();
-                    return;
-                }
-            }
-        }
         if self.frame_count.is_multiple_of(120) {
             self.update_detected_apps();
         }
@@ -572,7 +555,12 @@ impl ApplicationHandler for SettingsApp {
             is_widget_dragging,
             is_number_input_active,
         ) {
-            return;
+            return None;
+        }
+
+        let now = Instant::now();
+        if now < self.next_frame_deadline {
+            return Some(self.next_frame_deadline);
         }
 
         let mut redraw = is_widget_dragging || is_number_input_active || self.switch_anim.tick();
@@ -584,12 +572,11 @@ impl ApplicationHandler for SettingsApp {
         let max_scroll = self.cached_max_scroll;
         self.target_scroll_y = self.target_scroll_y.clamp(0.0, max_scroll);
 
-        let dt = self
-            .last_frame_time
-            .elapsed()
+        let dt = now
+            .duration_since(self.last_frame_time)
             .as_secs_f32()
             .clamp(0.001, 0.05);
-        self.last_frame_time = Instant::now();
+        self.last_frame_time = now;
 
         let diff = self.target_scroll_y - self.scroll_y;
         let accel = diff * SCROLL_STIFFNESS - self.scroll_vel_y * SCROLL_DAMPING;
@@ -615,23 +602,37 @@ impl ApplicationHandler for SettingsApp {
             if let Some(win) = &self.window {
                 win.request_redraw();
             }
-            let target = Duration::from_millis(16);
-            let elapsed = frame_start.elapsed();
-            if elapsed < target {
-                std::thread::sleep(target - elapsed);
-            }
+            self.next_frame_deadline = now + Duration::from_millis(16);
+            Some(self.next_frame_deadline)
+        } else {
+            None
         }
     }
-}
 
-pub fn run_settings(config: AppConfig) {
-    let el = EventLoop::new().unwrap();
-    let mut app = SettingsApp::new(config);
-    el.run_app(&mut app).unwrap();
-}
+    pub(crate) fn window_id(&self) -> Option<WindowId> {
+        self.window.as_ref().map(|window| window.id())
+    }
 
-pub fn bring_settings_to_front() {
-    crate::utils::win32::bring_window_to_front("WinIsland Settings");
+    pub(crate) fn bring_to_front(&self) {
+        if let Some(window) = &self.window {
+            window.set_minimized(false);
+            crate::utils::win32::bring_window_to_front("WinIsland Settings");
+            window.request_redraw();
+        }
+    }
+
+    pub(crate) fn close_requested(&self) -> bool {
+        self.close_requested
+    }
+
+    pub(crate) fn close(&mut self) {
+        self.commit_number_input();
+        self.popup = None;
+        self.widget_dragging = None;
+        sidebar::clear_sidebar_icon_cache();
+        self.surface = None;
+        self.window = None;
+    }
 }
 
 pub(crate) fn resize_surface(

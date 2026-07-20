@@ -1,4 +1,5 @@
 use winit::event::ElementState;
+use winit::event_loop::ActiveEventLoop;
 
 use crate::core::config::{MIN_HIDDEN_WIDTH, WidgetKind};
 use crate::ui::expanded::music_view::{
@@ -11,7 +12,13 @@ use crate::utils::mouse::{is_point_in_rect, is_point_in_rounded_rect};
 use super::{App, IslandLayout, should_show_widget_view};
 
 impl App {
-    pub(super) fn handle_input(&mut self, state: ElementState, px: i32, py: i32) {
+    pub(super) fn handle_input(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        state: ElementState,
+        px: i32,
+        py: i32,
+    ) {
         if self.is_cursor_suppressed {
             return;
         }
@@ -20,7 +27,7 @@ impl App {
         let layout = self.compute_island_layout();
 
         if state == ElementState::Pressed {
-            self.handle_press(rel_x, rel_y, &layout);
+            self.handle_press(event_loop, rel_x, rel_y, &layout);
         } else if state == ElementState::Released {
             self.handle_release(py);
         }
@@ -66,7 +73,13 @@ impl App {
         }
     }
 
-    pub(super) fn handle_press(&mut self, rel_x: i32, rel_y: i32, layout: &IslandLayout) {
+    pub(super) fn handle_press(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        rel_x: i32,
+        rel_y: i32,
+        layout: &IslandLayout,
+    ) {
         let island_y = layout.island_y;
         let offset_x = layout.offset_x;
         let current_island_x = layout.current_island_x;
@@ -205,9 +218,7 @@ impl App {
                         )
                     });
                 if settings_hit {
-                    if let Ok(exe) = std::env::current_exe() {
-                        let _ = std::process::Command::new(exe).arg("--settings").spawn();
-                    }
+                    self.open_settings(event_loop);
                     return;
                 }
 
