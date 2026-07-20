@@ -9,15 +9,13 @@ use skia_safe::{
     SamplingOptions,
 };
 use windows::ApplicationModel::AppDisplayInfo;
-use windows::Foundation::{Size, TypedEventHandler};
+use windows::Foundation::Size;
 use windows::Storage::Streams::DataReader;
 use windows::UI::Notifications::Management::{
     UserNotificationListener, UserNotificationListenerAccessStatus,
 };
-use windows::UI::Notifications::{
-    KnownNotificationBindings, UserNotification, UserNotificationChangedEventArgs,
-    UserNotificationChangedKind,
-};
+use windows::UI::Notifications::{KnownNotificationBindings, NotificationKinds, UserNotification};
+use windows::core::HRESULT;
 
 use crate::ui::compact::{CompactOverlayState, CompactSize};
 use crate::utils::font::{DrawTextCachedParams, FontManager};
@@ -27,6 +25,7 @@ const ENTER_DURATION: Duration = Duration::from_millis(220);
 const FADE_DURATION: Duration = Duration::from_millis(280);
 const DETAIL_LINE_GAP: f32 = 21.0;
 const MAX_ICON_BYTES: u64 = 2 * 1024 * 1024;
+const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const RETRY_INTERVAL: Duration = Duration::from_secs(5);
 
 pub(super) struct NotificationPayload {
@@ -36,15 +35,22 @@ pub(super) struct NotificationPayload {
     icon_bytes: Option<Vec<u8>>,
 }
 
+enum NotificationPollResult {
+    Latest(Option<u32>),
+    Failed(HRESULT),
+}
+
 #[derive(Default)]
 pub(super) struct NotificationMonitor {
     listener: Option<UserNotificationListener>,
-    handler: Option<TypedEventHandler<UserNotificationListener, UserNotificationChangedEventArgs>>,
-    registration: Option<i64>,
     latest_notification_id: Arc<Mutex<Option<u32>>>,
     access_receiver: Option<Receiver<bool>>,
+    poll_receiver: Option<Receiver<NotificationPollResult>>,
     access_attempted: bool,
     retry_after: Option<Instant>,
+    poll_after: Option<Instant>,
+    last_polled_notification_id: Option<u32>,
+    poll_initialized: bool,
 }
 
 impl NotificationMonitor {
@@ -67,6 +73,7 @@ impl NotificationMonitor {
             self.access_attempted = true;
             self.request_access();
         }
+        self.poll_notifications();
         self.take_payload()
     }
 
@@ -77,7 +84,7 @@ impl NotificationMonitor {
             return;
         };
         match listener.GetAccessStatus() {
-            Ok(UserNotificationListenerAccessStatus::Allowed) => self.start_listener(listener),
+            Ok(UserNotificationListenerAccessStatus::Allowed) => self.start_monitor(listener),
             Ok(UserNotificationListenerAccessStatus::Unspecified) => {
                 let Ok(operation) = listener.RequestAccessAsync() else {
                     log::warn!("Notification access request could not be started");
@@ -115,7 +122,7 @@ impl NotificationMonitor {
                     self.schedule_retry();
                     return;
                 };
-                self.start_listener(listener);
+                self.start_monitor(listener);
             }
             Some(Ok(false)) => {
                 self.access_receiver = None;
@@ -130,45 +137,109 @@ impl NotificationMonitor {
         }
     }
 
-    fn start_listener(&mut self, listener: UserNotificationListener) {
-        let latest_notification_id = self.latest_notification_id.clone();
-        let handler =
-            TypedEventHandler::<UserNotificationListener, UserNotificationChangedEventArgs>::new(
-                move |_sender, args| {
-                    let args = args.ok()?;
-                    if args.ChangeKind()? == UserNotificationChangedKind::Added {
-                        *latest_notification_id
-                            .lock()
-                            .unwrap_or_else(|error| error.into_inner()) =
-                            Some(args.UserNotificationId()?);
+    fn start_monitor(&mut self, listener: UserNotificationListener) {
+        self.listener = Some(listener);
+        self.retry_after = None;
+        self.poll_after = Some(Instant::now());
+        self.last_polled_notification_id = None;
+        self.poll_initialized = false;
+    }
+
+    fn poll_notifications(&mut self) {
+        let result = self
+            .poll_receiver
+            .as_ref()
+            .map(|receiver| receiver.try_recv());
+        match result {
+            Some(Ok(NotificationPollResult::Latest(notification_id))) => {
+                self.poll_receiver = None;
+                self.poll_after = Some(Instant::now() + POLL_INTERVAL);
+                self.update_polled_notification(notification_id);
+            }
+            Some(Ok(NotificationPollResult::Failed(error))) => {
+                self.poll_receiver = None;
+                self.poll_after = Some(Instant::now() + RETRY_INTERVAL);
+                log::warn!("Notification history could not be read: {:?}", error);
+            }
+            Some(Err(mpsc::TryRecvError::Disconnected)) => {
+                self.poll_receiver = None;
+                self.poll_after = Some(Instant::now() + RETRY_INTERVAL);
+                log::warn!("Notification history request ended unexpectedly");
+            }
+            Some(Err(mpsc::TryRecvError::Empty)) => return,
+            None => {}
+        }
+
+        if self.poll_receiver.is_some()
+            || self
+                .poll_after
+                .is_some_and(|poll_after| Instant::now() < poll_after)
+        {
+            return;
+        }
+        let Some(listener) = self.listener.as_ref() else {
+            return;
+        };
+        let Ok(operation) = listener.GetNotificationsAsync(NotificationKinds::Toast) else {
+            self.poll_after = Some(Instant::now() + RETRY_INTERVAL);
+            log::warn!("Notification history request could not be started");
+            return;
+        };
+        let (sender, receiver) = mpsc::sync_channel(1);
+        tokio::task::spawn_blocking(move || {
+            let result = operation.join().map(|notifications| {
+                let mut latest_notification_id: Option<u32> = None;
+                if let Ok(count) = notifications.Size() {
+                    for index in 0..count {
+                        if let Ok(notification) = notifications.GetAt(index)
+                            && let Ok(notification_id) = notification.Id()
+                        {
+                            latest_notification_id = Some(
+                                latest_notification_id
+                                    .map_or(notification_id, |latest| latest.max(notification_id)),
+                            );
+                        }
                     }
-                    Ok(())
-                },
-            );
-        match listener.NotificationChanged(&handler) {
-            Ok(registration) => {
-                self.listener = Some(listener);
-                self.handler = Some(handler);
-                self.registration = Some(registration);
-                self.retry_after = None;
-            }
-            Err(error) => {
-                log::warn!(
-                    "Notification listener could not register for events: {:?}",
-                    error
-                );
-                self.schedule_retry();
-            }
+                }
+                latest_notification_id
+            });
+            let result = match result {
+                Ok(notification_id) => NotificationPollResult::Latest(notification_id),
+                Err(error) => NotificationPollResult::Failed(error.code()),
+            };
+            let _ = sender.send(result);
+        });
+        self.poll_receiver = Some(receiver);
+    }
+
+    fn update_polled_notification(&mut self, notification_id: Option<u32>) {
+        if !self.poll_initialized {
+            self.last_polled_notification_id = notification_id;
+            self.poll_initialized = true;
+            return;
+        }
+        let Some(notification_id) = notification_id else {
+            return;
+        };
+        if self
+            .last_polled_notification_id
+            .is_none_or(|latest| notification_id > latest)
+        {
+            self.last_polled_notification_id = Some(notification_id);
+            *self
+                .latest_notification_id
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = Some(notification_id);
         }
     }
 
     fn stop(&mut self) {
-        if let (Some(listener), Some(registration)) = (&self.listener, self.registration.take()) {
-            let _ = listener.RemoveNotificationChanged(registration);
-        }
-        self.handler = None;
         self.listener = None;
         self.access_receiver = None;
+        self.poll_receiver = None;
+        self.poll_after = None;
+        self.last_polled_notification_id = None;
+        self.poll_initialized = false;
         *self
             .latest_notification_id
             .lock()
