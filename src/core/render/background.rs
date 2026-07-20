@@ -18,8 +18,6 @@ pub(super) struct BackgroundParams<'a> {
     pub(super) offset_y: f32,
     pub(super) current_w: f32,
     pub(super) current_h: f32,
-    pub(super) os_w: u32,
-    pub(super) os_h: u32,
     pub(super) global_scale: f32,
     pub(super) monitor_x: i32,
     pub(super) monitor_y: i32,
@@ -40,8 +38,6 @@ pub(super) fn draw_background(params: BackgroundParams<'_>) {
         offset_y,
         current_w,
         current_h,
-        os_w,
-        os_h,
         global_scale,
         monitor_x,
         monitor_y,
@@ -49,14 +45,16 @@ pub(super) fn draw_background(params: BackgroundParams<'_>) {
         monitor_h,
     } = params;
     let bg_color = Color::BLACK;
+    let screen_x = win_x + offset_x as i32;
+    let screen_y = win_y + offset_y as i32;
     if island_style == "glass" {
         canvas.save();
         canvas.clip_rrect(rrect, ClipOp::Intersect, true);
         if let Some(bg_img) = get_glass_background(
-            win_x,
-            win_y,
-            os_w,
-            os_h,
+            screen_x,
+            screen_y,
+            current_w as u32,
+            current_h as u32,
             40.0 * global_scale,
             monitor_x,
             monitor_y,
@@ -66,13 +64,7 @@ pub(super) fn draw_background(params: BackgroundParams<'_>) {
             let mut paint = Paint::default();
             paint.set_anti_alias(true);
             let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
-            canvas.draw_image_rect_with_sampling_options(
-                &bg_img,
-                None,
-                Rect::from_xywh(0.0, 0.0, os_w as f32, os_h as f32),
-                sampling,
-                &paint,
-            );
+            canvas.draw_image_rect_with_sampling_options(&bg_img, None, rect, sampling, &paint);
 
             let mut darken = Paint::default();
             darken.set_color(Color::from_argb(130, 10, 10, 14));
@@ -86,8 +78,6 @@ pub(super) fn draw_background(params: BackgroundParams<'_>) {
             canvas.draw_rrect(rrect, &bg_paint);
         }
     } else if island_style == "mica" {
-        let screen_x = win_x + offset_x as i32;
-        let screen_y = win_y + offset_y as i32;
         canvas.save();
         canvas.clip_rrect(rrect, ClipOp::Intersect, true);
         if let Some(bg_img) = get_mica_background(
@@ -160,10 +150,10 @@ pub(super) fn draw_background(params: BackgroundParams<'_>) {
             canvas.draw_rect(rect, &overlay);
         } else {
             if let Some(bg_img) = get_glass_background(
-                win_x,
-                win_y,
-                os_w,
-                os_h,
+                screen_x,
+                screen_y,
+                current_w as u32,
+                current_h as u32,
                 40.0 * global_scale,
                 monitor_x,
                 monitor_y,
@@ -173,13 +163,7 @@ pub(super) fn draw_background(params: BackgroundParams<'_>) {
                 let mut paint = Paint::default();
                 paint.set_anti_alias(true);
                 let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
-                canvas.draw_image_rect_with_sampling_options(
-                    &bg_img,
-                    None,
-                    Rect::from_xywh(0.0, 0.0, os_w as f32, os_h as f32),
-                    sampling,
-                    &paint,
-                );
+                canvas.draw_image_rect_with_sampling_options(&bg_img, None, rect, sampling, &paint);
 
                 let mut darken = Paint::default();
                 darken.set_color(Color::from_argb(130, 10, 10, 14));

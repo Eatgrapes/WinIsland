@@ -11,10 +11,6 @@ const GLASS_REFRESH_INTERVAL: Duration = Duration::from_millis(33);
 struct GlassCache {
     image: Image,
     timestamp: Instant,
-    win_x: i32,
-    win_y: i32,
-    window_w: u32,
-    window_h: u32,
     monitor_x: i32,
     monitor_y: i32,
     monitor_w: u32,
@@ -28,17 +24,17 @@ thread_local! {
 
 #[allow(clippy::too_many_arguments)]
 pub fn get_glass_background(
-    win_x: i32,
-    win_y: i32,
-    window_w: u32,
-    window_h: u32,
+    screen_x: i32,
+    screen_y: i32,
+    width: u32,
+    height: u32,
     blur_sigma: f32,
     monitor_x: i32,
     monitor_y: i32,
     monitor_w: u32,
     monitor_h: u32,
 ) -> Option<Image> {
-    if window_w == 0 || window_h == 0 || monitor_w == 0 || monitor_h == 0 {
+    if width == 0 || height == 0 || monitor_w == 0 || monitor_h == 0 {
         return None;
     }
 
@@ -47,10 +43,6 @@ pub fn get_glass_background(
         let cache = cell.borrow();
         let cache = cache.as_ref()?;
         (cache.timestamp.elapsed() < GLASS_REFRESH_INTERVAL
-            && cache.win_x == win_x
-            && cache.win_y == win_y
-            && cache.window_w == window_w
-            && cache.window_h == window_h
             && cache.monitor_x == monitor_x
             && cache.monitor_y == monitor_y
             && cache.monitor_w == monitor_w
@@ -65,7 +57,7 @@ pub fn get_glass_background(
     // SAFETY: dimensions are non-zero and capture_and_blur validates every GDI handle.
     let result = unsafe {
         capture_and_blur(
-            win_x, win_y, window_w, window_h, blur_sigma, monitor_x, monitor_y, monitor_w,
+            screen_x, screen_y, width, height, blur_sigma, monitor_x, monitor_y, monitor_w,
             monitor_h,
         )
     };
@@ -75,10 +67,6 @@ pub fn get_glass_background(
             *cell.borrow_mut() = Some(GlassCache {
                 image: image.clone(),
                 timestamp: Instant::now(),
-                win_x,
-                win_y,
-                window_w,
-                window_h,
                 monitor_x,
                 monitor_y,
                 monitor_w,
@@ -99,10 +87,10 @@ pub fn clear_glass_cache() {
 
 #[allow(clippy::too_many_arguments)]
 unsafe fn capture_and_blur(
-    win_x: i32,
-    win_y: i32,
-    window_w: u32,
-    window_h: u32,
+    screen_x: i32,
+    screen_y: i32,
+    width: u32,
+    height: u32,
     blur_sigma: f32,
     monitor_x: i32,
     monitor_y: i32,
@@ -110,25 +98,25 @@ unsafe fn capture_and_blur(
     monitor_h: u32,
 ) -> Option<Image> {
     let downscale = 2u32;
-    let cap_w = window_w.div_ceil(downscale) as i32;
-    let cap_h = window_h.div_ceil(downscale) as i32;
-    let window_w_i32 = window_w as i32;
-    let window_h_i32 = window_h as i32;
+    let cap_w = width.div_ceil(downscale) as i32;
+    let cap_h = height.div_ceil(downscale) as i32;
+    let width_i32 = width as i32;
+    let height_i32 = height as i32;
     let monitor_right = monitor_x.saturating_add(monitor_w as i32);
     let monitor_bottom = monitor_y.saturating_add(monitor_h as i32);
-    let left_space = win_x.saturating_sub(monitor_x);
-    let right_space = monitor_right.saturating_sub(win_x.saturating_add(window_w_i32));
-    let capture_x = if right_space >= window_w_i32 + 10 {
-        win_x + window_w_i32 + 10
-    } else if left_space >= window_w_i32 + 10 {
-        win_x - window_w_i32 - 10
+    let left_space = screen_x.saturating_sub(monitor_x);
+    let right_space = monitor_right.saturating_sub(screen_x.saturating_add(width_i32));
+    let capture_x = if right_space >= width_i32 + 10 {
+        screen_x + width_i32 + 10
+    } else if left_space >= width_i32 + 10 {
+        screen_x - width_i32 - 10
     } else if right_space >= left_space {
-        monitor_right.saturating_sub(window_w_i32).max(monitor_x)
+        monitor_right.saturating_sub(width_i32).max(monitor_x)
     } else {
         monitor_x
     };
-    let max_capture_y = monitor_bottom.saturating_sub(window_h_i32).max(monitor_y);
-    let capture_y = win_y.clamp(monitor_y, max_capture_y);
+    let max_capture_y = monitor_bottom.saturating_sub(height_i32).max(monitor_y);
+    let capture_y = screen_y.clamp(monitor_y, max_capture_y);
 
     // SAFETY: all GDI resources are checked before use and released in reverse order.
     unsafe {
@@ -160,8 +148,8 @@ unsafe fn capture_and_blur(
             Some(hdc_screen),
             capture_x,
             capture_y,
-            window_w_i32,
-            window_h_i32,
+            width_i32,
+            height_i32,
             SRCCOPY,
         );
 
