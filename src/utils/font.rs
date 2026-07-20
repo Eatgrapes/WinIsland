@@ -221,6 +221,24 @@ impl FontManager {
         FALLBACK_CACHE.with(|cache| cache.borrow_mut().clear());
     }
 
+    pub fn release_custom_typeface(&self) -> bool {
+        let released = CUSTOM_TYPEFACE.with(|cache| {
+            let mut state = cache.borrow_mut();
+            if state.typeface.is_none() {
+                return false;
+            }
+            state.typeface = None;
+            state.load_attempted = false;
+            true
+        });
+        if released {
+            TEXT_CACHE.with(|cache| cache.borrow_mut().clear());
+            FALLBACK_CACHE.with(|cache| cache.borrow_mut().clear());
+            skia_safe::graphics::purge_font_cache();
+        }
+        released
+    }
+
     pub fn get_font(&self, size: f32, bold: bool) -> Font {
         let style = if bold {
             FontStyle::bold()

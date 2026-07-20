@@ -168,6 +168,7 @@ impl App {
                     let old_mini_shape = self.config.mini_cover_shape.clone();
                     let old_expanded_shape = self.config.expanded_cover_shape.clone();
                     let old_font = self.config.custom_font_path.clone();
+                    let old_smtc_enabled = self.config.smtc_enabled;
                     let old_position_x_offset = self.config.position_x_offset;
                     let old_position_y_offset = self.config.position_y_offset;
                     let old_dock_position = self.config.dock_position;
@@ -181,6 +182,15 @@ impl App {
                     self.smtc
                         .set_lyrics_local_dir(self.config.lyrics_local_dir.clone());
                     self.smtc.set_allowed_apps(self.config.smtc_apps.clone());
+                    if old_smtc_enabled != self.config.smtc_enabled {
+                        self.audio.set_target_app_id(
+                            if self.config.smtc_enabled && !self.smtc_media_info.title.is_empty() {
+                                &self.smtc_media_info.source_app_id
+                            } else {
+                                ""
+                            },
+                        );
+                    }
 
                     if old_style != self.config.island_style {
                         crate::utils::backdrop::clear_mica_cache();

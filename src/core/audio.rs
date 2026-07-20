@@ -69,11 +69,41 @@ impl SpectrumAnalyzer {
 
 struct ProcessCaptureContext {
     cancel: CancellationToken,
+    generation: u32,
+    worker_generation: Arc<AtomicU32>,
     target_process_id: Arc<AtomicU32>,
     process_capture_active: Arc<AtomicBool>,
     spectrum: Arc<Mutex<[f32; 6]>>,
     gate: Arc<AtomicU32>,
     gate_override: Arc<AtomicU32>,
+}
+
+impl ProcessCaptureContext {
+    fn is_current(&self) -> bool {
+        self.worker_generation.load(Ordering::Acquire) == self.generation
+    }
+
+    fn set_process_capture_active(&self, active: bool) {
+        if self.is_current() {
+            self.process_capture_active.store(active, Ordering::Release);
+        }
+    }
+}
+
+#[derive(Clone)]
+struct FallbackCaptureContext {
+    spectrum: Arc<Mutex<[f32; 6]>>,
+    gate: Arc<AtomicU32>,
+    gate_override: Arc<AtomicU32>,
+    process_capture_active: Arc<AtomicBool>,
+    worker_generation: Arc<AtomicU32>,
+    generation: u32,
+}
+
+impl FallbackCaptureContext {
+    fn is_current(&self) -> bool {
+        self.worker_generation.load(Ordering::Acquire) == self.generation
+    }
 }
 
 pub struct AudioProcessor {
@@ -83,7 +113,8 @@ pub struct AudioProcessor {
     target_app_id: Arc<RwLock<String>>,
     target_process_id: Arc<AtomicU32>,
     process_capture_active: Arc<AtomicBool>,
-    cancel_token: CancellationToken,
+    worker_generation: Arc<AtomicU32>,
+    workers: Mutex<Option<CancellationToken>>,
 }
 
 impl AudioProcessor {
@@ -96,7 +127,7 @@ impl AudioProcessor {
         let target_app_id = Arc::new(RwLock::new(String::new()));
         let target_process_id = Arc::new(AtomicU32::new(0));
         let process_capture_active = Arc::new(AtomicBool::new(false));
-        let cancel_token = CancellationToken::new();
+        let worker_generation = Arc::new(AtomicU32::new(0));
         let processor = Self {
             spectrum,
             gate,
@@ -104,12 +135,10 @@ impl AudioProcessor {
             target_app_id,
             target_process_id,
             process_capture_active,
-            cancel_token,
+            worker_generation,
+            workers: Mutex::new(None),
         };
-        log::info!("AudioProcessor created, starting capture and meter threads");
-        processor.start_capture();
-        processor.start_meter_thread();
-        processor.start_process_capture();
+        log::info!("AudioProcessor created in idle state");
         processor
     }
 
@@ -123,20 +152,77 @@ impl AudioProcessor {
     }
 
     pub fn set_target_app_id(&self, app_id: &str) {
-        let mut target_app_id = self
-            .target_app_id
-            .write()
-            .unwrap_or_else(|error| error.into_inner());
-        if *target_app_id != app_id {
-            *target_app_id = app_id.to_string();
+        let changed = {
+            let mut target_app_id = self
+                .target_app_id
+                .write()
+                .unwrap_or_else(|error| error.into_inner());
+            if *target_app_id == app_id {
+                false
+            } else {
+                target_app_id.clear();
+                target_app_id.push_str(app_id);
+                true
+            }
+        };
+        if !changed {
+            return;
+        }
+        if app_id.is_empty() {
+            self.stop_workers();
+        } else {
+            self.start_workers();
         }
     }
 
-    fn start_meter_thread(&self) {
-        let cancel = self.cancel_token.clone();
+    fn start_workers(&self) {
+        let cancel = {
+            let mut workers = self
+                .workers
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if workers.is_some() {
+                return;
+            }
+            let cancel = CancellationToken::new();
+            *workers = Some(cancel.clone());
+            cancel
+        };
+        let generation = self
+            .worker_generation
+            .fetch_add(1, Ordering::AcqRel)
+            .wrapping_add(1);
+        log::info!("Audio media detected, starting capture workers");
+        self.start_capture(cancel.clone(), generation);
+        self.start_meter_thread(cancel.clone(), generation);
+        self.start_process_capture(cancel, generation);
+    }
+
+    fn stop_workers(&self) {
+        let cancel = self
+            .workers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+        if let Some(cancel) = cancel {
+            self.worker_generation.fetch_add(1, Ordering::AcqRel);
+            cancel.cancel();
+            self.target_process_id.store(0, Ordering::Relaxed);
+            self.process_capture_active.store(false, Ordering::Release);
+            self.gate.store(0.0f32.to_bits(), Ordering::Relaxed);
+            *self
+                .spectrum
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = [0.0; 6];
+            log::info!("Audio media ended, stopping capture workers");
+        }
+    }
+
+    fn start_meter_thread(&self, cancel: CancellationToken, generation: u32) {
         let gate_clone = self.gate.clone();
         let target_app_id = self.target_app_id.clone();
         let target_process_id = self.target_process_id.clone();
+        let worker_generation = self.worker_generation.clone();
         tokio::task::spawn_blocking(move || {
             // SAFETY: CoInitializeEx initializes COM for this thread. COINIT_MULTITHREADED
             // is safe as we don't use single-threaded COM apartments.
@@ -151,7 +237,8 @@ impl AudioProcessor {
 
             log::info!("Audio meter thread started (COM: {})", hr.is_ok());
 
-            while !cancel.is_cancelled() {
+            while !cancel.is_cancelled() && worker_generation.load(Ordering::Acquire) == generation
+            {
                 let now = Instant::now();
                 if now >= next_device_refresh {
                     next_device_refresh = now + Duration::from_secs(1);
@@ -198,6 +285,9 @@ impl AudioProcessor {
                         .as_ref()
                         .and_then(|manager| find_target_process_id(manager, &current_target_app_id))
                         .unwrap_or(0);
+                    if worker_generation.load(Ordering::Acquire) != generation {
+                        break;
+                    }
                     target_process_id.store(current_target_process_id, Ordering::Relaxed);
                     next_target_refresh = now + Duration::from_secs(1);
                 }
@@ -240,6 +330,9 @@ impl AudioProcessor {
                     }
                 }
                 let gate_val = if max_peak > 0.002 { 1.0f32 } else { 0.0f32 };
+                if worker_generation.load(Ordering::Acquire) != generation {
+                    break;
+                }
                 gate_clone.store(gate_val.to_bits(), Ordering::Relaxed);
                 std::thread::sleep(Duration::from_millis(100));
             }
@@ -254,9 +347,11 @@ impl AudioProcessor {
         });
     }
 
-    fn start_process_capture(&self) {
+    fn start_process_capture(&self, cancel: CancellationToken, generation: u32) {
         let context = ProcessCaptureContext {
-            cancel: self.cancel_token.clone(),
+            cancel,
+            generation,
+            worker_generation: self.worker_generation.clone(),
             target_process_id: self.target_process_id.clone(),
             process_capture_active: self.process_capture_active.clone(),
             spectrum: self.spectrum.clone(),
@@ -270,13 +365,11 @@ impl AudioProcessor {
             let mut retry_after = Instant::now();
             let mut analyzer = SpectrumAnalyzer::new();
 
-            while !context.cancel.is_cancelled() {
+            while !context.cancel.is_cancelled() && context.is_current() {
                 let process_id = context.target_process_id.load(Ordering::Relaxed);
                 if process_id == 0 {
                     active_process_id = 0;
-                    context
-                        .process_capture_active
-                        .store(false, Ordering::Release);
+                    context.set_process_capture_active(false);
                     std::thread::sleep(Duration::from_millis(100));
                     continue;
                 }
@@ -293,9 +386,7 @@ impl AudioProcessor {
                 }
 
                 if let Err(error) = capture_process_audio(process_id, &context, &mut analyzer) {
-                    context
-                        .process_capture_active
-                        .store(false, Ordering::Release);
+                    context.set_process_capture_active(false);
                     retry_after = Instant::now() + Duration::from_secs(1);
                     if unavailable_process_id != Some(process_id) {
                         unavailable_process_id = Some(process_id);
@@ -308,9 +399,7 @@ impl AudioProcessor {
                 }
             }
 
-            context
-                .process_capture_active
-                .store(false, Ordering::Release);
+            context.set_process_capture_active(false);
             if com_initialized {
                 wasapi::deinitialize();
             }
@@ -318,12 +407,20 @@ impl AudioProcessor {
     }
 
     #[allow(unused_variables, unused_assignments)]
-    fn start_capture(&self) {
+    fn start_capture(&self, cancel: CancellationToken, generation: u32) {
         let spectrum_arc = self.spectrum.clone();
-        let cancel = self.cancel_token.clone();
         let gate_clone = self.gate.clone();
         let gate_override_clone = self.gate_override.clone();
         let process_capture_active = self.process_capture_active.clone();
+        let worker_generation = self.worker_generation.clone();
+        let capture_context = FallbackCaptureContext {
+            spectrum: spectrum_arc.clone(),
+            gate: gate_clone.clone(),
+            gate_override: gate_override_clone.clone(),
+            process_capture_active: process_capture_active.clone(),
+            worker_generation: worker_generation.clone(),
+            generation,
+        };
         tokio::task::spawn_blocking(move || {
             let host = cpal::default_host();
             let mut current_device_name = None;
@@ -333,7 +430,8 @@ impl AudioProcessor {
             let mut stream_running = false;
             let mut next_device_refresh = Instant::now();
 
-            while !cancel.is_cancelled() {
+            while !cancel.is_cancelled() && worker_generation.load(Ordering::Acquire) == generation
+            {
                 let now = Instant::now();
                 if now < next_device_refresh {
                     let should_run = analysis_enabled(&gate_clone, &gate_override_clone)
@@ -404,26 +502,17 @@ impl AudioProcessor {
                             SampleFormat::F32 => build_capture_stream::<f32>(
                                 &device,
                                 &stream_config,
-                                spectrum_arc.clone(),
-                                gate_clone.clone(),
-                                gate_override_clone.clone(),
-                                process_capture_active.clone(),
+                                capture_context.clone(),
                             ),
                             SampleFormat::I16 => build_capture_stream::<i16>(
                                 &device,
                                 &stream_config,
-                                spectrum_arc.clone(),
-                                gate_clone.clone(),
-                                gate_override_clone.clone(),
-                                process_capture_active.clone(),
+                                capture_context.clone(),
                             ),
                             SampleFormat::U16 => build_capture_stream::<u16>(
                                 &device,
                                 &stream_config,
-                                spectrum_arc.clone(),
-                                gate_clone.clone(),
-                                gate_override_clone.clone(),
-                                process_capture_active.clone(),
+                                capture_context.clone(),
                             ),
                             _ => {
                                 std::thread::sleep(std::time::Duration::from_millis(500));
@@ -502,13 +591,12 @@ fn capture_process_audio(
     let event = audio_client.set_get_eventhandle()?;
     let capture_client = audio_client.get_audiocaptureclient()?;
     audio_client.start_stream()?;
-    context
-        .process_capture_active
-        .store(true, Ordering::Release);
+    context.set_process_capture_active(true);
 
     let mut bytes = VecDeque::new();
     let result = (|| {
         while !context.cancel.is_cancelled()
+            && context.is_current()
             && context.target_process_id.load(Ordering::Relaxed) == process_id
         {
             let _ = event.wait_for_event(100);
@@ -547,9 +635,7 @@ fn capture_process_audio(
         Ok(())
     })();
 
-    context
-        .process_capture_active
-        .store(false, Ordering::Release);
+    context.set_process_capture_active(false);
     let _ = audio_client.stop_stream();
     result
 }
@@ -628,10 +714,7 @@ fn process_app_user_model_id(process_id: u32) -> Option<String> {
 fn build_capture_stream<T>(
     device: &cpal::Device,
     config: &StreamConfig,
-    spectrum_arc: Arc<Mutex<[f32; 6]>>,
-    gate_clone: Arc<AtomicU32>,
-    gate_override_clone: Arc<AtomicU32>,
-    process_capture_active: Arc<AtomicBool>,
+    context: FallbackCaptureContext,
 ) -> Result<Stream, cpal::Error>
 where
     T: cpal::SizedSample + Copy,
@@ -642,19 +725,22 @@ where
     device.build_input_stream(
         *config,
         move |data: &[T], _: &_| {
-            if process_capture_active.load(Ordering::Acquire) {
+            if !context.is_current() {
                 return;
             }
-            if !analysis_enabled(&gate_clone, &gate_override_clone) {
-                reset_spectrum(&mut analyzer, &spectrum_arc);
+            if context.process_capture_active.load(Ordering::Acquire) {
+                return;
+            }
+            if !analysis_enabled(&context.gate, &context.gate_override) {
+                reset_spectrum(&mut analyzer, &context.spectrum);
                 return;
             }
             for &sample in data {
                 analyzer.push_sample(
                     f32::from_sample(sample),
-                    &spectrum_arc,
-                    &gate_clone,
-                    &gate_override_clone,
+                    &context.spectrum,
+                    &context.gate,
+                    &context.gate_override,
                 );
             }
         },
@@ -726,6 +812,6 @@ fn reset_spectrum(analyzer: &mut SpectrumAnalyzer, spectrum: &Mutex<[f32; 6]>) {
 impl Drop for AudioProcessor {
     fn drop(&mut self) {
         log::info!("AudioProcessor dropped");
-        self.cancel_token.cancel();
+        self.stop_workers();
     }
 }

@@ -200,7 +200,12 @@ impl App {
 
         if let Some(media) = self.smtc.take_info_if_changed() {
             let media_ended = !self.smtc_media_info.title.is_empty() && media.title.is_empty();
-            self.audio.set_target_app_id(&media.source_app_id);
+            self.audio
+                .set_target_app_id(if self.config.smtc_enabled && !media.title.is_empty() {
+                    &media.source_app_id
+                } else {
+                    ""
+                });
             self.smtc_media_info = media;
             if media_ended {
                 self.last_media_title.clear();
@@ -446,6 +451,15 @@ impl App {
         }
         if self.lyric_transition >= 1.0 && !self.old_lyric_text.is_empty() {
             self.old_lyric_text = String::new();
+        }
+        if self.settings.is_none()
+            && !music_active
+            && !self.expanded
+            && !compact_overlay_visible
+            && self.lyric_transition >= 1.0
+            && crate::utils::font::FontManager::global().release_custom_typeface()
+        {
+            log::info!("Released idle custom font resources");
         }
 
         let lyric_target_w = self.compute_lyric_target_width(&window, music_active, is_paused, dt);
