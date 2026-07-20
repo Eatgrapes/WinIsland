@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use windows::Win32::Foundation::HWND;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -5,7 +7,7 @@ use winit::window::Window;
 
 use crate::core::config::{MAX_HIDDEN_WIDTH, PADDING, TOP_OFFSET};
 
-use super::{App, HideEdge, IslandLayout};
+use super::{App, DEFAULT_ANIMATION_REFRESH_RATE_MILLIHERTZ, HideEdge, IslandLayout};
 
 impl App {
     pub(super) fn get_target_monitor(
@@ -59,6 +61,18 @@ impl App {
                 .primary_monitor()
                 .or_else(|| window.current_monitor())
         }
+    }
+
+    pub(super) fn update_animation_frame_interval(
+        &mut self,
+        monitor: &winit::monitor::MonitorHandle,
+    ) {
+        let refresh_rate_millihertz = monitor
+            .refresh_rate_millihertz()
+            .filter(|refresh_rate| *refresh_rate > 0)
+            .unwrap_or(DEFAULT_ANIMATION_REFRESH_RATE_MILLIHERTZ);
+        self.animation_frame_interval =
+            Duration::from_nanos(1_000_000_000_000u64 / u64::from(refresh_rate_millihertz));
     }
 
     pub(super) fn enforce_topmost(window: &Window, win_x: i32, win_y: i32, os_w: u32, os_h: u32) {

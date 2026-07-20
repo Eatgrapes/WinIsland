@@ -13,7 +13,7 @@ use softbuffer::{Context, Surface};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc;
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use winit::dpi::PhysicalPosition;
 use winit::window::Window;
 
@@ -27,6 +27,8 @@ mod system;
 
 type InstallResult = Result<(PluginManifest, PathBuf, Vec<String>), String>;
 const RIGHT_DRAG_THRESHOLD: i32 = 4;
+pub(super) const DEFAULT_ANIMATION_REFRESH_RATE_MILLIHERTZ: u32 = 144_000;
+pub(super) const DEFAULT_ANIMATION_FRAME_INTERVAL: Duration = Duration::from_micros(6_944);
 
 #[derive(Clone, Copy)]
 enum HideEdge {
@@ -90,6 +92,7 @@ pub struct App {
     last_monitor_check: Instant,
     last_config_modified: Option<SystemTime>,
     next_frame_deadline: Instant,
+    animation_frame_interval: Duration,
     last_mon_size: (u32, u32),
     last_mon_pos: (i32, i32),
     lyric_scroll_offset: f32,
@@ -174,6 +177,7 @@ impl Default for App {
             last_monitor_check: Instant::now(),
             last_config_modified,
             next_frame_deadline: Instant::now(),
+            animation_frame_interval: DEFAULT_ANIMATION_FRAME_INTERVAL,
             last_mon_size: (0, 0),
             last_mon_pos: (0, 0),
             lyric_scroll_offset: 0.0,

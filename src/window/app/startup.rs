@@ -72,6 +72,7 @@ impl App {
             if let Some(monitor) = monitor_opt {
                 let mon_size = monitor.size();
                 let mon_pos = monitor.position();
+                self.update_animation_frame_interval(&monitor);
                 self.last_mon_size = (mon_size.width, mon_size.height);
                 self.last_mon_pos = (mon_pos.x, mon_pos.y);
                 (self.win_x, self.win_y) = self.compute_window_position(mon_pos, mon_size);

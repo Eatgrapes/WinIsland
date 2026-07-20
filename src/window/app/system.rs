@@ -252,6 +252,7 @@ impl App {
                     {
                         let mon_size = monitor.size();
                         let mon_pos = monitor.position();
+                        self.update_animation_frame_interval(&monitor);
                         if mon_size.width > 0 && mon_size.height > 0 {
                             self.last_mon_size = (mon_size.width, mon_size.height);
                             self.last_mon_pos = (mon_pos.x, mon_pos.y);
@@ -272,6 +273,7 @@ impl App {
         if let Some(monitor) = Self::get_target_monitor(window, self.config.monitor_index) {
             let mon_size = monitor.size();
             let mon_pos = monitor.position();
+            self.update_animation_frame_interval(&monitor);
             let cur_mon_size = (mon_size.width, mon_size.height);
             let cur_mon_pos = (mon_pos.x, mon_pos.y);
             if (cur_mon_size != self.last_mon_size || cur_mon_pos != self.last_mon_pos)
