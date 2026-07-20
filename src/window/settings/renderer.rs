@@ -127,7 +127,6 @@ impl SettingsApp {
                 visible_min_y: self.scroll_y,
                 visible_max_y: self.scroll_y + win_h,
                 island_style: &self.config.island_style,
-                adaptive_border: self.config.adaptive_border,
                 expanded_width: self.config.expanded_width,
                 expanded_height: self.config.expanded_height,
                 widget_layout: &self.config.widget_layout,

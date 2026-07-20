@@ -28,7 +28,6 @@ pub struct DrawItemsParams<'a> {
     pub visible_min_y: f32,
     pub visible_max_y: f32,
     pub island_style: &'a str,
-    pub adaptive_border: bool,
     pub expanded_width: f32,
     pub expanded_height: f32,
     pub widget_layout: &'a [WidgetSlot],

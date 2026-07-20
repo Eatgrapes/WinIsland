@@ -20,7 +20,6 @@ pub(super) struct WidgetPreviewParams<'a> {
     pub(super) visible_min_y: f32,
     pub(super) visible_max_y: f32,
     pub(super) island_style: &'a str,
-    pub(super) adaptive_border: bool,
     pub(super) expanded_width: f32,
     pub(super) expanded_height: f32,
     pub(super) widget_layout: &'a [WidgetSlot],
@@ -39,7 +38,6 @@ pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
         visible_min_y,
         visible_max_y,
         island_style,
-        adaptive_border,
         expanded_width,
         expanded_height,
         widget_layout,
@@ -199,11 +197,7 @@ pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
         border_p.set_anti_alias(true);
         border_p.set_style(skia_safe::paint::Style::Stroke);
         border_p.set_stroke_width(1.0);
-        if adaptive_border {
-            border_p.set_color(Color::from_argb(120, 255, 255, 255));
-        } else {
-            border_p.set_color(Color::from_argb(40, 255, 255, 255));
-        }
+        border_p.set_color(Color::from_argb(40, 255, 255, 255));
         canvas.draw_round_rect(
             Rect::from_xywh(cap_x, cap_y, cap_w, cap_h),
             28.0,

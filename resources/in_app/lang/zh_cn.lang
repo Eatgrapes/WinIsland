@@ -61,7 +61,6 @@ dock_position_bottom_left=左下角
 dock_position_bottom_right=右下角
 monitor=显示器
 font_size=字体大小 (px)
-adaptive_border=自适应边框
 motion_blur=动态模糊
 cover_rotate=封面旋转
 audio_gate=音频门控

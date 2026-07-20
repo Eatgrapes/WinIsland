@@ -10,7 +10,6 @@ use super::SettingsApp;
 #[derive(Clone, Copy)]
 pub(super) enum EffectsAction {
     SettingsTheme,
-    AdaptiveBorder,
     MotionBlur,
     IslandStyle,
     CustomFont,
@@ -34,14 +33,6 @@ impl SettingsApp {
                 enabled: true,
             },
             EffectsAction::SettingsTheme,
-        );
-        page.push_action(
-            SettingsItem::RowSwitch {
-                label: tr("adaptive_border"),
-                on: self.config.adaptive_border,
-                enabled: true,
-            },
-            EffectsAction::AdaptiveBorder,
         );
         page.push_action(
             SettingsItem::RowSwitch {
@@ -93,10 +84,6 @@ impl SettingsApp {
         };
 
         let changed = match (action, &result) {
-            (EffectsAction::AdaptiveBorder, ClickResult::Switch(_)) => {
-                self.config.adaptive_border = !self.config.adaptive_border;
-                true
-            }
             (EffectsAction::MotionBlur, ClickResult::Switch(_)) => {
                 self.config.motion_blur = !self.config.motion_blur;
                 true

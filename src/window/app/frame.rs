@@ -10,7 +10,6 @@ use crate::ui::compact::CompactOverlayState;
 use crate::ui::expanded::music_view::{
     get_progress_bar_rect, set_progress_dragging, set_progress_hover,
 };
-use crate::utils::color::get_island_border_weights;
 use crate::utils::mouse::{
     get_global_cursor_pos, is_cursor_hidden, is_foreground_fullscreen, is_left_button_pressed,
     is_point_in_rect, is_point_in_rounded_rect,
@@ -389,33 +388,6 @@ impl App {
             && (is_left_button_pressed() || self.touch_id.is_some())
         {
             self.idle_timer = Instant::now();
-        }
-
-        if self.config.adaptive_border {
-            if now.duration_since(self.last_adaptive_border_check) >= Duration::from_millis(200) {
-                self.last_adaptive_border_check = now;
-                let island_cx = self.win_x
-                    + (current_island_x + (self.spring_w.value as f64) / 2.0).round() as i32;
-                let island_cy = self.win_y
-                    + (current_island_y + (self.spring_h.value as f64) / 2.0).round() as i32;
-                let raw_weights = get_island_border_weights(
-                    island_cx,
-                    island_cy,
-                    self.spring_w.value,
-                    self.spring_h.value,
-                );
-                self.target_border_weights = raw_weights.map(|w| if w > 0.85 { w } else { 0.0 });
-            }
-        } else {
-            self.target_border_weights = [0.0; 4];
-        }
-        for i in 0..4 {
-            let diff = self.target_border_weights[i] - self.border_weights[i];
-            if diff.abs() > 0.005 {
-                self.border_weights[i] += diff * 0.1 * dt;
-            } else {
-                self.border_weights[i] = self.target_border_weights[i];
-            }
         }
 
         let is_paused = music_active && !media_is_playing;

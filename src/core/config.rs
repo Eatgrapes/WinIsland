@@ -128,7 +128,6 @@ pub struct AppConfig {
     pub base_height: f32,
     pub expanded_width: f32,
     pub expanded_height: f32,
-    pub adaptive_border: bool,
     pub motion_blur: bool,
     #[serde(default = "default_island_style")]
     pub island_style: String,
@@ -462,7 +461,6 @@ impl Default for AppConfig {
             base_height: 27.0,
             expanded_width: 360.0,
             expanded_height: 200.0,
-            adaptive_border: false,
             motion_blur: true,
             island_style: "default".to_string(),
             smtc_enabled: true,

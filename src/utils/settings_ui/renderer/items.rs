@@ -26,7 +26,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
     let visible_min_y = params.visible_min_y;
     let visible_max_y = params.visible_max_y;
     let island_style = params.island_style;
-    let adaptive_border = params.adaptive_border;
     let expanded_width = params.expanded_width;
     let expanded_height = params.expanded_height;
     let widget_layout = params.widget_layout;
@@ -887,7 +886,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     visible_min_y,
                     visible_max_y,
                     island_style,
-                    adaptive_border,
                     expanded_width,
                     expanded_height,
                     widget_layout,

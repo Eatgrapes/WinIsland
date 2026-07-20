@@ -199,7 +199,6 @@ impl App {
                                     island_style: &self.config.island_style,
                                     use_blur: self.config.motion_blur,
                                     font_size: self.config.font_size,
-                                    weights: self.border_weights,
                                     lyrics_delay: self.config.lyrics_delay,
                                     dt,
                                     widget_layout: &self.config.widget_layout,

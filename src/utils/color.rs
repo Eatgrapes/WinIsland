@@ -21,10 +21,6 @@ pub fn color_separator() -> Color {
     Color::from_argb(26, 255, 255, 255)
 }
 
-pub fn get_island_border_weights(_cx: i32, _cy: i32, _w: f32, _h: f32) -> [f32; 4] {
-    [0.0, 0.0, 0.0, 0.0]
-}
-
 pub struct SettingsTheme {
     pub win_bg: Color,
     pub sidebar_bg: Color,

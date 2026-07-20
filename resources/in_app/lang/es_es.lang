@@ -61,7 +61,6 @@ dock_position_bottom_left=Inferior Izquierda
 dock_position_bottom_right=Inferior Derecha
 monitor=Monitor
 font_size=Tamaño de Fuente (px)
-adaptive_border=Borde Adaptivo
 motion_blur=Desenfoque de Movimiento
 cover_rotate=Rotar Portada
 audio_gate=Umbral de Audio
