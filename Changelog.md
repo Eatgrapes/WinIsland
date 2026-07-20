@@ -3,6 +3,7 @@
 ### v1.2.6
 - Improve island hiding settings
 - Improve glass rendering and interface spacing consistency
+- Simplify appearance settings and choose the expansion direction from available screen space
 - Optimize performance and resource usage
 - Fix notification display compatibility
 
