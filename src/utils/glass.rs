@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::time::{Duration, Instant};
 use windows::Win32::Graphics::Gdi::*;
 
-const GLASS_REFRESH_INTERVAL: Duration = Duration::from_millis(16);
+const GLASS_REFRESH_INTERVAL: Duration = Duration::from_millis(33);
 
 struct GlassCache {
     image: Image,

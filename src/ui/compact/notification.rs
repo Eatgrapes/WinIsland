@@ -299,6 +299,12 @@ impl NotificationIndicator {
         notification: Option<NotificationPayload>,
         state: CompactOverlayState,
     ) -> bool {
+        if self
+            .display_until
+            .is_some_and(|until| until + FADE_DURATION <= Instant::now())
+        {
+            self.clear_display();
+        }
         let received_notification = notification.is_some();
         if let Some(notification) = notification {
             self.pending = Some(notification);
@@ -339,6 +345,9 @@ impl NotificationIndicator {
     }
 
     fn clear_display(&mut self) {
+        self.app_name = String::new();
+        self.title = String::new();
+        self.detail = String::new();
         self.display_started = None;
         self.display_until = None;
         self.icon = None;

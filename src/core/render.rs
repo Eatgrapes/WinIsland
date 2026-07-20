@@ -11,16 +11,12 @@ use crate::core::smtc::MediaInfo;
 use crate::ui::compact::CompactOverlay;
 use crate::ui::expanded::music_view::{default_media_palette, get_media_palette};
 use skia_safe::{
-    ClipOp, Color, ISize, Paint, RRect, Rect, Surface as SkSurface, image_filters, surfaces,
+    AlphaType, ClipOp, Color, ColorType, ISize, ImageInfo, Paint, RRect, Rect, image_filters,
+    surfaces,
 };
 use softbuffer::Surface;
-use std::cell::RefCell;
 use std::sync::Arc;
 use winit::window::Window;
-
-thread_local! {
-    static SK_SURFACE: RefCell<Option<SkSurface>> = const { RefCell::new(None) };
-}
 
 pub struct LayoutParams {
     pub current_w: f32,
@@ -140,19 +136,18 @@ pub fn draw_island(
         widget_layout,
     } = style;
     let mut buffer = surface.buffer_mut().unwrap();
-    let mut sk_surface = SK_SURFACE.with(|cell| {
-        let mut opt = cell.borrow_mut();
-        if let Some(ref s) = *opt
-            && s.width() == os_w as i32
-            && s.height() == os_h as i32
-        {
-            return s.clone();
-        }
-        let new_surface =
-            surfaces::raster_n32_premul(ISize::new(os_w as i32, os_h as i32)).unwrap();
-        *opt = Some(new_surface.clone());
-        new_surface
-    });
+    let info = ImageInfo::new(
+        ISize::new(os_w as i32, os_h as i32),
+        ColorType::BGRA8888,
+        AlphaType::Premul,
+        None,
+    );
+    let dst_row_bytes = (os_w * 4) as usize;
+    let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut buffer);
+    let mut sk_surface = match surfaces::wrap_pixels(&info, u8_buffer, dst_row_bytes, None) {
+        Some(surface) => surface,
+        None => return false,
+    };
     let canvas = sk_surface.canvas();
     canvas.clear(Color::TRANSPARENT);
 
@@ -287,15 +282,7 @@ pub fn draw_island(
         );
         canvas.draw_rrect(border_rrect, &border_paint);
     }
-    let info = skia_safe::ImageInfo::new(
-        skia_safe::ISize::new(os_w as i32, os_h as i32),
-        skia_safe::ColorType::BGRA8888,
-        skia_safe::AlphaType::Premul,
-        None,
-    );
-    let dst_row_bytes = (os_w * 4) as usize;
-    let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut buffer);
-    let _ = sk_surface.read_pixels(&info, u8_buffer, dst_row_bytes, (0, 0));
+    drop(sk_surface);
     if let Err(e) = buffer.present() {
         log::error!("Present failed: {:?}", e);
     }

@@ -2,13 +2,16 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use skia_safe::{Color, Image};
+use skia_safe::{
+    AlphaType, Color, ColorType, FilterMode, ISize, Image, ImageInfo, MipmapMode, Paint, Rect,
+    SamplingOptions, surfaces,
+};
 
 thread_local! {
-    static COLOR_CACHE: RefCell<HashMap<String, Arc<[Color]>>> = RefCell::new(HashMap::new());
+    static COLOR_CACHE: RefCell<HashMap<u64, Arc<[Color]>>> = RefCell::new(HashMap::new());
 }
 
-pub(super) fn get_palette_from_image(img: &Image, cache_key: &str) -> Arc<[Color]> {
+pub(super) fn get_palette_from_image(img: &Image, cache_key: u64) -> Arc<[Color]> {
     COLOR_CACHE.with(|cache| {
         let mut cache_mut = cache.borrow_mut();
         if cache_mut.len() > 50
@@ -16,40 +19,46 @@ pub(super) fn get_palette_from_image(img: &Image, cache_key: &str) -> Arc<[Color
         {
             cache_mut.remove(&oldest_key);
         }
-        if let Some(palette) = cache_mut.get(cache_key) {
+        if let Some(palette) = cache_mut.get(&cache_key) {
             return palette.clone();
         }
-        let mut palette = Vec::new();
-        let info = skia_safe::ImageInfo::new(
-            skia_safe::ISize::new(img.width(), img.height()),
-            skia_safe::ColorType::BGRA8888,
-            skia_safe::AlphaType::Premul,
+        let mut palette = Vec::with_capacity(3);
+        let info = ImageInfo::new(
+            ISize::new(8, 8),
+            ColorType::BGRA8888,
+            AlphaType::Premul,
             None,
         );
-        let mut pixels = vec![0u8; (img.width() * img.height() * 4) as usize];
-        if img.read_pixels(
+        let mut sample_surface = surfaces::raster_n32_premul(ISize::new(8, 8)).unwrap();
+        let mut paint = Paint::default();
+        paint.set_anti_alias(true);
+        sample_surface
+            .canvas()
+            .draw_image_rect_with_sampling_options(
+                img,
+                None,
+                Rect::from_xywh(0.0, 0.0, 8.0, 8.0),
+                SamplingOptions::new(FilterMode::Linear, MipmapMode::None),
+                &paint,
+            );
+        let sampled = sample_surface.image_snapshot();
+        let mut pixels = [0u8; 8 * 8 * 4];
+        if sampled.read_pixels(
             &info,
             &mut pixels,
-            (img.width() * 4) as usize,
+            8 * 4,
             (0, 0),
             skia_safe::image::CachingHint::Allow,
         ) {
-            let step_x = img.width() / 8;
-            let step_y = img.height() / 8;
             let mut r_total = 0u32;
             let mut g_total = 0u32;
             let mut b_total = 0u32;
             let mut count = 0u32;
-            for y in 1..8 {
-                for x in 1..8 {
-                    let idx = ((y * step_y * img.width() + x * step_x) * 4) as usize;
-                    if idx + 2 < pixels.len() {
-                        b_total += pixels[idx] as u32;
-                        g_total += pixels[idx + 1] as u32;
-                        r_total += pixels[idx + 2] as u32;
-                        count += 1;
-                    }
-                }
+            for pixel in pixels.chunks_exact(4) {
+                b_total += pixel[0] as u32;
+                g_total += pixel[1] as u32;
+                r_total += pixel[2] as u32;
+                count += 1;
             }
             if count > 0 {
                 let r_avg = r_total as f32 / count as f32;
@@ -84,7 +93,7 @@ pub(super) fn get_palette_from_image(img: &Image, cache_key: &str) -> Arc<[Color
             palette.push(Color::from_rgb(200, 200, 200));
         }
         let palette: Arc<[Color]> = Arc::from(palette);
-        cache_mut.insert(cache_key.to_string(), palette.clone());
+        cache_mut.insert(cache_key, palette.clone());
         palette
     })
 }

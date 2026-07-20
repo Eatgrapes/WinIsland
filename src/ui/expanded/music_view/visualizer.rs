@@ -56,17 +56,19 @@ pub fn draw_visualizer(params: DrawVisualizerParams<'_>) {
         let start_x = x - (bar_count as f32 * (bar_w + spacing)) / 2.0;
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
-        let colors_with_alpha: Vec<Color> = palette
-            .iter()
-            .map(|c| Color::from_argb(alpha, c.r(), c.g(), c.b()))
-            .collect();
-        if colors_with_alpha.len() >= 2 {
+        let first = palette.first().copied().unwrap_or(Color::WHITE);
+        let second = palette.get(1).copied().unwrap_or(first);
+        let colors_with_alpha = [
+            Color::from_argb(alpha, first.r(), first.g(), first.b()),
+            Color::from_argb(alpha, second.r(), second.g(), second.b()),
+        ];
+        if palette.len() >= 2 {
             let shader = gradient_shader::linear(
                 (
                     Point::new(start_x, y - max_h / 2.0),
                     Point::new(start_x + (20.0 * w_scale), y + max_h / 2.0),
                 ),
-                colors_with_alpha.as_slice(),
+                &colors_with_alpha[..],
                 None,
                 TileMode::Mirror,
                 None,
@@ -75,7 +77,7 @@ pub fn draw_visualizer(params: DrawVisualizerParams<'_>) {
             .unwrap();
             paint.set_shader(shader);
         } else {
-            paint.set_color(colors_with_alpha.first().cloned().unwrap_or(Color::WHITE));
+            paint.set_color(colors_with_alpha[0]);
         }
         for i in 0..bar_count {
             let h = heights[i];

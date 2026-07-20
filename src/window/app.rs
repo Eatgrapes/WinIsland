@@ -1,8 +1,8 @@
 use crate::core::audio::AudioProcessor;
 use crate::core::config::AppConfig;
 use crate::core::context::ContextManager;
-use crate::core::persistence::load_config;
-use crate::core::smtc::SmtcListener;
+use crate::core::persistence::{get_config_path, load_config};
+use crate::core::smtc::{MediaInfo, SmtcListener};
 use crate::plugin::PluginManager;
 use crate::plugin::zip_loader::PluginManifest;
 use crate::ui::compact::CompactOverlay;
@@ -12,7 +12,7 @@ use softbuffer::{Context, Surface};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 use winit::dpi::PhysicalPosition;
 use winit::window::Window;
 
@@ -61,7 +61,7 @@ pub struct App {
     os_h: u32,
     win_x: i32,
     win_y: i32,
-    frame_count: u64,
+    smtc_media_info: MediaInfo,
     last_media_title: String,
     current_lyric_text: String,
     old_lyric_text: String,
@@ -79,7 +79,15 @@ pub struct App {
     drag_start_hide_val: f32,
     manually_hidden: bool,
     drag_has_moved: bool,
-    last_frame_time: Instant,
+    last_update_time: Instant,
+    last_render_time: Instant,
+    last_topmost_check: Instant,
+    last_fullscreen_check: Instant,
+    last_adaptive_border_check: Instant,
+    last_config_check: Instant,
+    last_monitor_check: Instant,
+    last_config_modified: Option<SystemTime>,
+    next_frame_deadline: Instant,
     last_mon_size: (u32, u32),
     last_mon_pos: (i32, i32),
     lyric_scroll_offset: f32,
@@ -105,6 +113,11 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         let config = load_config();
+        let last_config_modified = std::fs::metadata(get_config_path())
+            .and_then(|metadata| metadata.modified())
+            .ok();
+        crate::utils::font::FontManager::global()
+            .set_custom_font_path(config.custom_font_path.as_deref());
         Self {
             window: None,
             context: None,
@@ -131,7 +144,7 @@ impl Default for App {
             os_h: 0,
             win_x: 0,
             win_y: 0,
-            frame_count: 0,
+            smtc_media_info: MediaInfo::default(),
             last_media_title: String::new(),
             current_lyric_text: String::new(),
             old_lyric_text: String::new(),
@@ -149,7 +162,15 @@ impl Default for App {
             drag_start_hide_val: 0.0,
             manually_hidden: false,
             drag_has_moved: false,
-            last_frame_time: Instant::now(),
+            last_update_time: Instant::now(),
+            last_render_time: Instant::now(),
+            last_topmost_check: Instant::now(),
+            last_fullscreen_check: Instant::now(),
+            last_adaptive_border_check: Instant::now(),
+            last_config_check: Instant::now(),
+            last_monitor_check: Instant::now(),
+            last_config_modified,
+            next_frame_deadline: Instant::now(),
             last_mon_size: (0, 0),
             last_mon_pos: (0, 0),
             lyric_scroll_offset: 0.0,

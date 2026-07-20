@@ -92,7 +92,7 @@ impl AudioProcessor {
         let gate = Arc::new(AtomicU32::new(1.0f32.to_bits()));
         // AtomicU32 stores f32 bit patterns since std::sync::atomic doesn't provide AtomicF32.
         // Relaxed ordering is sufficient: we only need eventual consistency for the gate value.
-        let gate_override = Arc::new(AtomicU32::new(1.0f32.to_bits()));
+        let gate_override = Arc::new(AtomicU32::new(0.0f32.to_bits()));
         let target_app_id = Arc::new(RwLock::new(String::new()));
         let target_process_id = Arc::new(AtomicU32::new(0));
         let process_capture_active = Arc::new(AtomicBool::new(false));
@@ -147,38 +147,44 @@ impl AudioProcessor {
             let mut current_target_app_id = String::new();
             let mut current_target_process_id = 0;
             let mut next_target_refresh = Instant::now();
+            let mut next_device_refresh = Instant::now();
 
             log::info!("Audio meter thread started (COM: {})", hr.is_ok());
 
             while !cancel.is_cancelled() {
                 let now = Instant::now();
-                let default_device = host.default_output_device();
-                let default_device_name = default_device
-                    .as_ref()
-                    .and_then(|d| d.description().map(|desc| desc.name().to_string()).ok());
+                if now >= next_device_refresh {
+                    next_device_refresh = now + Duration::from_secs(1);
+                    let default_device = host.default_output_device();
+                    let default_device_name = default_device
+                        .as_ref()
+                        .and_then(|d| d.description().map(|desc| desc.name().to_string()).ok());
 
-                if default_device_name != current_device_name {
-                    session_manager = None;
-                    current_device_name = None;
-                    current_target_process_id = 0;
-                    target_process_id.store(0, Ordering::Relaxed);
-                    next_target_refresh = Instant::now();
+                    if default_device_name != current_device_name {
+                        session_manager = None;
+                        current_device_name = None;
+                        current_target_process_id = 0;
+                        target_process_id.store(0, Ordering::Relaxed);
+                        next_target_refresh = Instant::now();
 
-                    if default_device_name.is_some() {
-                        session_manager = unsafe {
-                            (|| -> Option<IAudioSessionManager2> {
-                                let enumerator: IMMDeviceEnumerator =
-                                    CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
-                                let device =
-                                    enumerator.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
-                                device.Activate(CLSCTX_ALL, None).ok()
-                            })()
-                        };
-                        current_device_name = default_device_name;
-                        log::info!(
-                            "Audio meter thread: switched to device {:?}",
-                            current_device_name
-                        );
+                        if default_device_name.is_some() {
+                            session_manager = unsafe {
+                                (|| -> Option<IAudioSessionManager2> {
+                                    let enumerator: IMMDeviceEnumerator =
+                                        CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
+                                            .ok()?;
+                                    let device = enumerator
+                                        .GetDefaultAudioEndpoint(eRender, eConsole)
+                                        .ok()?;
+                                    device.Activate(CLSCTX_ALL, None).ok()
+                                })()
+                            };
+                            current_device_name = default_device_name;
+                            log::info!(
+                                "Audio meter thread: switched to device {:?}",
+                                current_device_name
+                            );
+                        }
                     }
                 }
 
@@ -194,6 +200,12 @@ impl AudioProcessor {
                         .unwrap_or(0);
                     target_process_id.store(current_target_process_id, Ordering::Relaxed);
                     next_target_refresh = now + Duration::from_secs(1);
+                }
+
+                if current_target_app_id.is_empty() {
+                    gate_clone.store(0.0f32.to_bits(), Ordering::Relaxed);
+                    std::thread::sleep(Duration::from_millis(100));
+                    continue;
                 }
 
                 let mut max_peak = 0.0f32;
@@ -229,7 +241,7 @@ impl AudioProcessor {
                 }
                 let gate_val = if max_peak > 0.002 { 1.0f32 } else { 0.0f32 };
                 gate_clone.store(gate_val.to_bits(), Ordering::Relaxed);
-                std::thread::sleep(std::time::Duration::from_millis(50));
+                std::thread::sleep(Duration::from_millis(100));
             }
             // Drop COM objects while COM is still initialized, then clean up.
             drop(session_manager);
@@ -315,11 +327,30 @@ impl AudioProcessor {
         tokio::task::spawn_blocking(move || {
             let host = cpal::default_host();
             let mut current_device_name = None;
-            let mut current_stream = None;
+            let mut current_stream: Option<Stream> = None;
             let mut current_session = None;
             let mut hr = None;
+            let mut stream_running = false;
+            let mut next_device_refresh = Instant::now();
 
             while !cancel.is_cancelled() {
+                let now = Instant::now();
+                if now < next_device_refresh {
+                    let should_run = analysis_enabled(&gate_clone, &gate_override_clone)
+                        && !process_capture_active.load(Ordering::Acquire);
+                    if let Some(stream) = current_stream.as_ref() {
+                        if should_run && !stream_running {
+                            if stream.play().is_ok() {
+                                stream_running = true;
+                            }
+                        } else if !should_run && stream_running && stream.pause().is_ok() {
+                            stream_running = false;
+                        }
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+                next_device_refresh = now + Duration::from_secs(1);
                 let default_device = host.default_output_device();
                 let default_device_name = default_device
                     .as_ref()
@@ -335,6 +366,7 @@ impl AudioProcessor {
                     // Releasing old stream and session
                     current_stream = None;
                     current_session = None;
+                    stream_running = false;
                     if hr.is_some() {
                         unsafe {
                             CoUninitialize();
@@ -427,27 +459,17 @@ impl AudioProcessor {
                                 session
                             };
 
-                            if s.play().is_ok() {
-                                log::info!("Audio capture stream started for '{}'", device_name);
-                                current_stream = Some(s);
-                                current_session = _session;
-                                current_device_name = Some(device_name);
-                            } else {
-                                log::error!("Audio capture: failed to play stream");
-                                if play_hr.is_ok() {
-                                    unsafe {
-                                        CoUninitialize();
-                                    }
-                                }
-                                hr = None;
-                            }
+                            log::info!("Audio capture stream prepared for '{}'", device_name);
+                            current_stream = Some(s);
+                            current_session = _session;
+                            current_device_name = Some(device_name);
                         } else if let Err(e) = stream {
                             log::error!("Audio capture: failed to build capture stream: {:?}", e);
                         }
                     }
                 }
 
-                std::thread::sleep(std::time::Duration::from_millis(500));
+                std::thread::sleep(Duration::from_millis(100));
             }
 
             // Cleanup when loop ends
@@ -493,19 +515,23 @@ fn capture_process_audio(
             let mut captured = false;
             while capture_client.get_next_packet_size()?.unwrap_or(0) > 0 {
                 capture_client.read_from_device_to_deque(&mut bytes)?;
-                let samples = bytes.make_contiguous();
-                for sample in samples.chunks_exact(4) {
-                    analyzer.push_sample(
-                        f32::from_le_bytes([sample[0], sample[1], sample[2], sample[3]]),
-                        &context.spectrum,
-                        &context.gate,
-                        &context.gate_override,
-                    );
+                if analysis_enabled(&context.gate, &context.gate_override) {
+                    let samples = bytes.make_contiguous();
+                    for sample in samples.chunks_exact(4) {
+                        analyzer.push_sample(
+                            f32::from_le_bytes([sample[0], sample[1], sample[2], sample[3]]),
+                            &context.spectrum,
+                            &context.gate,
+                            &context.gate_override,
+                        );
+                    }
+                } else {
+                    reset_spectrum(analyzer, &context.spectrum);
                 }
                 bytes.clear();
                 captured = true;
             }
-            if !captured {
+            if !captured && analysis_enabled(&context.gate, &context.gate_override) {
                 for _ in 0..FFT_LEN {
                     analyzer.push_sample(
                         0.0,
@@ -514,6 +540,8 @@ fn capture_process_audio(
                         &context.gate_override,
                     );
                 }
+            } else if !captured {
+                reset_spectrum(analyzer, &context.spectrum);
             }
         }
         Ok(())
@@ -617,6 +645,10 @@ where
             if process_capture_active.load(Ordering::Acquire) {
                 return;
             }
+            if !analysis_enabled(&gate_clone, &gate_override_clone) {
+                reset_spectrum(&mut analyzer, &spectrum_arc);
+                return;
+            }
             for &sample in data {
                 analyzer.push_sample(
                     f32::from_sample(sample),
@@ -640,6 +672,12 @@ fn update_spectrum(
     gate_clone: &Arc<AtomicU32>,
     gate_override_clone: &Arc<AtomicU32>,
 ) {
+    if !analysis_enabled(gate_clone, gate_override_clone) {
+        if let Ok(mut spectrum) = spectrum_arc.try_lock() {
+            *spectrum = [0.0; 6];
+        }
+        return;
+    }
     if let Err(e) = fft.process(input, output) {
         log::warn!("FFT processing failed: {:?}", e);
         // Feed the floor value into adaptive_max to prevent slow baseline decay
@@ -670,6 +708,18 @@ fn update_spectrum(
     final_bins[5] = raw_bins[4] * 0.8;
     if let Ok(mut s) = spectrum_arc.try_lock() {
         *s = final_bins;
+    }
+}
+
+fn analysis_enabled(gate: &AtomicU32, gate_override: &AtomicU32) -> bool {
+    f32::from_bits(gate.load(Ordering::Relaxed)) > 0.0
+        && f32::from_bits(gate_override.load(Ordering::Relaxed)) > 0.0
+}
+
+fn reset_spectrum(analyzer: &mut SpectrumAnalyzer, spectrum: &Mutex<[f32; 6]>) {
+    analyzer.input_len = 0;
+    if let Ok(mut spectrum) = spectrum.try_lock() {
+        *spectrum = [0.0; 6];
     }
 }
 

@@ -75,7 +75,8 @@ impl App {
                     let is_hidden = self.is_hidden();
                     if let Some(surface) = self.surface.as_mut() {
                         let dt =
-                            (self.last_frame_time.elapsed().as_secs_f32() * 60.0).clamp(0.1, 3.0);
+                            (self.last_render_time.elapsed().as_secs_f32() * 60.0).clamp(0.1, 6.0);
+                        self.last_render_time = Instant::now();
                         let sigmas = if self.config.motion_blur {
                             calculate_blur_sigmas(
                                 self.spring_w.velocity,
@@ -95,13 +96,15 @@ impl App {
                             .abs();
                         let progress = (dist_h / total_h).clamp(0.0, 1.0);
                         if let Some(ps) = crate::plugin::manager::drain_pending_media_source() {
-                            use std::sync::Arc;
                             let (cover, hash) = if !ps.cover_data.is_empty() {
                                 use std::collections::hash_map::DefaultHasher;
                                 use std::hash::{Hash, Hasher};
                                 let mut hasher = DefaultHasher::new();
                                 ps.cover_data.hash(&mut hasher);
-                                (Some(Arc::new(ps.cover_data)), hasher.finish())
+                                (
+                                    Some(skia_safe::Data::new_copy(&ps.cover_data)),
+                                    hasher.finish(),
+                                )
                             } else {
                                 (None, 0)
                             };
@@ -126,33 +129,35 @@ impl App {
                             info.position_ms = info.position_ms.saturating_add(elapsed);
                             info.last_update = Instant::now();
                         }
-                        let mut media_info = self
-                            .plugin_media_source
-                            .clone()
-                            .or_else(|| {
-                                if self.config.smtc_enabled {
-                                    Some(self.smtc.get_info())
-                                } else {
-                                    None
-                                }
-                            })
-                            .unwrap_or_default();
-                        if self.seeking_progress && self.seeking_duration_ms > 0 {
-                            media_info.position_ms = self.seeking_preview_ms;
-                            media_info.last_update = Instant::now();
-                        }
-                        self.audio.set_gate_override(!is_hidden);
-                        media_info.spectrum = self.audio.get_spectrum();
-                        let mut music_active = false;
-                        if self.config.smtc_enabled && !media_info.title.is_empty() {
-                            music_active = true;
-                        }
+                        let spectrum = self.audio.get_spectrum();
+                        let default_media_info = crate::core::smtc::MediaInfo::default();
+                        let media_info = if let Some(info) = self.plugin_media_source.as_mut() {
+                            info.spectrum = spectrum;
+                            &*info
+                        } else if self.config.smtc_enabled {
+                            self.smtc_media_info.spectrum = spectrum;
+                            &self.smtc_media_info
+                        } else {
+                            &default_media_info
+                        };
+                        let seeking_media_info =
+                            if self.seeking_progress && self.seeking_duration_ms > 0 {
+                                let mut preview = media_info.clone();
+                                preview.position_ms = self.seeking_preview_ms;
+                                preview.last_update = Instant::now();
+                                Some(preview)
+                            } else {
+                                None
+                            };
+                        let media_info = seeking_media_info.as_ref().unwrap_or(media_info);
+                        let music_active = self.config.smtc_enabled && !media_info.title.is_empty();
+                        self.audio.set_gate_override(music_active && !is_hidden);
                         self.ctx_mgr.set_smtc_active(music_active);
                         crate::plugin::manager::drain_pending_contexts(&mut self.ctx_mgr);
                         self.ctx_mgr.tick();
                         let mini_content = self.ctx_mgr.current_mini();
 
-                        let widget_animating = draw_island(
+                        let _ = draw_island(
                             surface,
                             crate::core::render::DrawIslandParams {
                                 layout: crate::core::render::LayoutParams {
@@ -173,7 +178,7 @@ impl App {
                                     base_h: self.config.base_height * self.config.global_scale,
                                 },
                                 media: crate::core::render::MediaParams {
-                                    media: &media_info,
+                                    media: media_info,
                                     music_active,
                                 },
                                 lyrics: crate::core::render::LyricsParams {
@@ -203,9 +208,6 @@ impl App {
                                 compact_overlay: &self.compact_overlay,
                             },
                         );
-                        if widget_animating && let Some(win) = &self.window {
-                            win.request_redraw();
-                        }
                     }
                 }
                 _ => (),

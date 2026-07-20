@@ -4,6 +4,7 @@ mod worker;
 
 use crate::core::lyrics::LyricLine;
 use crate::core::persistence::load_config;
+use skia_safe::Data;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch};
@@ -16,7 +17,7 @@ pub struct MediaInfo {
     pub album: String,
     pub source_app_id: String,
     pub is_playing: bool,
-    pub thumbnail: Option<Arc<Vec<u8>>>,
+    pub thumbnail: Option<Data>,
     pub thumbnail_hash: u64,
     pub spectrum: [f32; 6],
     pub position_ms: u64,
@@ -168,6 +169,14 @@ impl SmtcListener {
 
     pub fn get_info(&self) -> MediaInfo {
         self.info_rx.borrow().clone()
+    }
+
+    pub fn take_info_if_changed(&mut self) -> Option<MediaInfo> {
+        self.info_rx
+            .has_changed()
+            .ok()
+            .filter(|changed| *changed)
+            .map(|_| self.info_rx.borrow_and_update().clone())
     }
 
     pub fn request_seek(&self, position_ms: u64) {

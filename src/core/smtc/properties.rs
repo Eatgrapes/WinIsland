@@ -1,5 +1,5 @@
 use crate::core::lyrics::fetch_lyrics;
-use std::sync::Arc;
+use skia_safe::Data;
 use std::time::{Duration, Instant};
 
 use tokio::sync::watch;
@@ -230,12 +230,13 @@ pub(super) fn fetch_properties(
                     {
                         drop(current);
                         let mut new_info = info_tx_clone.borrow().clone();
-                        new_info.thumbnail = Some(Arc::new(bytes.clone()));
+                        let byte_len = bytes.len();
+                        new_info.thumbnail = Some(Data::new_copy(&bytes));
                         new_info.thumbnail_hash = hash;
                         let _ = info_tx_clone.send(new_info);
                         log::info!(
                             "SMTC: thumbnail fetched ({} bytes, hash={:#x})",
-                            bytes.len(),
+                            byte_len,
                             hash
                         );
                     }

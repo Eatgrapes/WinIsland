@@ -1,6 +1,7 @@
 use crate::core::config::{AppConfig, WidgetKind};
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
+use crate::utils::font::FontManager;
 use crate::utils::icon::get_app_icon;
 use crate::utils::settings_ui::items::*;
 use crate::utils::settings_ui::*;
@@ -112,6 +113,7 @@ pub struct SettingsApp {
 
 impl SettingsApp {
     pub fn new(config: AppConfig) -> Self {
+        FontManager::global().set_custom_font_path(config.custom_font_path.as_deref());
         let switch_anim = SwitchAnimator::new(&[]);
         Self {
             window: None,

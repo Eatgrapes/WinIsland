@@ -109,12 +109,12 @@ impl SettingsApp {
                     return;
                 };
                 self.config.custom_font_path = Some(path.to_string_lossy().into_owned());
-                FontManager::global().refresh_custom_font();
+                FontManager::global().set_custom_font_path(self.config.custom_font_path.as_deref());
                 true
             }
             (EffectsAction::CustomFont, ClickResult::FontReset(_)) => {
                 self.config.custom_font_path = None;
-                FontManager::global().refresh_custom_font();
+                FontManager::global().set_custom_font_path(None);
                 true
             }
             _ => false,

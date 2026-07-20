@@ -20,16 +20,25 @@ use crate::utils::physics::Spring;
 use crate::utils::scroll::{ScrollDrawParams, ScrollText};
 use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
-    Canvas, Color, Data, FilterMode, FontStyle, Image, MipmapMode, Paint, Point, RRect, Rect,
+    Canvas, Color, FilterMode, FontStyle, Image, MipmapMode, Paint, Point, RRect, Rect,
     SamplingOptions, image_filters,
 };
 use std::cell::RefCell;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
 
 const CONTENT_PADDING: f32 = 24.0;
 
+struct ProgressTextCache {
+    elapsed_secs: u32,
+    remaining_secs: Option<u32>,
+    remaining_initialized: bool,
+    elapsed_text: String,
+    remaining_text: String,
+}
+
 thread_local! {
-    static IMG_CACHE: RefCell<Option<(String, Image)>> = const { RefCell::new(None) };
+    static IMG_CACHE: RefCell<Option<(u64, Image)>> = const { RefCell::new(None) };
     static PROGRESS_SMOOTH: RefCell<f32> = const { RefCell::new(-1.0) };
     static PAUSE_ANIM: RefCell<f32> = const { RefCell::new(0.0) };
     static PAUSE_SPRING: RefCell<Spring> = RefCell::new(Spring::new(1.0));
@@ -43,6 +52,13 @@ thread_local! {
     static PROGRESS_HOVER: RefCell<(bool, f32)> = const { RefCell::new((false, 0.0)) };
     static PROGRESS_DRAGGING: RefCell<bool> = const { RefCell::new(false) };
     static COVER_ROTATION: RefCell<f32> = const { RefCell::new(0.0) };
+    static PROGRESS_TEXT_CACHE: RefCell<ProgressTextCache> = const { RefCell::new(ProgressTextCache {
+        elapsed_secs: u32::MAX,
+        remaining_secs: None,
+        remaining_initialized: false,
+        elapsed_text: String::new(),
+        remaining_text: String::new(),
+    }) };
 }
 
 pub fn draw_text_cached(params: DrawTextCachedParams<'_>) {
@@ -53,36 +69,57 @@ pub fn get_cached_media_image(media: &MediaInfo) -> Option<Image> {
     get_cached_media_image_with_key(media).map(|(img, _)| img)
 }
 
-pub fn get_cached_media_image_with_key(media: &MediaInfo) -> Option<(Image, String)> {
+fn media_image_key(media: &MediaInfo) -> u64 {
+    if media.thumbnail_hash != 0 {
+        return media.thumbnail_hash;
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    media.title.hash(&mut hasher);
+    media.album.hash(&mut hasher);
+    hasher.finish()
+}
+
+pub fn get_cached_media_image_with_key(media: &MediaInfo) -> Option<(Image, u64)> {
     if media.title.is_empty() {
+        clear_cover_cache();
         return None;
     }
-    let cache_key = format!("{}-{}", media.title, media.album);
+    let cache_key = media_image_key(media);
 
-    let mut result: Option<(Image, String)> = None;
+    let mut result: Option<(Image, u64)> = None;
+    let mut has_current_image = false;
     IMG_CACHE.with(|cache| {
         let mut cache_mut = cache.borrow_mut();
         if let Some((key, img)) = cache_mut.as_ref()
-            && key == &cache_key
+            && *key == cache_key
         {
-            result = Some((img.clone(), key.clone()));
+            result = Some((img.clone(), *key));
+            has_current_image = true;
             return;
         }
-        if let Some(ref bytes_arc) = media.thumbnail {
-            let data = Data::new_copy(bytes_arc);
-            if let Some(image) = Image::from_encoded(data) {
-                *cache_mut = Some((cache_key.clone(), image.clone()));
-                result = Some((image, cache_key));
-            }
+        if let Some(data) = media.thumbnail.as_ref()
+            && let Some(image) = Image::from_encoded(data.clone())
+        {
+            *cache_mut = Some((cache_key, image.clone()));
+            result = Some((image, cache_key));
+            has_current_image = true;
         }
     });
+    if has_current_image {
+        let flip_finished = COVER_FLIP_ANIM.with(|cell| {
+            cell.borrow()
+                .is_none_or(|started| started.elapsed().as_secs_f32() >= 0.6)
+        });
+        if flip_finished {
+            COVER_FLIP_OLD_IMG.with(|cell| {
+                *cell.borrow_mut() = None;
+            });
+        }
+    }
     if result.is_none() {
         COVER_FLIP_OLD_IMG.with(|cell| {
             if let Some(old_img) = cell.borrow().as_ref() {
-                result = Some((
-                    old_img.clone(),
-                    format!("old_cover-{}-{}", media.title, media.album),
-                ));
+                result = Some((old_img.clone(), old_img.unique_id() as u64));
             }
         });
     }
@@ -91,7 +128,7 @@ pub fn get_cached_media_image_with_key(media: &MediaInfo) -> Option<(Image, Stri
 
 pub fn get_media_palette(media: &MediaInfo) -> Arc<[Color]> {
     if let Some((img, cache_key)) = get_cached_media_image_with_key(media) {
-        get_palette_from_image(&img, &cache_key)
+        get_palette_from_image(&img, cache_key)
     } else {
         default_media_palette()
     }
@@ -432,12 +469,10 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         });
 
         let elapsed_secs = (current_pos_ms / 1000) as u32;
-        let elapsed_str = format!("{}:{:02}", elapsed_secs / 60, elapsed_secs % 60);
-        let remaining_str = if duration_ms > 0 {
-            let remaining_secs = (duration_ms.saturating_sub(current_pos_ms) / 1000) as u32;
-            format!("-{}:{:02}", remaining_secs / 60, remaining_secs % 60)
+        let remaining_secs = if duration_ms > 0 {
+            Some((duration_ms.saturating_sub(current_pos_ms) / 1000) as u32)
         } else {
-            "--:--".to_string()
+            None
         };
 
         let bar_full_left = ox + CONTENT_PADDING * scale;
@@ -473,29 +508,45 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             text_color.b(),
         ));
 
-        draw_text_cached(DrawTextCachedParams {
-            canvas,
-            text: &elapsed_str,
-            x: bar_full_left,
-            y: text_baseline_y,
-            size: time_font_size,
-            bold: false,
-            paint: &time_paint,
-        });
+        PROGRESS_TEXT_CACHE.with(|cell| {
+            let mut cache = cell.borrow_mut();
+            if cache.elapsed_secs != elapsed_secs {
+                cache.elapsed_secs = elapsed_secs;
+                cache.elapsed_text = format!("{}:{:02}", elapsed_secs / 60, elapsed_secs % 60);
+            }
+            if !cache.remaining_initialized || cache.remaining_secs != remaining_secs {
+                cache.remaining_initialized = true;
+                cache.remaining_secs = remaining_secs;
+                cache.remaining_text = remaining_secs.map_or_else(
+                    || "--:--".to_string(),
+                    |secs| format!("-{}:{:02}", secs / 60, secs % 60),
+                );
+            }
 
-        let remaining_w = FontManager::global().measure_text_cached(
-            &remaining_str,
-            time_font_size,
-            FontStyle::normal(),
-        );
-        draw_text_cached(DrawTextCachedParams {
-            canvas,
-            text: &remaining_str,
-            x: bar_full_right - remaining_w,
-            y: text_baseline_y,
-            size: time_font_size,
-            bold: false,
-            paint: &time_paint,
+            draw_text_cached(DrawTextCachedParams {
+                canvas,
+                text: &cache.elapsed_text,
+                x: bar_full_left,
+                y: text_baseline_y,
+                size: time_font_size,
+                bold: false,
+                paint: &time_paint,
+            });
+
+            let remaining_w = FontManager::global().measure_text_cached(
+                &cache.remaining_text,
+                time_font_size,
+                FontStyle::normal(),
+            );
+            draw_text_cached(DrawTextCachedParams {
+                canvas,
+                text: &cache.remaining_text,
+                x: bar_full_right - remaining_w,
+                y: text_baseline_y,
+                size: time_font_size,
+                bold: false,
+                paint: &time_paint,
+            });
         });
 
         let mut track_paint = Paint::default();

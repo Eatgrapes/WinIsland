@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use windows::ApplicationModel::Package;
 use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
@@ -10,7 +11,7 @@ use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
 use crate::core::config::PADDING;
-use crate::core::persistence::load_config;
+use crate::core::persistence::{get_config_path, load_config};
 use crate::plugin::zip_loader;
 use crate::window::tray::TrayAction;
 
@@ -137,97 +138,115 @@ impl App {
     }
 
     pub(super) fn reload_config_if_changed(&mut self, window: &Window) {
-        if !self.frame_count.is_multiple_of(30) {
-            return;
-        }
-        let current_config = load_config();
-        if current_config != self.config {
-            let old_scale = self.config.global_scale;
-            let old_max_w = self.config.expanded_width;
-            let old_max_h = self.config.expanded_height;
-            let old_style = self.config.island_style.clone();
-            let old_mini_shape = self.config.mini_cover_shape.clone();
-            let old_expanded_shape = self.config.expanded_cover_shape.clone();
-            let old_font = self.config.custom_font_path.clone();
-            let old_position_x_offset = self.config.position_x_offset;
-            let old_position_y_offset = self.config.position_y_offset;
-            let old_dock_position = self.config.dock_position;
-            let old_monitor_index = self.config.monitor_index;
+        let now = Instant::now();
+        if now.duration_since(self.last_config_check) >= Duration::from_millis(500) {
+            self.last_config_check = now;
+            let modified = std::fs::metadata(get_config_path())
+                .and_then(|metadata| metadata.modified())
+                .ok();
+            if modified != self.last_config_modified {
+                self.last_config_modified = modified;
+                let current_config = load_config();
+                if current_config != self.config {
+                    let old_scale = self.config.global_scale;
+                    let old_max_w = self.config.expanded_width;
+                    let old_max_h = self.config.expanded_height;
+                    let old_style = self.config.island_style.clone();
+                    let old_mini_shape = self.config.mini_cover_shape.clone();
+                    let old_expanded_shape = self.config.expanded_cover_shape.clone();
+                    let old_font = self.config.custom_font_path.clone();
+                    let old_position_x_offset = self.config.position_x_offset;
+                    let old_position_y_offset = self.config.position_y_offset;
+                    let old_dock_position = self.config.dock_position;
+                    let old_monitor_index = self.config.monitor_index;
 
-            log::info!("Config changed, reloaded");
-            self.config = current_config;
-            self.smtc
-                .set_lyrics_source(self.config.lyrics_source.clone());
-            self.smtc.set_lyrics_fallback(self.config.lyrics_fallback);
-            self.smtc
-                .set_lyrics_local_dir(self.config.lyrics_local_dir.clone());
-            self.smtc.set_allowed_apps(self.config.smtc_apps.clone());
+                    log::info!("Config changed, reloaded");
+                    self.config = current_config;
+                    self.smtc
+                        .set_lyrics_source(self.config.lyrics_source.clone());
+                    self.smtc.set_lyrics_fallback(self.config.lyrics_fallback);
+                    self.smtc
+                        .set_lyrics_local_dir(self.config.lyrics_local_dir.clone());
+                    self.smtc.set_allowed_apps(self.config.smtc_apps.clone());
 
-            if old_style != self.config.island_style {
-                crate::utils::backdrop::clear_mica_cache();
-                crate::utils::glass::clear_glass_cache();
-                crate::utils::backdrop::clear_blurred_cover_cache();
-                if let Ok(handle) = window.window_handle() {
-                    let raw = handle.as_raw();
-                    if let RawWindowHandle::Win32(win32_handle) = raw {
-                        let hwnd = windows::Win32::Foundation::HWND(win32_handle.hwnd.get() as _);
-                        if old_style == "mica" {
-                            crate::utils::backdrop::disable_mica(hwnd);
+                    if old_style != self.config.island_style {
+                        crate::utils::backdrop::clear_mica_cache();
+                        crate::utils::glass::clear_glass_cache();
+                        crate::utils::backdrop::clear_blurred_cover_cache();
+                        if let Ok(handle) = window.window_handle() {
+                            let raw = handle.as_raw();
+                            if let RawWindowHandle::Win32(win32_handle) = raw {
+                                let hwnd =
+                                    windows::Win32::Foundation::HWND(win32_handle.hwnd.get() as _);
+                                if old_style == "mica" {
+                                    crate::utils::backdrop::disable_mica(hwnd);
+                                }
+                            }
+                        }
+                    }
+
+                    if old_mini_shape != self.config.mini_cover_shape
+                        || old_expanded_shape != self.config.expanded_cover_shape
+                    {
+                        crate::ui::expanded::music_view::clear_cover_cache();
+                    }
+
+                    if old_font != self.config.custom_font_path {
+                        crate::utils::font::FontManager::global()
+                            .set_custom_font_path(self.config.custom_font_path.as_deref());
+                    }
+
+                    let max_w = self.config.expanded_width.max(450.0);
+                    let new_os_w = (max_w * self.config.global_scale + PADDING) as u32;
+                    let new_os_h =
+                        (self.config.expanded_height * self.config.global_scale + PADDING) as u32;
+
+                    let size_changed = new_os_w != self.os_w
+                        || new_os_h != self.os_h
+                        || (old_scale - self.config.global_scale).abs() > 0.001
+                        || (old_max_w - self.config.expanded_width).abs() > 0.1
+                        || (old_max_h - self.config.expanded_height).abs() > 0.1;
+                    let position_changed = old_position_x_offset != self.config.position_x_offset
+                        || old_position_y_offset != self.config.position_y_offset
+                        || old_dock_position != self.config.dock_position
+                        || old_monitor_index != self.config.monitor_index;
+
+                    if size_changed {
+                        self.os_w = new_os_w;
+                        self.os_h = new_os_h;
+                        let _ = window.request_inner_size(PhysicalSize::new(self.os_w, self.os_h));
+                        if let Some(surface) = self.surface.as_mut() {
+                            let _ = surface.resize(
+                                std::num::NonZeroU32::new(self.os_w.max(1)).unwrap(),
+                                std::num::NonZeroU32::new(self.os_h.max(1)).unwrap(),
+                            );
+                        }
+                    }
+
+                    if (size_changed || position_changed)
+                        && let Some(monitor) =
+                            Self::get_target_monitor(window, self.config.monitor_index)
+                    {
+                        let mon_size = monitor.size();
+                        let mon_pos = monitor.position();
+                        if mon_size.width > 0 && mon_size.height > 0 {
+                            self.last_mon_size = (mon_size.width, mon_size.height);
+                            self.last_mon_pos = (mon_pos.x, mon_pos.y);
+                            (self.win_x, self.win_y) =
+                                self.compute_window_position(mon_pos, mon_size);
+                            window
+                                .set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
                         }
                     }
                 }
             }
+        }
 
-            if old_mini_shape != self.config.mini_cover_shape
-                || old_expanded_shape != self.config.expanded_cover_shape
-            {
-                crate::ui::expanded::music_view::clear_cover_cache();
-            }
-
-            if old_font != self.config.custom_font_path {
-                crate::utils::font::FontManager::global().refresh_custom_font();
-            }
-
-            let max_w = self.config.expanded_width.max(450.0);
-            let new_os_w = (max_w * self.config.global_scale + PADDING) as u32;
-            let new_os_h =
-                (self.config.expanded_height * self.config.global_scale + PADDING) as u32;
-
-            let size_changed = new_os_w != self.os_w
-                || new_os_h != self.os_h
-                || (old_scale - self.config.global_scale).abs() > 0.001
-                || (old_max_w - self.config.expanded_width).abs() > 0.1
-                || (old_max_h - self.config.expanded_height).abs() > 0.1;
-            let position_changed = old_position_x_offset != self.config.position_x_offset
-                || old_position_y_offset != self.config.position_y_offset
-                || old_dock_position != self.config.dock_position
-                || old_monitor_index != self.config.monitor_index;
-
-            if size_changed {
-                self.os_w = new_os_w;
-                self.os_h = new_os_h;
-                let _ = window.request_inner_size(PhysicalSize::new(self.os_w, self.os_h));
-                if let Some(surface) = self.surface.as_mut() {
-                    let _ = surface.resize(
-                        std::num::NonZeroU32::new(self.os_w.max(1)).unwrap(),
-                        std::num::NonZeroU32::new(self.os_h.max(1)).unwrap(),
-                    );
-                }
-            }
-
-            if (size_changed || position_changed)
-                && let Some(monitor) = Self::get_target_monitor(window, self.config.monitor_index)
-            {
-                let mon_size = monitor.size();
-                let mon_pos = monitor.position();
-                if mon_size.width > 0 && mon_size.height > 0 {
-                    self.last_mon_size = (mon_size.width, mon_size.height);
-                    self.last_mon_pos = (mon_pos.x, mon_pos.y);
-                    (self.win_x, self.win_y) = self.compute_window_position(mon_pos, mon_size);
-                    window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
-                }
-            }
-        } else if let Some(monitor) = Self::get_target_monitor(window, self.config.monitor_index) {
+        if now.duration_since(self.last_monitor_check) < Duration::from_secs(1) {
+            return;
+        }
+        self.last_monitor_check = now;
+        if let Some(monitor) = Self::get_target_monitor(window, self.config.monitor_index) {
             let mon_size = monitor.size();
             let mon_pos = monitor.position();
             let cur_mon_size = (mon_size.width, mon_size.height);

@@ -20,7 +20,7 @@ thread_local! {
 }
 
 struct BlurredCoverCache {
-    cache_key: String,
+    cache_key: u64,
     blurred_image: Image,
 }
 
@@ -285,7 +285,7 @@ pub fn get_blurred_cover_background(media: &MediaInfo) -> Option<Image> {
 
     BLURRED_COVER_CACHE.with(|cell| {
         *cell.borrow_mut() = Some(BlurredCoverCache {
-            cache_key: cache_key.clone(),
+            cache_key,
             blurred_image: blurred.clone(),
         });
     });

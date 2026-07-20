@@ -237,7 +237,8 @@ impl SettingsApp {
             (BehaviorAction::ResetDefaults, ClickResult::CenterLink(_)) => {
                 self.config = AppConfig::default();
                 init_i18n(&self.config.language);
-                FontManager::global().refresh_custom_font();
+                crate::ui::widget::calendar::clear_calendar_text_cache();
+                FontManager::global().set_custom_font_path(self.config.custom_font_path.as_deref());
                 true
             }
             (BehaviorAction::CheckUpdatesNow, ClickResult::RowButton(_)) => {
@@ -304,6 +305,7 @@ fn step(value: f32, direction: StepDirection, amount: f32, min: f32, max: f32) -
 fn select_language(app: &mut SettingsApp, value: &str) {
     app.config.language = value.to_string();
     set_lang(value);
+    crate::ui::widget::calendar::clear_calendar_text_cache();
 }
 
 fn select_update_channel(app: &mut SettingsApp, value: &str) {

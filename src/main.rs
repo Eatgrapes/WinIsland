@@ -101,7 +101,11 @@ fn main() {
             }
         };
 
-        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
         let _guard = runtime.enter();
 
         utils::updater::start_update_checker();

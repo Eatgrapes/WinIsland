@@ -1,4 +1,3 @@
-use crate::core::persistence::load_config;
 use skia_safe::{Canvas, Font, FontMgr, FontStyle, Paint, Typeface};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -7,7 +6,7 @@ use std::sync::OnceLock;
 
 static GLOBAL_FONT_MANAGER: OnceLock<FontManager> = OnceLock::new();
 
-type TextGroup = (String, Typeface, bool);
+type TextGroup = (String, Typeface, bool, f32);
 type TextGroups = Vec<TextGroup>;
 type TextCacheValue = (f32, TextGroups);
 type TextCacheMap = HashMap<u64, TextCacheValue>;
@@ -37,11 +36,21 @@ pub struct FontManager {
     _marker: (),
 }
 
+struct CustomTypefaceState {
+    path: Option<String>,
+    typeface: Option<Typeface>,
+    load_attempted: bool,
+}
+
 thread_local! {
     static FONT_MGR: FontMgr = FontMgr::new();
     static FALLBACK_CACHE: RefCell<HashMap<(char, u32), Typeface>> = RefCell::new(HashMap::new());
     static TEXT_CACHE: RefCell<TextCacheMap> = RefCell::new(HashMap::new());
-    static CUSTOM_TYPEFACE: RefCell<Option<(String, Typeface)>> = const { RefCell::new(None) };
+    static CUSTOM_TYPEFACE: RefCell<CustomTypefaceState> = const { RefCell::new(CustomTypefaceState {
+        path: None,
+        typeface: None,
+        load_attempted: false,
+    }) };
 }
 
 const FALLBACK_CACHE_LIMIT: usize = 2000;
@@ -51,18 +60,18 @@ fn evict_one_if_full<K, V>(cache: &mut HashMap<K, V>, limit: usize)
 where
     K: Clone + std::cmp::Eq + std::hash::Hash,
 {
-    if cache.len() > limit
+    if cache.len() >= limit
         && let Some(key) = cache.keys().next().cloned()
     {
         cache.remove(&key);
     }
 }
 
-fn hash_cache_key(text: &str, bold: u32, size_key: i32) -> u64 {
+fn hash_cache_key(text: &str, style: FontStyle, size: f32) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     text.hash(&mut hasher);
-    bold.hash(&mut hasher);
-    size_key.hash(&mut hasher);
+    style_to_key(style).hash(&mut hasher);
+    ((size * 100.0).round() as i32).hash(&mut hasher);
     hasher.finish()
 }
 
@@ -87,37 +96,37 @@ fn make_font(tf: Typeface, size: f32, style: FontStyle) -> Font {
 }
 
 fn get_custom_typeface() -> Option<Typeface> {
-    let config = load_config();
-    if let Some(path) = config.custom_font_path {
-        CUSTOM_TYPEFACE.with(|cache| {
-            let mut cache_mut = cache.borrow_mut();
-            if let Some((ref cached_path, ref tf)) = *cache_mut
-                && cached_path == &path
-            {
-                return Some(tf.clone());
-            }
-            if let Ok(data) = std::fs::read(&path)
-                && let Some(tf) = FONT_MGR.with(|mgr| mgr.new_from_data(&data, None))
-            {
-                *cache_mut = Some((path, tf.clone()));
-                return Some(tf);
-            }
-            None
-        })
-    } else {
-        None
+    CUSTOM_TYPEFACE.with(|cache| {
+        let mut state = cache.borrow_mut();
+        if state.load_attempted {
+            return state.typeface.clone();
+        }
+        state.load_attempted = true;
+        let path = state.path.clone()?;
+        let data = std::fs::read(path).ok()?;
+        let typeface = FONT_MGR.with(|mgr| mgr.new_from_data(&data, None));
+        state.typeface = typeface.clone();
+        typeface
+    })
+}
+
+fn measure_group(text: &str, typeface: &Typeface, embolden: bool, size: f32) -> f32 {
+    let mut font = Font::from_typeface(typeface.clone(), size);
+    if embolden {
+        font.set_embolden(true);
     }
+    font.measure_str(text, None).0
 }
 
 fn get_typeface_for_char(c: char, style: FontStyle) -> (Typeface, bool) {
     let s_key = style_to_key(style);
     FALLBACK_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        evict_one_if_full(&mut cache, FALLBACK_CACHE_LIMIT);
         if let Some(tf) = cache.get(&(c, s_key)) {
             let embolden = needs_synthetic_bold(tf, style);
             return (tf.clone(), embolden);
         }
+        evict_one_if_full(&mut cache, FALLBACK_CACHE_LIMIT);
 
         if let Some(tf) = get_custom_typeface() {
             let mut glyphs = [0u16; 1];
@@ -165,7 +174,7 @@ fn compute_text_groups(text: &str, size: f32, style: FontStyle) -> (f32, TextGro
         }
         let (w, _) = font.measure_str(text, None);
         current_w += w;
-        groups.push((text.to_string(), tf, embolden));
+        groups.push((text.to_string(), tf, embolden, w));
         return (current_w, groups);
     }
 
@@ -177,24 +186,19 @@ fn compute_text_groups(text: &str, size: f32, style: FontStyle) -> (f32, TextGro
         if let Some(ref ltf) = last_tf
             && (ltf.unique_id() != tf.unique_id() || last_embolden != embolden)
         {
-            groups.push((current_group.clone(), ltf.clone(), last_embolden));
-            current_group.clear();
+            let group_text = std::mem::take(&mut current_group);
+            let width = measure_group(&group_text, ltf, last_embolden, size);
+            current_w += width;
+            groups.push((group_text, ltf.clone(), last_embolden, width));
         }
         last_tf = Some(tf);
         last_embolden = embolden;
         current_group.push(c);
     }
     if let Some(ltf) = last_tf {
-        groups.push((current_group, ltf, last_embolden));
-    }
-
-    for (s, tf, embolden) in &groups {
-        let mut font = Font::from_typeface(tf.clone(), size);
-        if *embolden {
-            font.set_embolden(true);
-        }
-        let (w, _) = font.measure_str(s, None);
-        current_w += w;
+        let width = measure_group(&current_group, &ltf, last_embolden, size);
+        current_w += width;
+        groups.push((current_group, ltf, last_embolden, width));
     }
 
     (current_w, groups)
@@ -203,6 +207,18 @@ fn compute_text_groups(text: &str, size: f32, style: FontStyle) -> (f32, TextGro
 impl FontManager {
     pub fn global() -> &'static FontManager {
         GLOBAL_FONT_MANAGER.get_or_init(|| FontManager { _marker: () })
+    }
+
+    pub fn set_custom_font_path(&self, path: Option<&str>) {
+        let path = path.map(str::to_owned);
+        CUSTOM_TYPEFACE.with(|cache| {
+            let mut state = cache.borrow_mut();
+            state.path = path;
+            state.typeface = None;
+            state.load_attempted = false;
+        });
+        TEXT_CACHE.with(|cache| cache.borrow_mut().clear());
+        FALLBACK_CACHE.with(|cache| cache.borrow_mut().clear());
     }
 
     pub fn get_font(&self, size: f32, bold: bool) -> Font {
@@ -299,10 +315,12 @@ impl FontManager {
     }
 
     pub fn measure_text_cached(&self, text: &str, size: f32, style: FontStyle) -> f32 {
-        let cache_key = hash_cache_key(text, style_to_key(style), (size * 100.0).round() as i32);
+        let cache_key = hash_cache_key(text, style, size);
         TEXT_CACHE.with(|cache| {
             let mut cache_mut = cache.borrow_mut();
-            evict_one_if_full(&mut cache_mut, TEXT_CACHE_LIMIT);
+            if !cache_mut.contains_key(&cache_key) {
+                evict_one_if_full(&mut cache_mut, TEXT_CACHE_LIMIT);
+            }
             let entry = cache_mut.entry(cache_key).or_insert_with(|| {
                 let (width, groups) = compute_text_groups(text, size, style);
                 (width, groups)
@@ -317,18 +335,19 @@ impl FontManager {
         } else {
             FontStyle::normal()
         };
-        let cache_key = hash_cache_key(params.text, params.bold as u32, params.size as i32);
+        let cache_key = hash_cache_key(params.text, style, params.size);
         TEXT_CACHE.with(|cache| {
             let mut cache_mut = cache.borrow_mut();
-            evict_one_if_full(&mut cache_mut, TEXT_CACHE_LIMIT);
-            let entry = cache_mut.entry(cache_key).or_insert_with(|| {
-                let (_, groups) = compute_text_groups(params.text, params.size, style);
-                (0.0, groups)
-            });
+            if !cache_mut.contains_key(&cache_key) {
+                evict_one_if_full(&mut cache_mut, TEXT_CACHE_LIMIT);
+            }
+            let entry = cache_mut
+                .entry(cache_key)
+                .or_insert_with(|| compute_text_groups(params.text, params.size, style));
             let (_, groups) = entry;
             let mut x = params.x;
             let y = params.y.round();
-            for (s, tf, embolden) in groups {
+            for (s, tf, embolden, width) in groups {
                 let mut font = Font::from_typeface(tf.clone(), params.size);
                 if *embolden {
                     font.set_embolden(true);
@@ -336,21 +355,8 @@ impl FontManager {
                 params
                     .canvas
                     .draw_str(&**s, (x.round(), y), &font, params.paint);
-                let (w, _) = font.measure_str(&**s, None);
-                x += w;
+                x += *width;
             }
-        });
-    }
-
-    pub fn refresh_custom_font(&self) {
-        CUSTOM_TYPEFACE.with(|cache| {
-            *cache.borrow_mut() = None;
-        });
-        TEXT_CACHE.with(|cache| {
-            cache.borrow_mut().clear();
-        });
-        FALLBACK_CACHE.with(|cache| {
-            cache.borrow_mut().clear();
         });
     }
 }

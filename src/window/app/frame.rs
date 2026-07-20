@@ -3,7 +3,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use winit::dpi::PhysicalPosition;
-use winit::event_loop::ActiveEventLoop;
+use winit::event_loop::{ActiveEventLoop, ControlFlow};
 
 use crate::core::config::MIN_HIDDEN_WIDTH;
 use crate::ui::compact::CompactOverlayState;
@@ -18,14 +18,26 @@ use crate::utils::mouse::{
 
 use super::{App, HideEdge, RIGHT_DRAG_THRESHOLD};
 
+const ANIMATION_FRAME_INTERVAL: Duration = Duration::from_micros(6_944);
+const INTERACTIVE_FRAME_INTERVAL: Duration = Duration::from_millis(16);
+const IDLE_FRAME_INTERVAL: Duration = Duration::from_millis(50);
+const HIDDEN_FRAME_INTERVAL: Duration = Duration::from_millis(100);
+
 impl App {
     pub(super) fn on_about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let window = match self.window.clone() {
             Some(w) => w,
             None => return,
         };
-        Self::enforce_topmost(&window, self.win_x, self.win_y, self.os_w, self.os_h);
-        let frame_start = Instant::now();
+        let now = Instant::now();
+        if now < self.next_frame_deadline {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_deadline));
+            return;
+        }
+        if now.duration_since(self.last_topmost_check) >= Duration::from_secs(1) {
+            Self::enforce_topmost(&window, self.win_x, self.win_y, self.os_w, self.os_h);
+            self.last_topmost_check = now;
+        }
         self.handle_tray_events(&window, event_loop);
         self.reload_config_if_changed(&window);
         if self.is_hidden() && !self.can_hide_to_edge(self.current_hide_edge()) {
@@ -58,11 +70,13 @@ impl App {
             }
         }
 
-        let dt = (self.last_frame_time.elapsed().as_secs_f32() * 60.0).clamp(0.1, 3.0);
-        self.last_frame_time = Instant::now();
+        let dt = (self.last_update_time.elapsed().as_secs_f32() * 60.0).clamp(0.1, 6.0);
+        self.last_update_time = now;
 
         if !self.visible {
-            std::thread::sleep(Duration::from_millis(16));
+            self.audio.set_gate_override(false);
+            self.next_frame_deadline = now + HIDDEN_FRAME_INTERVAL;
+            event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_deadline));
             return;
         }
         let (px, py) = if self.touch_id.is_some() {
@@ -107,7 +121,8 @@ impl App {
             }
         }
 
-        if self.frame_count.is_multiple_of(10) {
+        if now.duration_since(self.last_fullscreen_check) >= Duration::from_millis(100) {
+            self.last_fullscreen_check = now;
             let prev_fullscreen = self.is_fullscreen_suppressed;
             self.is_fullscreen_suppressed = is_foreground_fullscreen(
                 self.last_mon_pos.0,
@@ -183,26 +198,35 @@ impl App {
             let _ = window.set_cursor_hittest(is_hovering_visible || is_on_hidden_reveal);
         }
 
-        let mut music_active = false;
-        let media = self.smtc.get_info();
-        self.audio.set_target_app_id(&media.source_app_id);
-        if self.config.smtc_enabled && !media.title.is_empty() {
-            music_active = true;
-            if media.title != self.last_media_title {
-                log::info!(
-                    "Track changed: {} - {} / {}",
-                    media.title,
-                    media.artist,
-                    media.album
-                );
-                self.last_media_title = media.title.clone();
-                crate::ui::expanded::music_view::trigger_cover_flip();
+        if let Some(media) = self.smtc.take_info_if_changed() {
+            let media_ended = !self.smtc_media_info.title.is_empty() && media.title.is_empty();
+            self.audio.set_target_app_id(&media.source_app_id);
+            self.smtc_media_info = media;
+            if media_ended {
+                self.last_media_title.clear();
+                crate::ui::expanded::music_view::clear_cover_cache();
                 crate::utils::backdrop::clear_blurred_cover_cache();
-                window.request_redraw();
             }
         }
+        let music_active = self.config.smtc_enabled && !self.smtc_media_info.title.is_empty();
+        let media_is_playing = self.smtc_media_info.is_playing;
+        if !music_active {
+            self.audio.set_gate_override(false);
+        }
+        if music_active && self.smtc_media_info.title != self.last_media_title {
+            log::info!(
+                "Track changed: {} - {} / {}",
+                self.smtc_media_info.title,
+                self.smtc_media_info.artist,
+                self.smtc_media_info.album
+            );
+            self.last_media_title = self.smtc_media_info.title.clone();
+            crate::ui::expanded::music_view::trigger_cover_flip();
+            crate::utils::backdrop::clear_blurred_cover_cache();
+            window.request_redraw();
+        }
 
-        let is_paused_idle = music_active && !media.is_playing;
+        let is_paused_idle = music_active && !media_is_playing;
         let compact_state = if !self.expanded && !self.is_hidden() {
             CompactOverlayState::Present
         } else if self.auto_hidden && !self.manually_hidden && !self.fullscreen_hidden {
@@ -236,7 +260,7 @@ impl App {
             if was_auto_hidden && !self.is_hidden() {
                 self.spring_hide.velocity = -0.65;
             }
-        } else if media.is_playing && self.auto_hidden && !self.manually_hidden {
+        } else if media_is_playing && self.auto_hidden && !self.manually_hidden {
             self.auto_hidden = false;
             self.idle_timer = Instant::now();
             if !self.is_hidden() {
@@ -285,7 +309,7 @@ impl App {
                 offset_x as f32,
                 island_y as f32,
                 self.spring_w.value,
-                &media,
+                &self.smtc_media_info,
                 music_active,
                 self.config.global_scale,
                 &self.config.expanded_cover_shape,
@@ -364,7 +388,8 @@ impl App {
         }
 
         if self.config.adaptive_border {
-            if self.frame_count.is_multiple_of(30) {
+            if now.duration_since(self.last_adaptive_border_check) >= Duration::from_millis(200) {
+                self.last_adaptive_border_check = now;
                 let island_cx = self.win_x
                     + (current_island_x + (self.spring_w.value as f64) / 2.0).round() as i32;
                 let island_cy = self.win_y
@@ -380,7 +405,6 @@ impl App {
         } else {
             self.target_border_weights = [0.0; 4];
         }
-        self.frame_count += 1;
         for i in 0..4 {
             let diff = self.target_border_weights[i] - self.border_weights[i];
             if diff.abs() > 0.005 {
@@ -390,13 +414,14 @@ impl App {
             }
         }
 
-        let is_paused = music_active && !media.is_playing;
-        let current_lyric_opt = if self.config.show_lyrics && !is_paused {
-            media.current_lyric((self.config.lyrics_delay * 1000.0) as i64)
+        let is_paused = music_active && !media_is_playing;
+        let current_lyric = if self.config.show_lyrics && !is_paused {
+            self.smtc_media_info
+                .current_lyric((self.config.lyrics_delay * 1000.0) as i64)
         } else {
             None
         };
-        if let Some(lyric) = current_lyric_opt {
+        if let Some(lyric) = current_lyric {
             if lyric != self.current_lyric_text {
                 self.old_lyric_text = self.current_lyric_text.clone();
                 self.current_lyric_text = lyric.to_owned();
@@ -418,6 +443,9 @@ impl App {
                 self.lyric_transition = 1.0;
             }
             window.request_redraw();
+        }
+        if self.lyric_transition >= 1.0 && !self.old_lyric_text.is_empty() {
+            self.old_lyric_text = String::new();
         }
 
         let lyric_target_w = self.compute_lyric_target_width(&window, music_active, is_paused, dt);
@@ -457,23 +485,35 @@ impl App {
             self.last_glass_refresh = Instant::now();
         }
 
-        if self.expanded
-            || (!self.is_hidden() && media.is_playing)
-            || self.spring_w.velocity.abs() > 0.001
+        let spring_animating = self.spring_w.velocity.abs() > 0.001
             || self.spring_h.velocity.abs() > 0.001
             || self.spring_r.velocity.abs() > 0.001
             || self.spring_view.velocity.abs() > 0.001
+            || self.spring_hide.velocity.abs() > 0.001;
+        let animation_active = spring_animating
+            || self.lyric_transition < 1.0
+            || self.is_dragging
+            || self.seeking_progress
+            || self.is_right_dragging;
+        let playback_active = !self.is_hidden() && media_is_playing;
+        let interactive_active = self.expanded
+            || is_hovering_visible
             || compact_overlay_visible
-            || should_periodic_redraw
-            || self.right_press_cursor.is_some()
-            || self.is_right_dragging
-        {
+            || self.right_press_cursor.is_some();
+
+        let frame_interval = if animation_active || playback_active {
+            ANIMATION_FRAME_INTERVAL
+        } else if interactive_active {
+            INTERACTIVE_FRAME_INTERVAL
+        } else if self.is_hidden() {
+            HIDDEN_FRAME_INTERVAL
+        } else {
+            IDLE_FRAME_INTERVAL
+        };
+        self.next_frame_deadline = now + frame_interval;
+        if animation_active || playback_active || interactive_active || should_periodic_redraw {
             window.request_redraw();
         }
-        let elapsed = frame_start.elapsed();
-        let target_frame_time = Duration::from_micros(6944);
-        if elapsed < target_frame_time {
-            std::thread::sleep(target_frame_time - elapsed);
-        }
+        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_deadline));
     }
 }

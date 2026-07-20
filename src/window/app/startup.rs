@@ -21,7 +21,7 @@ use super::App;
 
 impl App {
     pub(super) fn on_resumed(&mut self, event_loop: &ActiveEventLoop) {
-        event_loop.set_control_flow(ControlFlow::Poll);
+        event_loop.set_control_flow(ControlFlow::Wait);
         if self.window.is_none() {
             Self::set_aumid();
             self.plugin_mgr.load_all();

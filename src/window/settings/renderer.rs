@@ -31,8 +31,6 @@ impl SettingsApp {
         let theme = self.theme();
         let win_w = self.win_w / scale;
         let win_h = self.win_h / scale;
-        let anim = self.switch_anim.clone();
-
         let mut surface = match self.surface.take() {
             Some(s) => s,
             None => return,
@@ -124,7 +122,7 @@ impl SettingsApp {
                 items: &self.cached_items,
                 start_y: content_start_y,
                 width: content_w,
-                anims: &anim,
+                anims: &self.switch_anim,
                 theme: &theme,
                 visible_min_y: self.scroll_y,
                 visible_max_y: self.scroll_y + win_h,
