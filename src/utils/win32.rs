@@ -1,4 +1,5 @@
 use windows::Win32::Foundation::HWND;
+use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
 use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowW, GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, SW_RESTORE,
     SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow,
@@ -74,5 +75,14 @@ pub fn modify_window_style(hwnd: HWND, add_flags: isize, remove_flags: isize) {
 pub fn set_window_topmost(hwnd: HWND, x: i32, y: i32, w: i32, h: i32) {
     unsafe {
         let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), x, y, w, h, SWP_NOACTIVATE);
+    }
+}
+
+pub fn trim_process_working_set() {
+    // SAFETY: GetCurrentProcess returns a pseudo-handle valid in the current process.
+    // Passing usize::MAX for both limits requests the documented working-set trim operation.
+    unsafe {
+        let process = GetCurrentProcess();
+        let _ = SetProcessWorkingSetSize(process, usize::MAX, usize::MAX);
     }
 }

@@ -10,20 +10,12 @@ use crate::core::config::WidgetSlot;
 use crate::core::smtc::MediaInfo;
 use crate::ui::compact::CompactOverlay;
 use crate::ui::expanded::music_view::{default_media_palette, get_media_palette};
-use skia_safe::{
-    AlphaType, ClipOp, Color, ColorType, ISize, ImageInfo, Paint, RRect, Rect, image_filters,
-    surfaces,
-};
-use softbuffer::Surface;
-use std::sync::Arc;
-use winit::window::Window;
+use skia_safe::{ClipOp, Color, Paint, RRect, Rect, Surface, gpu::DirectContext, image_filters};
 
 pub struct LayoutParams {
     pub current_w: f32,
     pub current_h: f32,
     pub current_r: f32,
-    pub os_w: u32,
-    pub os_h: u32,
     pub sigmas: (f32, f32),
     pub expansion_progress: f32,
     pub view_offset: f32,
@@ -78,7 +70,8 @@ pub struct DrawIslandParams<'a> {
 }
 
 pub fn draw_island(
-    surface: &mut Surface<Arc<Window>, Arc<Window>>,
+    direct_context: &mut DirectContext,
+    surface: &mut Surface,
     params: DrawIslandParams<'_>,
 ) -> bool {
     let DrawIslandParams {
@@ -95,8 +88,6 @@ pub fn draw_island(
         current_w,
         current_h,
         current_r,
-        os_w,
-        os_h,
         sigmas,
         expansion_progress,
         view_offset,
@@ -133,20 +124,7 @@ pub fn draw_island(
         dt,
         widget_layout,
     } = style;
-    let mut buffer = surface.buffer_mut().unwrap();
-    let info = ImageInfo::new(
-        ISize::new(os_w as i32, os_h as i32),
-        ColorType::BGRA8888,
-        AlphaType::Premul,
-        None,
-    );
-    let dst_row_bytes = (os_w * 4) as usize;
-    let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut buffer);
-    let mut sk_surface = match surfaces::wrap_pixels(&info, u8_buffer, dst_row_bytes, None) {
-        Some(surface) => surface,
-        None => return false,
-    };
-    let canvas = sk_surface.canvas();
+    let canvas = surface.canvas();
     canvas.clear(Color::TRANSPARENT);
 
     let offset_x = island_x;
@@ -167,6 +145,7 @@ pub fn draw_island(
 
     draw_background(BackgroundParams {
         canvas,
+        direct_context,
         rect,
         rrect,
         island_style,
@@ -199,7 +178,7 @@ pub fn draw_island(
     };
 
     let palette = if expanded_alpha_f > 0.01 || mini_alpha_f > 0.01 {
-        get_media_palette(media)
+        get_media_palette(direct_context, media)
     } else {
         default_media_palette()
     };
@@ -278,10 +257,5 @@ pub fn draw_island(
         );
         canvas.draw_rrect(border_rrect, &border_paint);
     }
-    drop(sk_surface);
-    if let Err(e) = buffer.present() {
-        log::error!("Present failed: {:?}", e);
-    }
-
     widget_animating
 }

@@ -13,6 +13,7 @@ use winit::window::Window;
 use crate::core::config::PADDING;
 use crate::core::persistence::{get_config_path, load_config};
 use crate::plugin::zip_loader;
+use crate::window::d3d::MAIN_D3D_TARGET;
 use crate::window::tray::TrayAction;
 
 use super::App;
@@ -105,14 +106,22 @@ impl App {
         }
 
         let mut settings = crate::window::settings::SettingsApp::new(load_config());
-        settings.create_window(event_loop);
+        let Some(renderer) = self.renderer.as_mut() else {
+            log::error!("Cannot open settings without the shared D3D12 renderer");
+            return;
+        };
+        settings.create_window(event_loop, renderer);
         self.settings = Some(settings);
         log::info!("Settings window opened in main process");
     }
 
     pub(super) fn close_settings(&mut self) {
         if let Some(mut settings) = self.settings.take() {
-            settings.close();
+            if let Some(target) = settings.close()
+                && let Some(renderer) = self.renderer.as_mut()
+            {
+                renderer.remove_target(target);
+            }
             log::info!("Settings window closed and resources released");
         }
     }
@@ -241,11 +250,16 @@ impl App {
                         self.os_w = new_os_w;
                         self.os_h = new_os_h;
                         let _ = window.request_inner_size(PhysicalSize::new(self.os_w, self.os_h));
-                        if let Some(surface) = self.surface.as_mut() {
-                            let _ = surface.resize(
-                                std::num::NonZeroU32::new(self.os_w.max(1)).unwrap(),
-                                std::num::NonZeroU32::new(self.os_h.max(1)).unwrap(),
-                            );
+                        if let Some(renderer) = self.renderer.as_mut() {
+                            if let Err(error) =
+                                renderer.resize(MAIN_D3D_TARGET, self.os_w, self.os_h)
+                            {
+                                log::error!("D3D12 renderer resize failed: {error}");
+                            } else {
+                                crate::utils::backdrop::clear_mica_cache();
+                                crate::utils::glass::clear_glass_cache();
+                                crate::utils::backdrop::clear_blurred_cover_cache();
+                            }
                         }
                     }
 

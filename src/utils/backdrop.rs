@@ -1,10 +1,12 @@
-use skia_safe::canvas::SrcRectConstraint;
-use skia_safe::{
-    AlphaType, ColorType, Data, FilterMode, ISize, Image, ImageInfo, MipmapMode, Paint, Rect,
-    SamplingOptions, image_filters, images, surfaces,
-};
 use std::cell::RefCell;
 use std::time::Instant;
+
+use skia_safe::{
+    AlphaType, Color, ColorType, FilterMode, ISize, Image, ImageInfo, MipmapMode, Paint, Rect,
+    SamplingOptions, Surface,
+    gpu::{self, Budgeted, DirectContext, SurfaceOrigin, SyncCpu},
+    image_filters,
+};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Dwm::{
     DWMWA_SYSTEMBACKDROP_TYPE, DWMWINDOWATTRIBUTE, DwmSetWindowAttribute,
@@ -25,15 +27,19 @@ struct BlurredCoverCache {
 }
 
 struct MicaCache {
+    source_surface: Surface,
+    blur_surface: Surface,
+    image: Option<Image>,
     monitor_x: i32,
     monitor_y: i32,
     monitor_w: u32,
     monitor_h: u32,
-    blurred_image: Image,
     timestamp: Instant,
 }
 
 pub fn disable_mica(hwnd: HWND) {
+    // SAFETY: hwnd belongs to the live WinIsland window. Both attributes receive pointers to
+    // initialized i32 values that remain valid for the duration of each synchronous call.
     unsafe {
         let value: i32 = 1;
         let _ = DwmSetWindowAttribute(
@@ -53,18 +59,14 @@ pub fn disable_mica(hwnd: HWND) {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn get_mica_background(
-    screen_x: i32,
-    screen_y: i32,
-    w: u32,
-    h: u32,
+    direct_context: &mut DirectContext,
     monitor_x: i32,
     monitor_y: i32,
     monitor_w: u32,
     monitor_h: u32,
 ) -> Option<Image> {
-    if w == 0 || h == 0 {
+    if monitor_w == 0 || monitor_h == 0 {
         return None;
     }
 
@@ -83,53 +85,47 @@ pub fn get_mica_background(
     });
 
     if needs_capture
-        && let Some(blurred) = capture_and_blur_mica(monitor_x, monitor_y, monitor_w, monitor_h)
+        && let Some((info, pixels)) =
+            capture_mica_pixels(monitor_x, monitor_y, monitor_w, monitor_h)
     {
         MICA_CACHE.with(|cell| {
-            *cell.borrow_mut() = Some(MicaCache {
-                monitor_x,
-                monitor_y,
-                monitor_w,
-                monitor_h,
-                blurred_image: blurred,
-                timestamp: Instant::now(),
-            });
+            let mut cache = cell.borrow_mut();
+            let needs_new_surfaces = cache
+                .as_ref()
+                .is_none_or(|cache| cache.monitor_w != monitor_w || cache.monitor_h != monitor_h);
+            if needs_new_surfaces {
+                let Some((source_surface, blur_surface)) =
+                    create_mica_surfaces(direct_context, &info)
+                else {
+                    return;
+                };
+                *cache = Some(MicaCache {
+                    source_surface,
+                    blur_surface,
+                    image: None,
+                    monitor_x,
+                    monitor_y,
+                    monitor_w,
+                    monitor_h,
+                    timestamp: Instant::now(),
+                });
+            }
+            let Some(cache) = cache.as_mut() else {
+                return;
+            };
+            if update_mica_cache(direct_context, cache, &info, &pixels).is_some() {
+                cache.monitor_x = monitor_x;
+                cache.monitor_y = monitor_y;
+                cache.monitor_w = monitor_w;
+                cache.monitor_h = monitor_h;
+            }
         });
     }
 
-    let blurred = MICA_CACHE.with(|cell| {
+    MICA_CACHE.with(|cell| {
         let cache = cell.borrow();
-        cache.as_ref().map(|c| c.blurred_image.clone())
-    })?;
-
-    let crop_x = (screen_x - monitor_x).max(0) as f32;
-    let crop_y = (screen_y - monitor_y).max(0) as f32;
-
-    let bm_w = blurred.width() as f32;
-    let bm_h = blurred.height() as f32;
-
-    let src_x = (crop_x / monitor_w as f32 * bm_w).max(0.0);
-    let src_y = (crop_y / monitor_h as f32 * bm_h).max(0.0);
-    let src_w = (w as f32 / monitor_w as f32 * bm_w).max(1.0);
-    let src_h = (h as f32 / monitor_h as f32 * bm_h).max(1.0);
-
-    let src_rect = Rect::from_xywh(src_x, src_y, src_w, src_h);
-    let dst_rect = Rect::from_xywh(0.0, 0.0, w as f32, h as f32);
-
-    let mut final_surface = surfaces::raster_n32_premul(ISize::new(w as i32, h as i32))?;
-    let final_canvas = final_surface.canvas();
-    let mut paint = Paint::default();
-    paint.set_anti_alias(true);
-    let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
-    final_canvas.draw_image_rect_with_sampling_options(
-        &blurred,
-        Some((&src_rect, SrcRectConstraint::Fast)),
-        dst_rect,
-        sampling,
-        &paint,
-    );
-
-    Some(final_surface.image_snapshot())
+        cache.as_ref().and_then(|cache| cache.image.clone())
+    })
 }
 
 pub fn clear_mica_cache() {
@@ -138,12 +134,12 @@ pub fn clear_mica_cache() {
     });
 }
 
-fn capture_and_blur_mica(
+fn capture_mica_pixels(
     monitor_x: i32,
     monitor_y: i32,
     monitor_w: u32,
     monitor_h: u32,
-) -> Option<Image> {
+) -> Option<(ImageInfo, Vec<u8>)> {
     if monitor_w == 0 || monitor_h == 0 {
         return None;
     }
@@ -151,6 +147,7 @@ fn capture_and_blur_mica(
     let cap_w = (monitor_w / downscale).max(1) as i32;
     let cap_h = (monitor_h / downscale).max(1) as i32;
 
+    // SAFETY: all GDI resources are checked before use and released in reverse order.
     unsafe {
         let hdc_screen = GetDC(None);
         if hdc_screen.is_invalid() {
@@ -220,77 +217,147 @@ fn capture_and_blur_mica(
             AlphaType::Opaque,
             None,
         );
-        let data = Data::new_copy(&pixels);
-        let src_img = images::raster_from_data(&info, data, (cap_w * 4) as usize)?;
-
-        let blur_sigma = 6.0f32;
-        let mut blur_surface = surfaces::raster_n32_premul(ISize::new(cap_w, cap_h))?;
-        let blur_canvas = blur_surface.canvas();
-        let mut paint = Paint::default();
-        if let Some(filter) = image_filters::blur((blur_sigma, blur_sigma), None, None, None) {
-            paint.set_image_filter(filter);
-        }
-        blur_canvas.draw_image(&src_img, (0, 0), Some(&paint));
-
-        Some(blur_surface.image_snapshot())
+        Some((info, pixels))
     }
 }
 
-pub fn get_blurred_cover_background(media: &MediaInfo) -> Option<Image> {
+fn create_mica_surfaces(
+    direct_context: &mut DirectContext,
+    info: &ImageInfo,
+) -> Option<(Surface, Surface)> {
+    let source_surface = gpu::surfaces::render_target(
+        direct_context,
+        Budgeted::Yes,
+        info,
+        None,
+        Some(SurfaceOrigin::TopLeft),
+        None,
+        Some(false),
+        Some(false),
+    )?;
+    let blur_surface = gpu::surfaces::render_target(
+        direct_context,
+        Budgeted::Yes,
+        info,
+        None,
+        Some(SurfaceOrigin::TopLeft),
+        None,
+        Some(false),
+        Some(false),
+    )?;
+    Some((source_surface, blur_surface))
+}
+
+fn update_mica_cache(
+    direct_context: &mut DirectContext,
+    cache: &mut MicaCache,
+    info: &ImageInfo,
+    pixels: &[u8],
+) -> Option<Image> {
+    if !cache
+        .source_surface
+        .canvas()
+        .write_pixels(info, pixels, info.min_row_bytes(), (0, 0))
+    {
+        return None;
+    }
+    direct_context.flush_and_submit_surface(&mut cache.source_surface, Some(SyncCpu::Yes));
+    let source_image = cache.source_surface.image_snapshot();
+
+    cache.image = None;
+    cache.blur_surface.canvas().clear(Color::TRANSPARENT);
+    let mut blur_paint = Paint::default();
+    blur_paint.set_anti_alias(true);
+    if let Some(filter) = image_filters::blur((6.0, 6.0), None, None, None) {
+        blur_paint.set_image_filter(filter);
+    }
+    cache
+        .blur_surface
+        .canvas()
+        .draw_image(&source_image, (0, 0), Some(&blur_paint));
+    direct_context.flush_and_submit_surface(&mut cache.blur_surface, Some(SyncCpu::Yes));
+    let image = cache.blur_surface.image_snapshot();
+    gpu::images::get_backend_texture_from_image(&image, false)?;
+    cache.image = Some(image.clone());
+    cache.timestamp = Instant::now();
+    Some(image)
+}
+
+pub fn get_blurred_cover_background(
+    direct_context: &mut DirectContext,
+    media: &MediaInfo,
+) -> Option<Image> {
     if media.title.is_empty() {
         return None;
     }
-    let (img, cache_key) = get_cached_media_image_with_key(media)?;
+    let (image, cache_key) = get_cached_media_image_with_key(media)?;
 
     let cached = BLURRED_COVER_CACHE.with(|cell| {
         let cache = cell.borrow();
-        if let Some(c) = cache.as_ref()
-            && c.cache_key == cache_key
-        {
-            return Some(c.blurred_image.clone());
-        }
-        None
+        cache
+            .as_ref()
+            .filter(|entry| entry.cache_key == cache_key)
+            .map(|entry| entry.blurred_image.clone())
     });
-    if let Some(cached_img) = cached {
-        return Some(cached_img);
+    if cached.is_some() {
+        return cached;
     }
 
-    // Downscale to 64x64 to make blur extremely fast and smooth
-    let mut temp_surface = surfaces::raster_n32_premul(ISize::new(64, 64))?;
-    let temp_canvas = temp_surface.canvas();
+    let info = ImageInfo::new_n32_premul((64, 64), None);
+    let mut downscaled_surface = gpu::surfaces::render_target(
+        direct_context,
+        Budgeted::Yes,
+        &info,
+        None,
+        Some(SurfaceOrigin::TopLeft),
+        None,
+        Some(false),
+        Some(false),
+    )?;
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
-    let src_rect = Rect::from_xywh(0.0, 0.0, img.width() as f32, img.height() as f32);
-    let dst_rect = Rect::from_xywh(0.0, 0.0, 64.0, 64.0);
-    let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
-    temp_canvas.draw_image_rect_with_sampling_options(
-        &img,
-        Some((&src_rect, SrcRectConstraint::Fast)),
-        dst_rect,
-        sampling,
-        &paint,
-    );
-    let downscaled = temp_surface.image_snapshot();
+    downscaled_surface
+        .canvas()
+        .draw_image_rect_with_sampling_options(
+            &image,
+            None,
+            Rect::from_xywh(0.0, 0.0, 64.0, 64.0),
+            SamplingOptions::new(FilterMode::Linear, MipmapMode::None),
+            &paint,
+        );
+    direct_context.flush_and_submit_surface(&mut downscaled_surface, Some(SyncCpu::Yes));
+    let downscaled = downscaled_surface.image_snapshot();
 
-    let mut blur_surface = surfaces::raster_n32_premul(ISize::new(64, 64))?;
-    let blur_canvas = blur_surface.canvas();
+    let mut blur_surface = gpu::surfaces::render_target(
+        direct_context,
+        Budgeted::Yes,
+        &info,
+        None,
+        Some(SurfaceOrigin::TopLeft),
+        None,
+        Some(false),
+        Some(false),
+    )?;
     let mut blur_paint = Paint::default();
     blur_paint.set_anti_alias(true);
-    let sigma = 8.0f32; // Equivalent to heavy blur on full size
-    if let Some(filter) = image_filters::blur((sigma, sigma), None, None, None) {
+    if let Some(filter) = image_filters::blur((8.0, 8.0), None, None, None) {
         blur_paint.set_image_filter(filter);
     }
-    blur_canvas.draw_image(&downscaled, (0, 0), Some(&blur_paint));
-    let blurred = blur_surface.image_snapshot();
+    blur_surface
+        .canvas()
+        .draw_image(&downscaled, (0, 0), Some(&blur_paint));
+    direct_context.flush_and_submit_surface(&mut blur_surface, Some(SyncCpu::Yes));
+    let blurred_image = blur_surface.image_snapshot();
+    gpu::images::get_backend_texture_from_image(&blurred_image, false)?;
 
     BLURRED_COVER_CACHE.with(|cell| {
         *cell.borrow_mut() = Some(BlurredCoverCache {
             cache_key,
-            blurred_image: blurred.clone(),
+            blurred_image: blurred_image.clone(),
         });
     });
 
-    Some(blurred)
+    Some(blurred_image)
 }
 
 pub fn clear_blurred_cover_cache() {

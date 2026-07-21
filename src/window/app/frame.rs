@@ -20,6 +20,7 @@ use super::{App, HideEdge, RIGHT_DRAG_THRESHOLD};
 const INTERACTIVE_FRAME_INTERVAL: Duration = Duration::from_millis(16);
 const IDLE_FRAME_INTERVAL: Duration = Duration::from_millis(50);
 const HIDDEN_FRAME_INTERVAL: Duration = Duration::from_millis(100);
+const WORKING_SET_TRIM_INTERVAL: Duration = Duration::from_secs(30);
 
 impl App {
     pub(super) fn on_about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -423,16 +424,6 @@ impl App {
         if self.lyric_transition >= 1.0 && !self.old_lyric_text.is_empty() {
             self.old_lyric_text = String::new();
         }
-        if self.settings.is_none()
-            && !music_active
-            && !self.expanded
-            && !compact_overlay_visible
-            && self.lyric_transition >= 1.0
-            && crate::utils::font::FontManager::global().release_custom_typeface()
-        {
-            log::info!("Released idle custom font resources");
-        }
-
         let lyric_target_w = self.compute_lyric_target_width(&window, music_active, is_paused, dt);
         let default_target_h = (if self.expanded {
             self.config.expanded_height
@@ -462,9 +453,9 @@ impl App {
         let is_glass_or_mica = self.config.island_style == "glass"
             || self.config.island_style == "dynamic"
             || self.config.island_style == "mica";
-        let should_periodic_redraw = is_glass_or_mica
-            && !self.is_hidden()
-            && self.last_glass_refresh.elapsed().as_millis() >= 1000;
+        let should_periodic_redraw = !self.is_hidden()
+            && self.last_glass_refresh.elapsed().as_millis() >= 1000
+            && (is_glass_or_mica || self.expanded);
 
         if should_periodic_redraw {
             self.last_glass_refresh = Instant::now();
@@ -481,10 +472,18 @@ impl App {
             || self.seeking_progress
             || self.is_right_dragging;
         let playback_active = !self.is_hidden() && media_is_playing;
-        let interactive_active = self.expanded
-            || is_hovering_visible
-            || compact_overlay_visible
-            || self.right_press_cursor.is_some();
+        let interactive_active =
+            is_hovering_visible || compact_overlay_visible || self.right_press_cursor.is_some();
+
+        if !animation_active
+            && !playback_active
+            && !interactive_active
+            && self.settings.is_none()
+            && self.last_working_set_trim.elapsed() >= WORKING_SET_TRIM_INTERVAL
+        {
+            crate::utils::win32::trim_process_working_set();
+            self.last_working_set_trim = now;
+        }
 
         let frame_interval = if animation_active || playback_active {
             self.animation_frame_interval

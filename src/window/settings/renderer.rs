@@ -3,7 +3,8 @@ use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::settings_ui::items::*;
 use crate::utils::settings_ui::*;
-use skia_safe::{Canvas, Color, Paint, Rect, surfaces};
+use crate::window::d3d::D3DRenderer;
+use skia_safe::{Canvas, Color, Paint, Rect};
 
 use super::{
     PAGE_NAV_GAP, PAGE_NAV_SIZE, PAGE_NAV_X, PAGE_NAV_Y, POPUP_MENU_R, POPUP_OPACITY_KEY,
@@ -11,7 +12,7 @@ use super::{
 };
 
 impl SettingsApp {
-    pub(crate) fn draw(&mut self) {
+    pub(crate) fn draw(&mut self, renderer: &mut D3DRenderer) {
         let Some(win) = self.window.as_ref() else {
             return;
         };
@@ -31,40 +32,11 @@ impl SettingsApp {
         let theme = self.theme();
         let win_w = self.win_w / scale;
         let win_h = self.win_h / scale;
-        let mut surface = match self.surface.take() {
-            Some(s) => s,
+        let target = match self.renderer_target {
+            Some(target) => target,
             None => return,
         };
-
-        {
-            let mut buffer = match surface.buffer_mut() {
-                Ok(b) => b,
-                Err(_) => {
-                    self.surface = Some(surface);
-                    return;
-                }
-            };
-            let info = skia_safe::ImageInfo::new(
-                skia_safe::ISize::new(p_w, p_h),
-                skia_safe::ColorType::BGRA8888,
-                skia_safe::AlphaType::Premul,
-                None,
-            );
-            let dst_row_bytes = (p_w * 4) as usize;
-            let u8_buffer: &mut [u8] = bytemuck::cast_slice_mut(&mut buffer);
-            let expected_size = (p_w * p_h * 4) as usize;
-            let actual_size = u8_buffer.len();
-            if actual_size != expected_size {
-                return;
-            }
-            let mut sk_surface = match surfaces::wrap_pixels(&info, u8_buffer, dst_row_bytes, None)
-            {
-                Some(s) => s,
-                None => {
-                    return;
-                }
-            };
-
+        let render_result = renderer.draw(target, |_, sk_surface| {
             let canvas = sk_surface.canvas();
             canvas.reset_matrix();
             canvas.clear(Color::TRANSPARENT);
@@ -167,11 +139,11 @@ impl SettingsApp {
             border_paint.set_stroke_width(1.0);
             border_paint.set_color(theme.separator);
             canvas.draw_rrect(border_rrect, &border_paint);
-
-            let _ = buffer.present();
+        });
+        if let Err(error) = render_result {
+            log::error!("D3D12 settings rendering failed: {error}");
+            self.close_requested = true;
         }
-
-        self.surface = Some(surface);
     }
 
     fn widget_preview_item_y_cached(&self) -> Option<f32> {

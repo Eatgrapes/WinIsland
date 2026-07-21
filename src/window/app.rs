@@ -7,9 +7,9 @@ use crate::plugin::PluginManager;
 use crate::plugin::zip_loader::PluginManifest;
 use crate::ui::compact::CompactOverlay;
 use crate::utils::physics::Spring;
+use crate::window::d3d::D3DRenderer;
 use crate::window::settings::SettingsApp;
 use crate::window::tray::TrayManager;
-use softbuffer::{Context, Surface};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -44,8 +44,7 @@ fn should_show_widget_view(smtc_enabled: bool, has_media: bool) -> bool {
 
 pub struct App {
     window: Option<Arc<Window>>,
-    context: Option<Context<Arc<Window>>>,
-    surface: Option<Surface<Arc<Window>, Arc<Window>>>,
+    renderer: Option<D3DRenderer>,
     settings: Option<SettingsApp>,
     tray: Option<TrayManager>,
     smtc: SmtcListener,
@@ -87,6 +86,7 @@ pub struct App {
     last_fullscreen_check: Instant,
     last_config_check: Instant,
     last_monitor_check: Instant,
+    last_working_set_trim: Instant,
     last_config_modified: Option<SystemTime>,
     next_frame_deadline: Instant,
     animation_frame_interval: Duration,
@@ -122,8 +122,7 @@ impl Default for App {
             .set_custom_font_path(config.custom_font_path.as_deref());
         Self {
             window: None,
-            context: None,
-            surface: None,
+            renderer: None,
             settings: None,
             tray: None,
             config: config.clone(),
@@ -169,6 +168,7 @@ impl Default for App {
             last_fullscreen_check: Instant::now(),
             last_config_check: Instant::now(),
             last_monitor_check: Instant::now(),
+            last_working_set_trim: Instant::now(),
             last_config_modified,
             next_frame_deadline: Instant::now(),
             animation_frame_interval: DEFAULT_ANIMATION_FRAME_INTERVAL,

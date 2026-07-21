@@ -7,6 +7,7 @@ use winit::window::WindowId;
 use crate::core::render::draw_island;
 use crate::utils::blur::calculate_blur_sigmas;
 use crate::utils::mouse::get_global_cursor_pos;
+use crate::window::d3d::MAIN_D3D_TARGET;
 
 use super::App;
 
@@ -73,7 +74,7 @@ impl App {
                 WindowEvent::RedrawRequested => {
                     let island_layout = self.compute_island_layout();
                     let is_hidden = self.is_hidden();
-                    if let Some(surface) = self.surface.as_mut() {
+                    if let Some(mut renderer) = self.renderer.take() {
                         let dt =
                             (self.last_render_time.elapsed().as_secs_f32() * 60.0).clamp(0.1, 6.0);
                         self.last_render_time = Instant::now();
@@ -157,56 +158,64 @@ impl App {
                         self.ctx_mgr.tick();
                         let mini_content = self.ctx_mgr.current_mini();
 
-                        let _ = draw_island(
-                            surface,
-                            crate::core::render::DrawIslandParams {
-                                layout: crate::core::render::LayoutParams {
-                                    current_w: self.spring_w.value,
-                                    current_h: self.spring_h.value,
-                                    current_r: self.spring_r.value,
-                                    os_w: self.os_w,
-                                    os_h: self.os_h,
-                                    sigmas,
-                                    expansion_progress: progress,
-                                    view_offset: self.spring_view.value,
-                                    global_scale: self.config.global_scale,
-                                    hide_progress: self.spring_hide.value
-                                        * island_layout.content_hide_ratio,
-                                    island_x: island_layout.current_island_x as f32,
-                                    island_y: island_layout.current_island_y as f32,
-                                    stable_island_y: island_layout.stable_island_y as f32,
-                                    base_h: self.config.base_height * self.config.global_scale,
-                                },
-                                media: crate::core::render::MediaParams {
-                                    media: media_info,
-                                    music_active,
-                                },
-                                lyrics: crate::core::render::LyricsParams {
-                                    current_lyric: &self.current_lyric_text,
-                                    old_lyric: &self.old_lyric_text,
-                                    lyric_transition: self.lyric_transition,
-                                    lyric_scroll_offset: self.lyric_scroll_offset,
-                                },
-                                window: crate::core::render::WindowParams {
-                                    win_x: self.win_x,
-                                    win_y: self.win_y,
-                                    monitor_x: self.last_mon_pos.0,
-                                    monitor_y: self.last_mon_pos.1,
-                                    monitor_w: self.last_mon_size.0,
-                                    monitor_h: self.last_mon_size.1,
-                                },
-                                style: crate::core::render::StyleParams {
-                                    island_style: &self.config.island_style,
-                                    use_blur: self.config.motion_blur,
-                                    font_size: self.config.font_size,
-                                    lyrics_delay: self.config.lyrics_delay,
-                                    dt,
-                                    widget_layout: &self.config.widget_layout,
-                                },
-                                mini_content,
-                                compact_overlay: &self.compact_overlay,
-                            },
-                        );
+                        let render_result =
+                            renderer.draw(MAIN_D3D_TARGET, |direct_context, surface| {
+                                draw_island(
+                                    direct_context,
+                                    surface,
+                                    crate::core::render::DrawIslandParams {
+                                        layout: crate::core::render::LayoutParams {
+                                            current_w: self.spring_w.value,
+                                            current_h: self.spring_h.value,
+                                            current_r: self.spring_r.value,
+                                            sigmas,
+                                            expansion_progress: progress,
+                                            view_offset: self.spring_view.value,
+                                            global_scale: self.config.global_scale,
+                                            hide_progress: self.spring_hide.value
+                                                * island_layout.content_hide_ratio,
+                                            island_x: island_layout.current_island_x as f32,
+                                            island_y: island_layout.current_island_y as f32,
+                                            stable_island_y: island_layout.stable_island_y as f32,
+                                            base_h: self.config.base_height
+                                                * self.config.global_scale,
+                                        },
+                                        media: crate::core::render::MediaParams {
+                                            media: media_info,
+                                            music_active,
+                                        },
+                                        lyrics: crate::core::render::LyricsParams {
+                                            current_lyric: &self.current_lyric_text,
+                                            old_lyric: &self.old_lyric_text,
+                                            lyric_transition: self.lyric_transition,
+                                            lyric_scroll_offset: self.lyric_scroll_offset,
+                                        },
+                                        window: crate::core::render::WindowParams {
+                                            win_x: self.win_x,
+                                            win_y: self.win_y,
+                                            monitor_x: self.last_mon_pos.0,
+                                            monitor_y: self.last_mon_pos.1,
+                                            monitor_w: self.last_mon_size.0,
+                                            monitor_h: self.last_mon_size.1,
+                                        },
+                                        style: crate::core::render::StyleParams {
+                                            island_style: &self.config.island_style,
+                                            use_blur: self.config.motion_blur,
+                                            font_size: self.config.font_size,
+                                            lyrics_delay: self.config.lyrics_delay,
+                                            dt,
+                                            widget_layout: &self.config.widget_layout,
+                                        },
+                                        mini_content,
+                                        compact_overlay: &self.compact_overlay,
+                                    },
+                                )
+                            });
+                        self.renderer = Some(renderer);
+                        if let Err(error) = render_result {
+                            log::error!("D3D12 rendering failed: {error}");
+                            event_loop.exit();
+                        }
                     }
                 }
                 _ => (),

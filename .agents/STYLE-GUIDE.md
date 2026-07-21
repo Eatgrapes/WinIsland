@@ -70,7 +70,7 @@ Group imports in this order, separated by blank lines:
 
 ## Skia conventions
 
-- Use `surfaces::raster_n32_premul` for offscreen rendering
+- Use cached `gpu::surfaces::render_target` surfaces for offscreen rendering
 - `Paint::default()` then configure only what differs from defaults
 - Anti-alias shape-drawing paints via `paint.set_anti_alias(true)`
 - Use `image_filters::blur` for blur effects, not manual convolution

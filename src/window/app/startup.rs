@@ -1,12 +1,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use softbuffer::{Context, Surface};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
     WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
 };
-use windows::core::PCWSTR;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::platform::windows::WindowAttributesExtWindows;
@@ -38,6 +36,7 @@ impl App {
                 .with_title(WINDOW_TITLE)
                 .with_inner_size(PhysicalSize::new(self.os_w, self.os_h))
                 .with_transparent(true)
+                .with_no_redirection_bitmap(true)
                 .with_visible(false)
                 .with_decorations(false)
                 .with_resizable(true)
@@ -94,82 +93,15 @@ impl App {
                     crate::utils::glass::clear_glass_cache();
                 }
             }
-            // Retry GPU context creation up to 3 times with 500ms delay.
-            // Handles transient GPU unavailability (e.g., after taskkill from mpv script).
-            let (gpu_ctx, gpu_surface) = {
-                let mut last_err = None;
-                let mut created = None;
-                for attempt in 0..3 {
-                    if attempt > 0 {
-                        std::thread::sleep(Duration::from_millis(500));
-                        log::info!("Retrying softbuffer init (attempt {})", attempt + 1);
-                    }
-                    let ctx = match Context::new(window.clone()) {
-                        Ok(c) => c,
-                        Err(e) => {
-                            last_err = Some(format!("Context::new: {e:?}"));
-                            continue;
-                        }
-                    };
-                    let mut surf = match Surface::new(&ctx, window.clone()) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            last_err = Some(format!("Surface::new: {e:?}"));
-                            continue;
-                        }
-                    };
-                    let w = std::num::NonZeroU32::new(self.os_w.max(1)).unwrap();
-                    let h = std::num::NonZeroU32::new(self.os_h.max(1)).unwrap();
-                    match surf.resize(w, h) {
-                        Ok(()) => {
-                            created = Some((ctx, surf));
-                            break;
-                        }
-                        Err(e) => {
-                            last_err = Some(format!("resize: {e:?}"));
-                        }
-                    }
-                }
-                match created {
-                    Some(pair) => pair,
-                    None => {
-                        log::error!(
-                            "Failed to create softbuffer surface after 3 retries: {:?}",
-                            last_err
-                        );
-                        let msg = format!(
-                            "WinIsland 閸掓繂顫愰崠?GPU 婢惰精瑙﹂敍灞藉讲閼宠姤妲告す鍗炲З閺嗗倹妞傛稉宥呭讲閻劊鈧繐n鐠囬鈼㈤崥搴″晙鐠囨洏鈧繐n\n闁挎瑨顕? {:?}",
-                            last_err
-                        );
-                        let msg_wide: Vec<u16> =
-                            msg.encode_utf16().chain(std::iter::once(0)).collect();
-                        let title_wide: Vec<u16> = "WinIsland - 閸氼垰濮╅柨娆掝嚖"
-                            .encode_utf16()
-                            .chain(std::iter::once(0))
-                            .collect();
-                        unsafe {
-                            let _ = windows::Win32::UI::WindowsAndMessaging::MessageBoxW(
-                                None,
-                                PCWSTR::from_raw(msg_wide.as_ptr()),
-                                PCWSTR::from_raw(title_wide.as_ptr()),
-                                windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0),
-                            );
-                        }
+            self.renderer =
+                match crate::window::d3d::D3DRenderer::new(&window, self.os_w, self.os_h) {
+                    Ok(renderer) => Some(renderer),
+                    Err(error) => {
+                        log::error!("D3D12 renderer initialization failed: {error}");
                         event_loop.exit();
                         return;
                     }
-                }
-            };
-            let context = gpu_ctx;
-            let mut surface = gpu_surface;
-            if let Ok(mut buf) = surface.buffer_mut() {
-                for p in buf.iter_mut() {
-                    *p = 0;
-                }
-                let _ = buf.present();
-            }
-            self.context = Some(context);
-            self.surface = Some(surface);
+                };
             let is_light = window.theme() == Some(winit::window::Theme::Light);
             self.tray = Some(TrayManager::new(is_light));
             log::info!(

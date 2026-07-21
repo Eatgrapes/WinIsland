@@ -4,10 +4,7 @@ use crate::core::i18n::tr;
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::settings_ui::items::*;
-use skia_safe::{
-    Canvas, Color, Data, FilterMode, ISize, Image, MipmapMode, Paint, Rect, SamplingOptions,
-    image_filters, surfaces,
-};
+use skia_safe::{Canvas, Color, CubicResampler, Data, Image, Paint, Rect, SamplingOptions};
 
 use super::{SIDEBAR_KEY_BASE, SIDEBAR_ROW_H, SIDEBAR_W, SettingsApp};
 
@@ -23,41 +20,19 @@ thread_local! {
 }
 
 fn load_sidebar_icon(bytes: &[u8]) -> Image {
-    let source = Image::from_encoded(Data::new_copy(bytes)).expect("Failed to load sidebar icon");
-    let mut surface = surfaces::raster_n32_premul(ISize::new(64, 64))
-        .expect("Failed to create sidebar icon surface");
-    surface.canvas().clear(Color::TRANSPARENT);
-    let mut paint = Paint::default();
-    paint.set_anti_alias(true);
-    surface.canvas().draw_image_rect_with_sampling_options(
-        &source,
-        None,
-        Rect::from_xywh(0.0, 0.0, 64.0, 64.0),
-        SamplingOptions::new(FilterMode::Linear, MipmapMode::None),
-        &paint,
-    );
-    surface.image_snapshot()
+    Image::from_encoded(Data::new_copy(bytes)).expect("Failed to load sidebar icon")
 }
 
 fn draw_sidebar_icon(canvas: &Canvas, index: usize, rect: Rect) {
     SIDEBAR_ICONS.with(|cache| {
         let mut cache = cache.borrow_mut();
         let icons = cache.get_or_insert_with(|| SIDEBAR_ICON_BYTES.map(load_sidebar_icon));
-        let mut paint = Paint::default();
-        paint.set_anti_alias(true);
-        paint.set_image_filter(image_filters::drop_shadow(
-            (0.0, 1.2),
-            (1.4, 1.4),
-            Color::from_argb(90, 0, 0, 0),
-            None,
-            None,
-            None,
-        ));
+        let paint = Paint::default();
         canvas.draw_image_rect_with_sampling_options(
             &icons[index],
             None,
             rect,
-            SamplingOptions::new(FilterMode::Linear, MipmapMode::Linear),
+            SamplingOptions::from(CubicResampler::mitchell()),
             &paint,
         );
     });
