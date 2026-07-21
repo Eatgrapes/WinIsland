@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use windows::ApplicationModel::Package;
 use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 use windows::core::PCWSTR;
-use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::dpi::PhysicalSize;
 use winit::event_loop::ActiveEventLoop;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
@@ -273,10 +273,9 @@ impl App {
                         if mon_size.width > 0 && mon_size.height > 0 {
                             self.last_mon_size = (mon_size.width, mon_size.height);
                             self.last_mon_pos = (mon_pos.x, mon_pos.y);
-                            (self.win_x, self.win_y) =
+                            let (position_x, position_y) =
                                 self.compute_window_position(mon_pos, mon_size);
-                            window
-                                .set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+                            self.set_configured_window_position(window, position_x, position_y);
                         }
                     }
                 }
@@ -299,8 +298,9 @@ impl App {
             {
                 self.last_mon_size = cur_mon_size;
                 self.last_mon_pos = cur_mon_pos;
-                (self.win_x, self.win_y) = self.compute_window_position(mon_pos, mon_size);
-                window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+                let (position_x, position_y) = self.compute_window_position(mon_pos, mon_size);
+                self.set_configured_window_position(window, position_x, position_y);
+                self.position_restore_after = Some(now + Duration::from_millis(750));
             }
         }
     }

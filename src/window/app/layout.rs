@@ -84,6 +84,19 @@ impl App {
         }
     }
 
+    pub(super) fn set_configured_window_position(
+        &mut self,
+        window: &Window,
+        position_x: i32,
+        position_y: i32,
+    ) {
+        self.configured_win_x = position_x;
+        self.configured_win_y = position_y;
+        self.win_x = position_x;
+        self.win_y = position_y;
+        window.set_outer_position(PhysicalPosition::new(position_x, position_y));
+    }
+
     pub(super) fn compute_window_position(
         &self,
         mon_pos: PhysicalPosition<i32>,

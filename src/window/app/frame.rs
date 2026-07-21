@@ -33,6 +33,15 @@ impl App {
             event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_deadline));
             return;
         }
+        if self
+            .position_restore_after
+            .is_some_and(|restore_after| now >= restore_after)
+        {
+            self.position_restore_after = None;
+            self.win_x = self.configured_win_x;
+            self.win_y = self.configured_win_y;
+            window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+        }
         if now.duration_since(self.last_topmost_check) >= Duration::from_secs(1) {
             Self::enforce_topmost(&window);
             self.last_topmost_check = now;
@@ -110,10 +119,8 @@ impl App {
                     let mon_size = monitor.size();
                     let mon_pos = monitor.position();
                     let (new_x, new_y) = self.compute_window_position(mon_pos, mon_size);
-                    if new_x != self.win_x || new_y != self.win_y {
-                        self.win_x = new_x;
-                        self.win_y = new_y;
-                        window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+                    if new_x != self.configured_win_x || new_y != self.configured_win_y {
+                        self.set_configured_window_position(&window, new_x, new_y);
                     }
                 }
                 window.request_redraw();

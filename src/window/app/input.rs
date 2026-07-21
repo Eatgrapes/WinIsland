@@ -53,8 +53,10 @@ impl App {
                 );
                 if is_hovering {
                     self.right_press_cursor = Some((px, py));
-                    self.right_drag_start_offset =
-                        Some((self.config.position_x_offset, self.config.position_y_offset));
+                    self.right_drag_start_offset = Some((
+                        self.config.position_x_offset + self.win_x - self.configured_win_x,
+                        self.config.position_y_offset + self.win_y - self.configured_win_y,
+                    ));
                 }
             }
             ElementState::Released => {
