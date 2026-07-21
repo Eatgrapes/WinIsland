@@ -75,6 +75,16 @@ impl MediaInfo {
             self.position_ms
         };
         let current_pos = (raw_pos as i64 + delay_ms).max(0) as u64;
+        let current_pos = if self.is_playing {
+            let duration_ms = self.effective_duration_ms();
+            if duration_ms > 0 && current_pos > duration_ms {
+                current_pos % duration_ms
+            } else {
+                current_pos
+            }
+        } else {
+            current_pos
+        };
 
         match lyrics.binary_search_by_key(&current_pos, |line| line.time_ms) {
             Ok(idx) => Some(&lyrics[idx].text),

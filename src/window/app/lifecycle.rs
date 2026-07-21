@@ -17,8 +17,10 @@ impl ApplicationHandler for App {
             .and_then(|settings| settings.window_id())
             == Some(id)
         {
-            if let Some(settings) = self.settings.as_mut() {
-                settings.handle_window_event(event_loop, event);
+            if let (Some(settings), Some(renderer)) =
+                (self.settings.as_mut(), self.renderer.as_mut())
+            {
+                settings.handle_window_event(event_loop, event, renderer);
             }
             if self
                 .settings

@@ -5,8 +5,8 @@ use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::settings_ui::items::*;
 use skia_safe::{
-    Canvas, Color, Data, FilterMode, ISize, Image, MipmapMode, Paint, Rect, SamplingOptions,
-    image_filters, surfaces,
+    Canvas, Color, Data, FilterMode, Image, MipmapMode, Paint, Rect, SamplingOptions,
+    gpu::{DirectContext, Mipmapped},
 };
 
 use super::{SIDEBAR_KEY_BASE, SIDEBAR_ROW_H, SIDEBAR_W, SettingsApp};
@@ -22,37 +22,26 @@ thread_local! {
     static SIDEBAR_ICONS: RefCell<Option<[Image; 4]>> = const { RefCell::new(None) };
 }
 
-fn load_sidebar_icon(bytes: &[u8]) -> Image {
-    let source = Image::from_encoded(Data::new_copy(bytes)).expect("Failed to load sidebar icon");
-    let mut surface = surfaces::raster_n32_premul(ISize::new(64, 64))
-        .expect("Failed to create sidebar icon surface");
-    surface.canvas().clear(Color::TRANSPARENT);
-    let mut paint = Paint::default();
-    paint.set_anti_alias(true);
-    surface.canvas().draw_image_rect_with_sampling_options(
-        &source,
-        None,
-        Rect::from_xywh(0.0, 0.0, 64.0, 64.0),
-        SamplingOptions::new(FilterMode::Linear, MipmapMode::None),
-        &paint,
-    );
-    surface.image_snapshot()
+fn load_sidebar_icon(direct_context: &mut DirectContext, bytes: &[u8]) -> Image {
+    let image = Image::from_encoded(Data::new_copy(bytes)).expect("Failed to load sidebar icon");
+    image
+        .new_texture_image(direct_context, Mipmapped::Yes)
+        .expect("Failed to create mipmapped sidebar icon texture")
 }
 
-fn draw_sidebar_icon(canvas: &Canvas, index: usize, rect: Rect) {
+fn draw_sidebar_icon(
+    direct_context: &mut DirectContext,
+    canvas: &Canvas,
+    index: usize,
+    rect: Rect,
+) {
     SIDEBAR_ICONS.with(|cache| {
         let mut cache = cache.borrow_mut();
-        let icons = cache.get_or_insert_with(|| SIDEBAR_ICON_BYTES.map(load_sidebar_icon));
-        let mut paint = Paint::default();
-        paint.set_anti_alias(true);
-        paint.set_image_filter(image_filters::drop_shadow(
-            (0.0, 1.2),
-            (1.4, 1.4),
-            Color::from_argb(90, 0, 0, 0),
-            None,
-            None,
-            None,
-        ));
+        if cache.is_none() {
+            *cache = Some(SIDEBAR_ICON_BYTES.map(|bytes| load_sidebar_icon(direct_context, bytes)));
+        }
+        let icons = cache.as_ref().expect("Sidebar icon cache was initialized");
+        let paint = Paint::default();
         canvas.draw_image_rect_with_sampling_options(
             &icons[index],
             None,
@@ -70,7 +59,12 @@ pub(super) fn clear_sidebar_icon_cache() {
 }
 
 impl SettingsApp {
-    pub(crate) fn draw_sidebar(&self, canvas: &Canvas, theme: &SettingsTheme) {
+    pub(crate) fn draw_sidebar(
+        &self,
+        direct_context: &mut DirectContext,
+        canvas: &Canvas,
+        theme: &SettingsTheme,
+    ) {
         let fm = FontManager::global();
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
@@ -179,6 +173,7 @@ impl SettingsApp {
             }
 
             draw_sidebar_icon(
+                direct_context,
                 canvas,
                 i,
                 Rect::from_xywh(row_x + 8.0, row_y + 6.0, 20.0, 20.0),

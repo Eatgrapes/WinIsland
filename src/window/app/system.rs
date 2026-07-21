@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use windows::ApplicationModel::Package;
 use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 use windows::core::PCWSTR;
-use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::dpi::PhysicalSize;
 use winit::event_loop::ActiveEventLoop;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
@@ -13,6 +13,7 @@ use winit::window::Window;
 use crate::core::config::PADDING;
 use crate::core::persistence::{get_config_path, load_config};
 use crate::plugin::zip_loader;
+use crate::window::d3d::MAIN_D3D_TARGET;
 use crate::window::tray::TrayAction;
 
 use super::App;
@@ -105,14 +106,22 @@ impl App {
         }
 
         let mut settings = crate::window::settings::SettingsApp::new(load_config());
-        settings.create_window(event_loop);
+        let Some(renderer) = self.renderer.as_mut() else {
+            log::error!("Cannot open settings without the shared D3D12 renderer");
+            return;
+        };
+        settings.create_window(event_loop, renderer);
         self.settings = Some(settings);
         log::info!("Settings window opened in main process");
     }
 
     pub(super) fn close_settings(&mut self) {
         if let Some(mut settings) = self.settings.take() {
-            settings.close();
+            if let Some(target) = settings.close()
+                && let Some(renderer) = self.renderer.as_mut()
+            {
+                renderer.remove_target(target);
+            }
             log::info!("Settings window closed and resources released");
         }
     }
@@ -241,11 +250,16 @@ impl App {
                         self.os_w = new_os_w;
                         self.os_h = new_os_h;
                         let _ = window.request_inner_size(PhysicalSize::new(self.os_w, self.os_h));
-                        if let Some(surface) = self.surface.as_mut() {
-                            let _ = surface.resize(
-                                std::num::NonZeroU32::new(self.os_w.max(1)).unwrap(),
-                                std::num::NonZeroU32::new(self.os_h.max(1)).unwrap(),
-                            );
+                        if let Some(renderer) = self.renderer.as_mut() {
+                            if let Err(error) =
+                                renderer.resize(MAIN_D3D_TARGET, self.os_w, self.os_h)
+                            {
+                                log::error!("D3D12 renderer resize failed: {error}");
+                            } else {
+                                crate::utils::backdrop::clear_mica_cache();
+                                crate::utils::glass::clear_glass_cache();
+                                crate::utils::backdrop::clear_blurred_cover_cache();
+                            }
                         }
                     }
 
@@ -259,10 +273,9 @@ impl App {
                         if mon_size.width > 0 && mon_size.height > 0 {
                             self.last_mon_size = (mon_size.width, mon_size.height);
                             self.last_mon_pos = (mon_pos.x, mon_pos.y);
-                            (self.win_x, self.win_y) =
+                            let (position_x, position_y) =
                                 self.compute_window_position(mon_pos, mon_size);
-                            window
-                                .set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+                            self.set_configured_window_position(window, position_x, position_y);
                         }
                     }
                 }
@@ -285,8 +298,9 @@ impl App {
             {
                 self.last_mon_size = cur_mon_size;
                 self.last_mon_pos = cur_mon_pos;
-                (self.win_x, self.win_y) = self.compute_window_position(mon_pos, mon_size);
-                window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+                let (position_x, position_y) = self.compute_window_position(mon_pos, mon_size);
+                self.set_configured_window_position(window, position_x, position_y);
+                self.position_restore_after = Some(now + Duration::from_millis(750));
             }
         }
     }

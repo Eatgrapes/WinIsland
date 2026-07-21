@@ -1,13 +1,16 @@
+use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
     Canvas, ClipOp, Color, FilterMode, MipmapMode, Paint, RRect, Rect, SamplingOptions,
+    gpu::DirectContext,
 };
 
 use crate::core::smtc::MediaInfo;
-use crate::utils::backdrop::get_mica_background;
-use crate::utils::glass::get_glass_background;
+use crate::utils::backdrop::{get_blurred_cover_background, get_mica_background};
+use crate::utils::glass::{GlassBackgroundParams, get_glass_background};
 
 pub(super) struct BackgroundParams<'a> {
     pub(super) canvas: &'a Canvas,
+    pub(super) direct_context: &'a mut DirectContext,
     pub(super) rect: Rect,
     pub(super) rrect: RRect,
     pub(super) island_style: &'a str,
@@ -28,6 +31,7 @@ pub(super) struct BackgroundParams<'a> {
 pub(super) fn draw_background(params: BackgroundParams<'_>) {
     let BackgroundParams {
         canvas,
+        direct_context,
         rect,
         rrect,
         island_style,
@@ -47,24 +51,37 @@ pub(super) fn draw_background(params: BackgroundParams<'_>) {
     let bg_color = Color::BLACK;
     let screen_x = win_x + offset_x as i32;
     let screen_y = win_y + offset_y as i32;
+    let surface_info = canvas.image_info();
     if island_style == "glass" {
         canvas.save();
         canvas.clip_rrect(rrect, ClipOp::Intersect, true);
         if let Some(bg_img) = get_glass_background(
-            screen_x,
-            screen_y,
-            current_w as u32,
-            current_h as u32,
-            40.0 * global_scale,
-            monitor_x,
-            monitor_y,
-            monitor_w,
-            monitor_h,
+            direct_context,
+            GlassBackgroundParams {
+                screen_x,
+                screen_y,
+                width: current_w as u32,
+                height: current_h as u32,
+                blur_sigma: 40.0 * global_scale,
+                surface_width: surface_info.width() as u32,
+                surface_height: surface_info.height() as u32,
+                monitor_x,
+                monitor_y,
+                monitor_w,
+                monitor_h,
+            },
         ) {
             let mut paint = Paint::default();
             paint.set_anti_alias(true);
             let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
-            canvas.draw_image_rect_with_sampling_options(&bg_img, None, rect, sampling, &paint);
+            let source_rect = Rect::from_wh(bg_img.width as f32, bg_img.height as f32);
+            canvas.draw_image_rect_with_sampling_options(
+                &bg_img.image,
+                Some((&source_rect, SrcRectConstraint::Fast)),
+                rect,
+                sampling,
+                &paint,
+            );
 
             let mut darken = Paint::default();
             darken.set_color(Color::from_argb(130, 10, 10, 14));
@@ -80,20 +97,27 @@ pub(super) fn draw_background(params: BackgroundParams<'_>) {
     } else if island_style == "mica" {
         canvas.save();
         canvas.clip_rrect(rrect, ClipOp::Intersect, true);
-        if let Some(bg_img) = get_mica_background(
-            screen_x,
-            screen_y,
-            current_w as u32,
-            current_h as u32,
-            monitor_x,
-            monitor_y,
-            monitor_w,
-            monitor_h,
-        ) {
+        if let Some(bg_img) =
+            get_mica_background(direct_context, monitor_x, monitor_y, monitor_w, monitor_h)
+        {
+            let crop_x = (screen_x - monitor_x).max(0) as f32;
+            let crop_y = (screen_y - monitor_y).max(0) as f32;
+            let source_rect = Rect::from_xywh(
+                crop_x / monitor_w as f32 * bg_img.width() as f32,
+                crop_y / monitor_h as f32 * bg_img.height() as f32,
+                (current_w / monitor_w as f32 * bg_img.width() as f32).max(1.0),
+                (current_h / monitor_h as f32 * bg_img.height() as f32).max(1.0),
+            );
             let mut paint = Paint::default();
             paint.set_anti_alias(true);
             let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
-            canvas.draw_image_rect_with_sampling_options(&bg_img, None, rect, sampling, &paint);
+            canvas.draw_image_rect_with_sampling_options(
+                &bg_img,
+                Some((&source_rect, SrcRectConstraint::Fast)),
+                rect,
+                sampling,
+                &paint,
+            );
 
             let mut overlay = Paint::default();
             overlay.set_color(Color::from_argb(110, 32, 32, 32));
@@ -108,7 +132,7 @@ pub(super) fn draw_background(params: BackgroundParams<'_>) {
     } else if island_style == "dynamic" {
         canvas.save();
         canvas.clip_rrect(rrect, ClipOp::Intersect, true);
-        if let Some(blurred_cover) = crate::utils::backdrop::get_blurred_cover_background(media) {
+        if let Some(blurred_cover) = get_blurred_cover_background(direct_context, media) {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -150,20 +174,32 @@ pub(super) fn draw_background(params: BackgroundParams<'_>) {
             canvas.draw_rect(rect, &overlay);
         } else {
             if let Some(bg_img) = get_glass_background(
-                screen_x,
-                screen_y,
-                current_w as u32,
-                current_h as u32,
-                40.0 * global_scale,
-                monitor_x,
-                monitor_y,
-                monitor_w,
-                monitor_h,
+                direct_context,
+                GlassBackgroundParams {
+                    screen_x,
+                    screen_y,
+                    width: current_w as u32,
+                    height: current_h as u32,
+                    blur_sigma: 40.0 * global_scale,
+                    surface_width: surface_info.width() as u32,
+                    surface_height: surface_info.height() as u32,
+                    monitor_x,
+                    monitor_y,
+                    monitor_w,
+                    monitor_h,
+                },
             ) {
                 let mut paint = Paint::default();
                 paint.set_anti_alias(true);
                 let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
-                canvas.draw_image_rect_with_sampling_options(&bg_img, None, rect, sampling, &paint);
+                let source_rect = Rect::from_wh(bg_img.width as f32, bg_img.height as f32);
+                canvas.draw_image_rect_with_sampling_options(
+                    &bg_img.image,
+                    Some((&source_rect, SrcRectConstraint::Fast)),
+                    rect,
+                    sampling,
+                    &paint,
+                );
 
                 let mut darken = Paint::default();
                 darken.set_color(Color::from_argb(130, 10, 10, 14));

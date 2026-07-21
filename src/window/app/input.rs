@@ -53,8 +53,10 @@ impl App {
                 );
                 if is_hovering {
                     self.right_press_cursor = Some((px, py));
-                    self.right_drag_start_offset =
-                        Some((self.config.position_x_offset, self.config.position_y_offset));
+                    self.right_drag_start_offset = Some((
+                        self.config.position_x_offset + self.win_x - self.configured_win_x,
+                        self.config.position_y_offset + self.win_y - self.configured_win_y,
+                    ));
                 }
             }
             ElementState::Released => {
@@ -106,7 +108,11 @@ impl App {
             );
 
         if !self.expanded && self.compact_overlay.is_notification_visible() && is_hovering_visible {
-            self.expand();
+            self.dismissing_notification = true;
+            self.is_dragging = true;
+            self.drag_start_px = rel_x + self.win_x;
+            self.drag_start_py = rel_y + self.win_y;
+            self.drag_has_moved = false;
             return;
         }
 
@@ -260,11 +266,21 @@ impl App {
         }
     }
 
-    pub(super) fn handle_release(&mut self, _py: i32) {
+    pub(super) fn handle_release(&mut self, py: i32) {
         if self.seeking_progress {
             self.seeking_progress = false;
             if self.seeking_duration_ms > 0 {
                 self.smtc.request_seek(self.seeking_preview_ms);
+            }
+            return;
+        }
+        if self.dismissing_notification {
+            self.dismissing_notification = false;
+            self.is_dragging = false;
+            if self.drag_start_py - py > 20 {
+                self.compact_overlay.dismiss_notification();
+            } else if !self.compact_overlay.activate_notification() {
+                self.expand();
             }
             return;
         }

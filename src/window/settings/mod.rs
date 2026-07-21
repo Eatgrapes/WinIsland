@@ -1,11 +1,10 @@
 use crate::core::config::{AppConfig, WidgetKind};
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
-use crate::utils::font::FontManager;
 use crate::utils::icon::get_app_icon;
 use crate::utils::settings_ui::items::*;
 use crate::utils::settings_ui::*;
-use softbuffer::{Context, Surface};
+use crate::window::d3d::{D3DRenderer, D3DTargetId};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
@@ -14,8 +13,9 @@ use winit::dpi::LogicalSize;
 use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{Key, NamedKey};
+use winit::platform::windows::WindowAttributesExtWindows;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use winit::window::{Window, WindowId};
+use winit::window::{Window, WindowButtons, WindowId};
 
 pub mod input;
 pub mod items;
@@ -75,7 +75,7 @@ pub(crate) struct NumberInput {
 
 pub struct SettingsApp {
     pub(crate) window: Option<Arc<Window>>,
-    pub(crate) surface: Option<Surface<Arc<Window>, Arc<Window>>>,
+    pub(crate) renderer_target: Option<D3DTargetId>,
     pub(crate) config: AppConfig,
     pub(crate) active_page: usize,
     pub(crate) page_history: Vec<usize>,
@@ -112,11 +112,10 @@ pub struct SettingsApp {
 
 impl SettingsApp {
     pub fn new(config: AppConfig) -> Self {
-        FontManager::global().set_custom_font_path(config.custom_font_path.as_deref());
         let switch_anim = SwitchAnimator::new(&[]);
         Self {
             window: None,
-            surface: None,
+            renderer_target: None,
             config,
             active_page: 0,
             page_history: vec![0],
@@ -279,30 +278,45 @@ impl SettingsApp {
 }
 
 impl SettingsApp {
-    pub(crate) fn create_window(&mut self, event_loop: &ActiveEventLoop) {
+    pub(crate) fn create_window(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        renderer: &mut D3DRenderer,
+    ) {
         let attrs = Window::default_attributes()
             .with_title("WinIsland Settings")
             .with_inner_size(LogicalSize::new(WIN_W as f64, WIN_H as f64))
             .with_resizable(true)
+            .with_enabled_buttons(WindowButtons::CLOSE | WindowButtons::MINIMIZE)
             .with_decorations(false)
             .with_transparent(true)
+            .with_no_redirection_bitmap(true)
             .with_window_icon(get_app_icon());
         let window = Arc::new(event_loop.create_window(attrs).unwrap());
         self.window = Some(window.clone());
-        let context = Context::new(window.clone()).unwrap();
-        let mut surface = Surface::new(&context, window.clone()).unwrap();
         let size = window.inner_size();
         self.win_w = size.width as f32;
         self.win_h = size.height as f32;
-        resize_surface(&mut surface, size.width, size.height);
-        self.surface = Some(surface);
+        self.renderer_target = match renderer.create_target(&window, size.width, size.height) {
+            Ok(target) => Some(target),
+            Err(error) => {
+                log::error!("D3D12 settings renderer initialization failed: {error}");
+                self.close_requested = true;
+                return;
+            }
+        };
         self.close_requested = false;
         self.next_frame_deadline = Instant::now();
         self.update_theme();
         self.update_detected_apps();
     }
 
-    pub(crate) fn handle_window_event(&mut self, event_loop: &ActiveEventLoop, event: WindowEvent) {
+    pub(crate) fn handle_window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        event: WindowEvent,
+        renderer: &mut D3DRenderer,
+    ) {
         match event {
             WindowEvent::CloseRequested | WindowEvent::Destroyed => self.close_requested = true,
             WindowEvent::Focused(focused) => {
@@ -321,20 +335,36 @@ impl SettingsApp {
                     win.request_redraw();
                 }
             }
+            WindowEvent::Resized(_)
+                if self
+                    .window
+                    .as_ref()
+                    .is_some_and(|window| window.is_maximized()) =>
+            {
+                if let Some(window) = &self.window {
+                    window.set_maximized(false);
+                }
+            }
             WindowEvent::Resized(new_size) => {
                 self.win_w = new_size.width as f32;
                 self.win_h = new_size.height as f32;
-                if let Some(surface) = &mut self.surface {
-                    resize_surface(surface, new_size.width, new_size.height);
-                    if let Some(win) = &self.window {
-                        win.request_redraw();
-                    }
+                if let Some(target) = self.renderer_target
+                    && let Err(error) = renderer.resize(target, new_size.width, new_size.height)
+                {
+                    log::error!("D3D12 settings renderer resize failed: {error}");
+                    self.close_requested = true;
+                }
+                if let Some(win) = &self.window {
+                    win.request_redraw();
                 }
             }
             WindowEvent::ScaleFactorChanged { .. } => {
-                if let (Some(win), Some(surface)) = (&self.window, &mut self.surface) {
+                if let (Some(win), Some(target)) = (&self.window, self.renderer_target) {
                     let size = win.inner_size();
-                    resize_surface(surface, size.width, size.height);
+                    if let Err(error) = renderer.resize(target, size.width, size.height) {
+                        log::error!("D3D12 settings renderer resize failed: {error}");
+                        self.close_requested = true;
+                    }
                     win.request_redraw();
                 }
             }
@@ -529,7 +559,7 @@ impl SettingsApp {
                     win.request_redraw();
                 }
             }
-            WindowEvent::RedrawRequested => self.draw(),
+            WindowEvent::RedrawRequested => self.draw(renderer),
             _ => (),
         }
     }
@@ -625,25 +655,13 @@ impl SettingsApp {
         self.close_requested
     }
 
-    pub(crate) fn close(&mut self) {
+    pub(crate) fn close(&mut self) -> Option<D3DTargetId> {
         self.commit_number_input();
         self.popup = None;
         self.widget_dragging = None;
         sidebar::clear_sidebar_icon_cache();
-        self.surface = None;
+        let renderer_target = self.renderer_target.take();
         self.window = None;
-    }
-}
-
-pub(crate) fn resize_surface(
-    surface: &mut Surface<Arc<Window>, Arc<Window>>,
-    width: u32,
-    height: u32,
-) {
-    if let (Some(w), Some(h)) = (
-        std::num::NonZeroU32::new(width),
-        std::num::NonZeroU32::new(height),
-    ) {
-        let _ = surface.resize(w, h);
+        renderer_target
     }
 }

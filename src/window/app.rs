@@ -7,9 +7,9 @@ use crate::plugin::PluginManager;
 use crate::plugin::zip_loader::PluginManifest;
 use crate::ui::compact::CompactOverlay;
 use crate::utils::physics::Spring;
+use crate::window::d3d::D3DRenderer;
 use crate::window::settings::SettingsApp;
 use crate::window::tray::TrayManager;
-use softbuffer::{Context, Surface};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -44,8 +44,7 @@ fn should_show_widget_view(smtc_enabled: bool, has_media: bool) -> bool {
 
 pub struct App {
     window: Option<Arc<Window>>,
-    context: Option<Context<Arc<Window>>>,
-    surface: Option<Surface<Arc<Window>, Arc<Window>>>,
+    renderer: Option<D3DRenderer>,
     settings: Option<SettingsApp>,
     tray: Option<TrayManager>,
     smtc: SmtcListener,
@@ -63,6 +62,8 @@ pub struct App {
     os_h: u32,
     win_x: i32,
     win_y: i32,
+    configured_win_x: i32,
+    configured_win_y: i32,
     smtc_media_info: MediaInfo,
     last_media_title: String,
     current_lyric_text: String,
@@ -76,6 +77,7 @@ pub struct App {
     hide_origin: Option<(i32, i32)>,
     hide_edge: HideEdge,
     is_dragging: bool,
+    dismissing_notification: bool,
     drag_start_px: i32,
     drag_start_py: i32,
     drag_start_hide_val: f32,
@@ -87,6 +89,8 @@ pub struct App {
     last_fullscreen_check: Instant,
     last_config_check: Instant,
     last_monitor_check: Instant,
+    position_restore_after: Option<Instant>,
+    last_working_set_trim: Instant,
     last_config_modified: Option<SystemTime>,
     next_frame_deadline: Instant,
     animation_frame_interval: Duration,
@@ -122,8 +126,7 @@ impl Default for App {
             .set_custom_font_path(config.custom_font_path.as_deref());
         Self {
             window: None,
-            context: None,
-            surface: None,
+            renderer: None,
             settings: None,
             tray: None,
             config: config.clone(),
@@ -145,6 +148,8 @@ impl Default for App {
             os_h: 0,
             win_x: 0,
             win_y: 0,
+            configured_win_x: 0,
+            configured_win_y: 0,
             smtc_media_info: MediaInfo::default(),
             last_media_title: String::new(),
             current_lyric_text: String::new(),
@@ -158,6 +163,7 @@ impl Default for App {
             hide_origin: None,
             hide_edge: HideEdge::Top,
             is_dragging: false,
+            dismissing_notification: false,
             drag_start_px: 0,
             drag_start_py: 0,
             drag_start_hide_val: 0.0,
@@ -169,6 +175,8 @@ impl Default for App {
             last_fullscreen_check: Instant::now(),
             last_config_check: Instant::now(),
             last_monitor_check: Instant::now(),
+            position_restore_after: None,
+            last_working_set_trim: Instant::now(),
             last_config_modified,
             next_frame_deadline: Instant::now(),
             animation_frame_interval: DEFAULT_ANIMATION_FRAME_INTERVAL,

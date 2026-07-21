@@ -4,8 +4,8 @@
 
 WinIsland is a Windows desktop application that creates a Dynamic Island overlay — a translucent, always-on-top island that displays media playback info, lyrics, and audio visualization. Built entirely in Rust with Skia for GPU-accelerated rendering.
 
-- **Window system**: winit + softbuffer
-- **Rendering**: skia-safe (Skia canvas API)
+- **Window system**: winit + DirectComposition
+- **Rendering**: skia-safe on a shared D3D12 Ganesh context
 - **Media integration**: Windows SMTC (System Media Transport Controls) via COM
 - **Audio visualization**: cpal (loopback capture) + realfft (6-band spectrum)
 - **Plugin system**: Native C ABI DLLs loaded via libloading
@@ -58,40 +58,41 @@ src/
 
 ## Rendering pipeline
 
-The application runs on winit's **Poll** event loop in [app.rs](src/window/app.rs):
+The application uses winit's `ApplicationHandler` and `WaitUntil` scheduling in [app.rs](src/window/app.rs):
 
 ```
 resumed() → create window (transparent, topmost, skip-taskbar)
-           → create softbuffer surface
-           → create Skia thread-local surface
+           → create D3D12 device, queue, and shared Skia DirectContext
+           → create a DirectComposition swap chain and GPU surfaces
 
-about_to_wait() [every frame ~144 FPS]:
+about_to_wait() [display refresh rate while active, throttled while idle]:
   1. Enforce topmost position
   2. Handle tray events
-  3. Check config changes (every 30 frames)
+  3. Check config changes on a timed interval
   4. Process pending plugin installs
   5. Update cursor hit-test & auto-hide state
   6. Update seeking, borders, lyrics transitions
   7. Compute spring targets, update all springs
   8. Request redraw if animating
-  9. Sleep to maintain 144 FPS (~6944 µs)
+  9. Schedule the next deadline from animation, playback, interaction, or idle state
 
 RedrawRequested → draw_island():
   1. Compute dt, motion blur sigmas
   2. Get current MediaInfo from SMTC
   3. Get spectrum from AudioProcessor
-  4. Draw background (3 styles: default, glass, dynamic)
+  4. Draw background (default, glass, dynamic, or mica)
   5. Draw album art (rounded/cover fit)
   6. Draw lyrics with transitions
   7. Draw spectrum visualizer bars
   8. Draw progress bar
   9. Draw mini controls (play/pause/prev/next)
-  10. Read Skia surface pixels → softbuffer → present
+  10. Flush the GPU surface → present the DirectComposition swap chain
 ```
 
 Each style draws its background differently:
-- **glass**: GDI screen capture → heavy blur → dark multiply blend
-- **dynamic**: Solid color extracted from album art palette
+- **glass**: GDI screen capture → cached GPU surfaces → Skia blur → dark multiply blend
+- **dynamic**: Cached GPU-blurred album art with animated movement
+- **mica**: Downscaled desktop capture blurred on cached GPU surfaces
 - **default**: Solid black
 
 ---
@@ -142,6 +143,7 @@ Plugin packages are `.zip` files with a manifest (YAML), optional signature, and
 | COM | `CoInitializeEx`, `CoUninitialize` |
 | Audio | `IMMDeviceEnumerator`, `IAudioMeterInformation` |
 | Window | `SetWindowPos` (topmost), extended styles (WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE, WS_EX_LAYERED, WS_EX_TRANSPARENT) |
+| Rendering | D3D12, DXGI flip swap chains, DirectComposition, Skia Ganesh |
 | GDI | `GetDC`, `CreateCompatibleDC`, `BitBlt`, `GetDIBits`, `StretchBlt` |
 | DWM | `DwmEnableBlurBehindWindow` (deprecated), `DwmSetWindowAttribute` |
 | IME | `ImmGetContext`, `ImmSetCompositionWindow` |
