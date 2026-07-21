@@ -29,7 +29,9 @@ const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const RETRY_INTERVAL: Duration = Duration::from_secs(5);
 
 pub(super) struct NotificationPayload {
+    notification_id: u32,
     app_name: String,
+    app_user_model_id: Option<String>,
     title: String,
     detail: String,
     icon_bytes: Option<Vec<u8>>,
@@ -261,6 +263,14 @@ impl NotificationMonitor {
             .as_ref()
             .and_then(|listener| read_notification(listener, notification_id))
     }
+
+    pub(super) fn remove_notification(&self, notification_id: u32) {
+        if let Some(listener) = &self.listener
+            && let Err(error) = listener.RemoveNotification(notification_id)
+        {
+            log::debug!("Notification could not be removed: {error:?}");
+        }
+    }
 }
 
 impl Drop for NotificationMonitor {
@@ -275,7 +285,7 @@ fn read_notification(
 ) -> Option<NotificationPayload> {
     let notification = listener.GetNotification(notification_id).ok()?;
     let (mut title, detail) = read_notification_text(&notification);
-    let (app_name, icon_bytes) = notification
+    let (app_name, app_user_model_id, icon_bytes) = notification
         .AppInfo()
         .ok()
         .and_then(|app| {
@@ -284,7 +294,12 @@ fn read_notification(
                 .DisplayName()
                 .map(|name| name.to_string())
                 .unwrap_or_default();
-            Some((name, read_app_icon(&display)))
+            let app_user_model_id = app
+                .AppUserModelId()
+                .ok()
+                .map(|app_user_model_id| app_user_model_id.to_string())
+                .filter(|app_user_model_id| !app_user_model_id.is_empty());
+            Some((name, app_user_model_id, read_app_icon(&display)))
         })
         .unwrap_or_default();
 
@@ -292,7 +307,9 @@ fn read_notification(
         title = app_name.clone();
     }
     (!title.is_empty()).then_some(NotificationPayload {
+        notification_id,
         app_name,
+        app_user_model_id,
         title,
         detail,
         icon_bytes,
@@ -355,7 +372,9 @@ fn read_app_icon(display: &AppDisplayInfo) -> Option<Vec<u8>> {
 
 #[derive(Default)]
 pub(super) struct NotificationIndicator {
+    notification_id: Option<u32>,
     app_name: String,
+    app_user_model_id: Option<String>,
     title: String,
     detail: String,
     icon: Option<Image>,
@@ -392,7 +411,9 @@ impl NotificationIndicator {
         };
 
         let NotificationPayload {
+            notification_id,
             app_name,
+            app_user_model_id,
             title,
             detail,
             icon_bytes,
@@ -404,6 +425,8 @@ impl NotificationIndicator {
         };
         self.title = title;
         self.detail = detail;
+        self.notification_id = Some(notification_id);
+        self.app_user_model_id = app_user_model_id;
         self.icon = icon_bytes.and_then(|bytes| Image::from_encoded(Data::new_copy(&bytes)));
         self.display_started = Some(Instant::now());
         self.display_until = Some(Instant::now() + DISPLAY_DURATION);
@@ -415,13 +438,34 @@ impl NotificationIndicator {
         self.clear_display();
     }
 
+    pub(super) fn activate(&mut self) -> Option<u32> {
+        let app_user_model_id = self.app_user_model_id.as_deref()?;
+        if crate::utils::win32::activate_application(app_user_model_id) {
+            self.take_notification_id()
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn dismiss(&mut self) -> Option<u32> {
+        self.take_notification_id()
+    }
+
     fn clear_display(&mut self) {
+        self.notification_id = None;
         self.app_name = String::new();
+        self.app_user_model_id = None;
         self.title = String::new();
         self.detail = String::new();
         self.display_started = None;
         self.display_until = None;
         self.icon = None;
+    }
+
+    fn take_notification_id(&mut self) -> Option<u32> {
+        let notification_id = self.notification_id.take();
+        self.clear_display();
+        notification_id
     }
 
     pub(super) fn is_visible(&self) -> bool {

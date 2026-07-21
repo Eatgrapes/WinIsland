@@ -32,10 +32,6 @@ impl App {
                 WindowEvent::Resized(_) if win.is_maximized() => {
                     win.set_maximized(false);
                 }
-                WindowEvent::Moved(position) => {
-                    self.win_x = position.x;
-                    self.win_y = position.y;
-                }
                 WindowEvent::CloseRequested => (),
                 WindowEvent::DroppedFile(path)
                     if path

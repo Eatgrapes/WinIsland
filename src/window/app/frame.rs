@@ -338,7 +338,7 @@ impl App {
         set_progress_hover(progress_hover_active);
         set_progress_dragging(self.seeking_progress);
 
-        if self.is_dragging && !self.is_hidden() {
+        if self.is_dragging && !self.dismissing_notification && !self.is_hidden() {
             let upward_distance = self.drag_start_py - py;
             let horizontal_distance = px - self.drag_start_px;
             if upward_distance.abs() > 3 || horizontal_distance.abs() > 3 {

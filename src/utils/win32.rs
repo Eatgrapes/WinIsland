@@ -1,5 +1,11 @@
 use windows::Win32::Foundation::HWND;
+use windows::Win32::System::Com::{
+    CLSCTX_LOCAL_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
+};
 use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
+use windows::Win32::UI::Shell::{
+    ACTIVATEOPTIONS, ApplicationActivationManager, IApplicationActivationManager,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowW, GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, SW_RESTORE,
     SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow,
@@ -82,6 +88,48 @@ pub fn set_window_topmost(hwnd: HWND) {
             0,
             SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
         );
+    }
+}
+
+pub fn activate_application(app_user_model_id: &str) -> bool {
+    if app_user_model_id.is_empty() {
+        return false;
+    }
+
+    // SAFETY: The current thread uses COM only while activating the application. A successful
+    // initialization is balanced before returning; if another apartment already initialized the
+    // thread, its existing apartment remains in use.
+    let com_initialized = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }.is_ok();
+    let app_id = app_user_model_id.to_string();
+    let app_user_model_id: Vec<u16> = app_id.encode_utf16().chain(std::iter::once(0)).collect();
+    let result = (|| unsafe {
+        // SAFETY: The activation manager is a system COM local server. Both UTF-16 buffers are
+        // null-terminated and remain valid for the duration of ActivateApplication.
+        let manager: IApplicationActivationManager =
+            CoCreateInstance(&ApplicationActivationManager, None, CLSCTX_LOCAL_SERVER)?;
+        manager.ActivateApplication(
+            PCWSTR(app_user_model_id.as_ptr()),
+            PCWSTR::null(),
+            ACTIVATEOPTIONS::default(),
+        )
+    })();
+    if com_initialized {
+        // SAFETY: This balances the successful CoInitializeEx call above.
+        unsafe { CoUninitialize() };
+    }
+    match result {
+        Ok(process_id) => {
+            log::info!(
+                "Notification application activated: {} (process {})",
+                app_id,
+                process_id
+            );
+            true
+        }
+        Err(error) => {
+            log::debug!("Notification application could not be activated: {error:?}");
+            false
+        }
     }
 }
 

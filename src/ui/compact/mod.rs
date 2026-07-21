@@ -81,6 +81,24 @@ impl CompactOverlay {
         self.notification_indicator.is_visible()
     }
 
+    pub fn activate_notification(&mut self) -> bool {
+        let Some(notification_id) = self.notification_indicator.activate() else {
+            return false;
+        };
+        self.notification_monitor
+            .remove_notification(notification_id);
+        true
+    }
+
+    pub fn dismiss_notification(&mut self) -> bool {
+        let Some(notification_id) = self.notification_indicator.dismiss() else {
+            return false;
+        };
+        self.notification_monitor
+            .remove_notification(notification_id);
+        true
+    }
+
     pub fn target_size(
         &self,
         base_width: f32,
