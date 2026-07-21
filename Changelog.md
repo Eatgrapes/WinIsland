@@ -1,5 +1,12 @@
 # Changelog
 
+### v1.2.7
+- Migrated from software rendering to D3D12 hardware rendering
+- Fixed an issue where the application would still auto-hide in full-screen mode even when the auto-hide option was disabled 
+- Fixed a lyrics display issue when looping a single track
+- Added a feature to redirect to the source application when clicking on a notification
+- Fixed positional alignment issues when using MyDockFinder
+
 ### v1.2.6
 - Improve island hiding settings
 - Improve glass rendering and interface spacing consistency
