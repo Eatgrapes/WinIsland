@@ -130,8 +130,9 @@ impl App {
                 self.last_mon_size.1,
             );
             self.is_cursor_suppressed = is_cursor_hidden();
-            if self.is_fullscreen_suppressed != prev_fullscreen {
-                if self.is_fullscreen_suppressed {
+            let should_hide_for_fullscreen = self.config.auto_hide && self.is_fullscreen_suppressed;
+            if should_hide_for_fullscreen != self.fullscreen_hidden {
+                if should_hide_for_fullscreen {
                     let hide_started = if self.is_hidden() {
                         true
                     } else {
@@ -151,15 +152,17 @@ impl App {
                         self.spring_hide.velocity = -0.65;
                     }
                 }
+                window.request_redraw();
+            }
+            if self.is_fullscreen_suppressed != prev_fullscreen {
                 log::info!(
                     "Fullscreen state: {}",
                     if self.is_fullscreen_suppressed {
-                        "hidden"
+                        "active"
                     } else {
                         "normal"
                     }
                 );
-                window.request_redraw();
             }
         }
 
