@@ -36,7 +36,7 @@ impl SettingsApp {
             Some(target) => target,
             None => return,
         };
-        let render_result = renderer.draw(target, |_, sk_surface| {
+        let render_result = renderer.draw(target, |direct_context, sk_surface| {
             let canvas = sk_surface.canvas();
             canvas.reset_matrix();
             canvas.clear(Color::TRANSPARENT);
@@ -53,7 +53,7 @@ impl SettingsApp {
             bg_paint.set_color(theme.win_bg);
             canvas.draw_rect(win_rect, &bg_paint);
 
-            self.draw_sidebar(canvas, &theme);
+            self.draw_sidebar(direct_context, canvas, &theme);
             self.draw_page_navigation(canvas, &theme);
 
             let content_w = win_w - SIDEBAR_W;
