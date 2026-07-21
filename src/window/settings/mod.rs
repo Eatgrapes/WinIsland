@@ -15,7 +15,7 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{Key, NamedKey};
 use winit::platform::windows::WindowAttributesExtWindows;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use winit::window::{Window, WindowId};
+use winit::window::{Window, WindowButtons, WindowId};
 
 pub mod input;
 pub mod items;
@@ -287,6 +287,7 @@ impl SettingsApp {
             .with_title("WinIsland Settings")
             .with_inner_size(LogicalSize::new(WIN_W as f64, WIN_H as f64))
             .with_resizable(true)
+            .with_enabled_buttons(WindowButtons::CLOSE | WindowButtons::MINIMIZE)
             .with_decorations(false)
             .with_transparent(true)
             .with_no_redirection_bitmap(true)
@@ -332,6 +333,16 @@ impl SettingsApp {
                 if let Some(win) = &self.window {
                     Self::apply_titlebar_theme(win, self.is_light);
                     win.request_redraw();
+                }
+            }
+            WindowEvent::Resized(_)
+                if self
+                    .window
+                    .as_ref()
+                    .is_some_and(|window| window.is_maximized()) =>
+            {
+                if let Some(window) = &self.window {
+                    window.set_maximized(false);
                 }
             }
             WindowEvent::Resized(new_size) => {
