@@ -34,7 +34,7 @@ impl App {
             return;
         }
         if now.duration_since(self.last_topmost_check) >= Duration::from_secs(1) {
-            Self::enforce_topmost(&window, self.win_x, self.win_y, self.os_w, self.os_h);
+            Self::enforce_topmost(&window);
             self.last_topmost_check = now;
         }
         self.handle_tray_events(&window, event_loop);

@@ -75,12 +75,12 @@ impl App {
             Duration::from_nanos(1_000_000_000_000u64 / u64::from(refresh_rate_millihertz));
     }
 
-    pub(super) fn enforce_topmost(window: &Window, win_x: i32, win_y: i32, os_w: u32, os_h: u32) {
+    pub(super) fn enforce_topmost(window: &Window) {
         if let Ok(handle) = window.window_handle()
             && let RawWindowHandle::Win32(raw) = handle.as_raw()
         {
             let hwnd = HWND(raw.hwnd.get() as *mut core::ffi::c_void);
-            crate::utils::win32::set_window_topmost(hwnd, win_x, win_y, os_w as i32, os_h as i32);
+            crate::utils::win32::set_window_topmost(hwnd);
         }
     }
 

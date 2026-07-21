@@ -108,7 +108,7 @@ impl App {
                 "Tray icon created (theme={})",
                 if is_light { "light" } else { "dark" }
             );
-            Self::enforce_topmost(&window, self.win_x, self.win_y, self.os_w, self.os_h);
+            Self::enforce_topmost(&window);
             window.set_visible(true);
             if let Ok(handle) = window.window_handle()
                 && let RawWindowHandle::Win32(win32_handle) = handle.as_raw()

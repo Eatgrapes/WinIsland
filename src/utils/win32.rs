@@ -68,13 +68,20 @@ pub fn modify_window_style(hwnd: HWND, add_flags: isize, remove_flags: isize) {
     }
 }
 
-// SAFETY: SetWindowPos repositions a validated HWND with SWP_NOACTIVATE to
-// prevent focus stealing. The HWND_TOPMOST flag ensures the window stays
-// above other windows. All parameters are provided by the caller and assumed
-// valid.
-pub fn set_window_topmost(hwnd: HWND, x: i32, y: i32, w: i32, h: i32) {
+// SAFETY: SetWindowPos is called on a validated HWND with flags that preserve
+// its size and position. The HWND_TOPMOST flag updates only the window's z-order
+// without stealing focus.
+pub fn set_window_topmost(hwnd: HWND) {
     unsafe {
-        let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), x, y, w, h, SWP_NOACTIVATE);
+        let _ = SetWindowPos(
+            hwnd,
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
+        );
     }
 }
 
