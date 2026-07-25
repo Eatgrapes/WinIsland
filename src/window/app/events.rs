@@ -9,7 +9,7 @@ use crate::utils::blur::calculate_blur_sigmas;
 use crate::utils::mouse::get_global_cursor_pos;
 use crate::window::d3d::MAIN_D3D_TARGET;
 
-use super::App;
+use super::{App, IslandSource};
 
 impl App {
     pub(super) fn on_window_event(
@@ -18,7 +18,7 @@ impl App {
         id: WindowId,
         event: WindowEvent,
     ) {
-        if let Some(win) = &self.window
+        if let Some(win) = self.window.clone()
             && win.id() == id
         {
             match event {
@@ -54,6 +54,10 @@ impl App {
                     } else if button == MouseButton::Right {
                         self.handle_right_input(state, px, py);
                     }
+                }
+                WindowEvent::MouseWheel { delta, .. } => {
+                    self.handle_mouse_wheel(delta);
+                    win.request_redraw();
                 }
                 WindowEvent::Touch(touch) => {
                     let (px, py) = (
@@ -92,13 +96,29 @@ impl App {
                         } else {
                             (0.0, 0.0)
                         };
-                        let total_h = (self.config.expanded_height - self.config.base_height)
-                            .abs()
-                            .max(1.0)
-                            * self.config.global_scale;
-                        let dist_h = (self.spring_h.value
-                            - self.config.base_height * self.config.global_scale)
-                            .abs();
+                        let (base_height, total_h) = if self.codex_expanded {
+                            let (_, compact_height) = crate::core::render::codex_compact_size(
+                                self.codex_monitor.snapshot(),
+                                self.config.base_width,
+                                self.config.base_height,
+                                self.config.global_scale,
+                                self.selected_codex_pet().is_some(),
+                                self.config.font_size,
+                            );
+                            (
+                                compact_height,
+                                (self.codex_expanded_height - compact_height).max(1.0),
+                            )
+                        } else {
+                            (
+                                self.config.base_height * self.config.global_scale,
+                                (self.config.expanded_height - self.config.base_height)
+                                    .abs()
+                                    .max(1.0)
+                                    * self.config.global_scale,
+                            )
+                        };
+                        let dist_h = (self.spring_h.value - base_height).abs();
                         let progress = (dist_h / total_h).clamp(0.0, 1.0);
                         if let Some(ps) = crate::plugin::manager::drain_pending_media_source() {
                             let (cover, hash) = if !ps.cover_data.is_empty() {
@@ -135,6 +155,10 @@ impl App {
                             info.last_update = Instant::now();
                         }
                         let spectrum = self.audio.get_spectrum();
+                        let codex_pet =
+                            self.config.codex_pet_id.as_deref().and_then(|selected_id| {
+                                self.codex_pets.iter().find(|pet| pet.id == selected_id)
+                            });
                         let default_media_info = crate::core::smtc::MediaInfo::default();
                         let media_info = if let Some(info) = self.plugin_media_source.as_mut() {
                             info.spectrum = spectrum;
@@ -161,6 +185,14 @@ impl App {
                         crate::plugin::manager::drain_pending_contexts(&mut self.ctx_mgr);
                         self.ctx_mgr.tick();
                         let mini_content = self.ctx_mgr.current_mini();
+                        let codex_snapshot = self
+                            .codex_monitor
+                            .is_displayable()
+                            .then(|| self.codex_monitor.snapshot());
+                        let codex_visible = self.resolved_source == Some(IslandSource::Codex)
+                            && codex_snapshot.is_some();
+                        let codex_animation_time_secs =
+                            self.codex_animation_started.elapsed().as_secs_f32();
 
                         let render_result =
                             renderer.draw(MAIN_D3D_TARGET, |direct_context, surface| {
@@ -212,13 +244,27 @@ impl App {
                                         },
                                         mini_content,
                                         compact_overlay: &self.compact_overlay,
+                                        codex: codex_visible.then(|| {
+                                            crate::core::render::CodexIslandParams {
+                                                snapshot: codex_snapshot
+                                                    .expect("Codex snapshot was checked"),
+                                                pet: codex_pet,
+                                                expanded: self.codex_expanded,
+                                                scroll_offset: self.codex_scroll_offset,
+                                                animation_time_secs: codex_animation_time_secs,
+                                            }
+                                        }),
                                     },
                                 )
                             });
                         self.renderer = Some(renderer);
-                        if let Err(error) = render_result {
-                            log::error!("D3D12 rendering failed: {error}");
-                            event_loop.exit();
+                        match render_result {
+                            Ok(animating) if animating => win.request_redraw(),
+                            Ok(_) => {}
+                            Err(error) => {
+                                log::error!("D3D12 rendering failed: {error}");
+                                event_loop.exit();
+                            }
                         }
                     }
                 }

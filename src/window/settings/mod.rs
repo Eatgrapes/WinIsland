@@ -1,3 +1,4 @@
+use crate::core::codex::{CodexPet, discover_local_pets};
 use crate::core::config::{AppConfig, WidgetKind};
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
@@ -92,6 +93,7 @@ pub struct SettingsApp {
     pub(crate) last_frame_time: Instant,
     pub(crate) next_frame_deadline: Instant,
     pub(crate) detected_apps: Vec<String>,
+    pub(crate) codex_pets: Vec<CodexPet>,
     pub(crate) sidebar_hover: i32,
     pub(crate) popup: Option<PopupState>,
     pub(crate) number_input: Option<NumberInput>,
@@ -132,6 +134,7 @@ impl SettingsApp {
             last_frame_time: Instant::now(),
             next_frame_deadline: Instant::now(),
             detected_apps: Vec::new(),
+            codex_pets: discover_local_pets(),
             sidebar_hover: -1,
             popup: None,
             number_input: None,
@@ -275,6 +278,14 @@ impl SettingsApp {
             self.items_dirty = true;
         }
     }
+
+    pub(crate) fn update_codex_pets(&mut self) {
+        let pets = discover_local_pets();
+        if pets != self.codex_pets {
+            self.codex_pets = pets;
+            self.items_dirty = true;
+        }
+    }
 }
 
 impl SettingsApp {
@@ -309,6 +320,7 @@ impl SettingsApp {
         self.next_frame_deadline = Instant::now();
         self.update_theme();
         self.update_detected_apps();
+        self.update_codex_pets();
     }
 
     pub(crate) fn handle_window_event(
@@ -484,12 +496,10 @@ impl SettingsApp {
                     win.set_cursor(cursor);
                 }
             }
-            WindowEvent::CursorLeft { .. } => {
-                if self.dots_hovered {
-                    self.dots_hovered = false;
-                    if let Some(win) = &self.window {
-                        win.request_redraw();
-                    }
+            WindowEvent::CursorLeft { .. } if self.dots_hovered => {
+                self.dots_hovered = false;
+                if let Some(win) = &self.window {
+                    win.request_redraw();
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -570,6 +580,7 @@ impl SettingsApp {
         self.frame_count += 1;
         if self.frame_count.is_multiple_of(120) {
             self.update_detected_apps();
+            self.update_codex_pets();
         }
 
         let has_anim = self.switch_anim.is_animating() || self.anim.is_animating();

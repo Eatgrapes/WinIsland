@@ -17,6 +17,7 @@ pub(super) enum AppearanceAction {
     PositionY,
     FontSize,
     Monitor,
+    CodexPet,
 }
 
 impl SettingsApp {
@@ -108,7 +109,41 @@ impl SettingsApp {
         );
 
         page.push(SettingsItem::GroupEnd);
+        page.push(SettingsItem::SectionHeader {
+            label: tr("section_codex"),
+        });
+        page.push(SettingsItem::GroupStart);
+        let (pet_labels, _, selected_pet) = self.codex_pet_options();
+        page.push_action(
+            SettingsItem::RowSourceSelect {
+                label: tr("codex_pet"),
+                options: pet_labels
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, label)| (label, index == selected_pet))
+                    .collect(),
+                enabled: true,
+            },
+            AppearanceAction::CodexPet,
+        );
+        page.push(SettingsItem::GroupEnd);
         page
+    }
+
+    fn codex_pet_options(&self) -> (Vec<String>, Vec<String>, usize) {
+        let mut labels = vec![tr("codex_pet_none")];
+        let mut values = vec![String::new()];
+        for pet in &self.codex_pets {
+            labels.push(pet.display_name.clone());
+            values.push(pet.id.clone());
+        }
+        let selected = self
+            .config
+            .codex_pet_id
+            .as_deref()
+            .and_then(|selected_id| values.iter().position(|value| value == selected_id))
+            .unwrap_or_default();
+        (labels, values, selected)
     }
 
     pub(super) fn handle_appearance_click(&mut self, input: PageInput) {
@@ -142,7 +177,7 @@ impl SettingsApp {
                 AppearanceAction::FontSize => {
                     (format!("{:.0}", self.config.font_size), set_font_size)
                 }
-                AppearanceAction::Monitor => return,
+                AppearanceAction::Monitor | AppearanceAction::CodexPet => return,
             };
             self.begin_number_input(
                 input.stepper_value_rect(&page, *item_index, self.scroll_y),
@@ -185,6 +220,7 @@ impl SettingsApp {
                     self.config.font_size = step(self.config.font_size, direction, 1.0, 0.0, 30.0);
                 }
                 AppearanceAction::Monitor => return,
+                AppearanceAction::CodexPet => return,
             }
             self.persist_settings_change();
             return;
@@ -216,6 +252,18 @@ impl SettingsApp {
                     self.win_h / scale,
                 )
             }
+            AppearanceAction::CodexPet => {
+                let (labels, values, selected) = self.codex_pet_options();
+                PopupState::new(
+                    select_codex_pet,
+                    button_rect,
+                    labels,
+                    values,
+                    selected,
+                    self.win_w / scale,
+                    self.win_h / scale,
+                )
+            }
             _ => return,
         };
         self.show_popup(popup);
@@ -239,6 +287,10 @@ fn signed_step(direction: StepDirection, amount: i32) -> i32 {
 
 fn select_monitor(app: &mut SettingsApp, value: &str) {
     app.config.monitor_index = value.parse().unwrap_or(0);
+}
+
+fn select_codex_pet(app: &mut SettingsApp, value: &str) {
+    app.config.codex_pet_id = (!value.is_empty()).then(|| value.to_string());
 }
 
 fn set_global_scale(app: &mut SettingsApp, value: &str) {

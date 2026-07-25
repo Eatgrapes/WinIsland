@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use winit::dpi::PhysicalPosition;
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 
-use crate::core::config::MIN_HIDDEN_WIDTH;
+use crate::core::config::{MIN_HIDDEN_WIDTH, PADDING};
 use crate::ui::compact::CompactOverlayState;
 use crate::ui::expanded::music_view::{
     get_progress_bar_rect, set_progress_dragging, set_progress_hover,
@@ -15,7 +15,7 @@ use crate::utils::mouse::{
     is_point_in_rect, is_point_in_rounded_rect,
 };
 
-use super::{App, HideEdge, RIGHT_DRAG_THRESHOLD};
+use super::{App, HideEdge, IslandSource, RIGHT_DRAG_THRESHOLD};
 
 const INTERACTIVE_FRAME_INTERVAL: Duration = Duration::from_millis(16);
 const IDLE_FRAME_INTERVAL: Duration = Duration::from_millis(50);
@@ -29,6 +29,11 @@ impl App {
             None => return,
         };
         let now = Instant::now();
+        if self.drain_hotkeys() {
+            self.reveal_island();
+            self.idle_timer = now;
+            window.request_redraw();
+        }
         if now < self.next_frame_deadline {
             event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_deadline));
             return;
@@ -48,6 +53,15 @@ impl App {
         }
         self.handle_tray_events(&window, event_loop);
         self.reload_config_if_changed(&window);
+        if self.last_codex_poll.elapsed() >= Duration::from_millis(250) {
+            self.last_codex_poll = Instant::now();
+            if self.codex_monitor.poll() {
+                window.request_redraw();
+            }
+        }
+        if self.refresh_codex_pets() {
+            window.request_redraw();
+        }
         if self.is_hidden() && !self.can_hide_to_edge(self.hide_edge) {
             self.reveal_island();
         }
@@ -148,6 +162,7 @@ impl App {
                     };
                     if hide_started {
                         self.expanded = false;
+                        self.codex_expanded = false;
                         self.widget_view = false;
                         self.fullscreen_hidden = true;
                     }
@@ -222,8 +237,67 @@ impl App {
                 crate::utils::backdrop::clear_blurred_cover_cache();
             }
         }
+        if self.resolve_island_source() {
+            window.request_redraw();
+        }
         let music_active = self.config.smtc_enabled && !self.smtc_media_info.title.is_empty();
         let media_is_playing = self.smtc_media_info.is_playing;
+        let codex_visible = self.resolved_source == Some(IslandSource::Codex)
+            && self.codex_monitor.is_displayable();
+        let codex_active =
+            self.codex_monitor.is_displayable() && self.codex_monitor.snapshot().state.is_active();
+        let mut codex_expanded_size = None;
+        if self.codex_expanded && codex_visible {
+            let scale = self.config.global_scale;
+            let (compact_width, _) = crate::core::render::codex_compact_size(
+                self.codex_monitor.snapshot(),
+                self.config.base_width,
+                self.config.base_height,
+                scale,
+                self.selected_codex_pet().is_some(),
+                self.config.font_size,
+            );
+            let max_width = (self.last_mon_size.0 as f32 - PADDING).max(1.0);
+            let width = (self.config.expanded_width * scale)
+                .max(compact_width)
+                .min(max_width);
+            let max_height = (self.last_mon_size.1 as f32 - PADDING).max(1.0);
+            let metrics = crate::core::render::codex_expanded_metrics(
+                self.codex_monitor.snapshot(),
+                self.selected_codex_pet().is_some(),
+                width,
+                max_height,
+                scale,
+                self.config.font_size,
+            );
+            self.codex_expanded_width = width;
+            self.codex_expanded_height = metrics.desired_height;
+            self.codex_scroll_max = metrics.scroll_max;
+            self.codex_scroll_offset = self.codex_scroll_offset.min(metrics.scroll_max);
+            codex_expanded_size = Some((width, metrics.desired_height));
+        }
+
+        let (surface_width, surface_height) = if let Some((width, height)) = codex_expanded_size {
+            (
+                (width + PADDING).ceil() as u32,
+                (height + PADDING).ceil() as u32,
+            )
+        } else {
+            (
+                (self.config.expanded_width.max(450.0) * self.config.global_scale + PADDING).ceil()
+                    as u32,
+                (self.config.expanded_height * self.config.global_scale + PADDING).ceil() as u32,
+            )
+        };
+        let surface_size_changed = surface_width != self.os_w || surface_height != self.os_h;
+        self.resize_render_surface(&window, surface_width, surface_height);
+        if surface_size_changed
+            && let Some(monitor) = Self::get_target_monitor(&window, self.config.monitor_index)
+        {
+            let (position_x, position_y) =
+                self.compute_window_position(monitor.position(), monitor.size());
+            self.set_configured_window_position(&window, position_x, position_y);
+        }
         if !music_active {
             self.audio.set_gate_override(false);
         }
@@ -266,6 +340,7 @@ impl App {
             && !self.expanded
             && !self.is_dragging
             && !compact_overlay_visible
+            && !codex_active
             && (!music_active || is_paused_idle);
         if !self.config.auto_hide {
             let was_auto_hidden = self.auto_hidden;
@@ -274,7 +349,7 @@ impl App {
             if was_auto_hidden && !self.is_hidden() {
                 self.spring_hide.velocity = -0.65;
             }
-        } else if media_is_playing && self.auto_hidden && !self.manually_hidden {
+        } else if (media_is_playing || codex_active) && self.auto_hidden && !self.manually_hidden {
             self.auto_hidden = false;
             self.idle_timer = Instant::now();
             if !self.is_hidden() {
@@ -318,7 +393,7 @@ impl App {
 
         let progress_hover_active = if self.seeking_progress {
             true
-        } else if self.expanded && (self.spring_view.value as f64) < 0.5 {
+        } else if self.expanded && !self.codex_expanded && (self.spring_view.value as f64) < 0.5 {
             if let Some((bar_left, bar_right, bar_top, bar_hit_h)) = get_progress_bar_rect(
                 offset_x as f32,
                 island_y as f32,
@@ -390,6 +465,7 @@ impl App {
             && (is_left_button_pressed() || self.touch_id.is_some())
         {
             self.expanded = false;
+            self.codex_expanded = false;
             self.widget_view = false;
             window.request_redraw();
         }
@@ -434,7 +510,11 @@ impl App {
         if self.lyric_transition >= 1.0 && !self.old_lyric_text.is_empty() {
             self.old_lyric_text = String::new();
         }
-        let lyric_target_w = self.compute_lyric_target_width(&window, music_active, is_paused, dt);
+        let lyric_target_w = if codex_visible {
+            self.config.base_width * self.config.global_scale
+        } else {
+            self.compute_lyric_target_width(&window, music_active, is_paused, dt)
+        };
         let default_target_h = (if self.expanded {
             self.config.expanded_height
         } else {
@@ -451,6 +531,20 @@ impl App {
             self.config.global_scale,
         ) {
             (size.width, size.height, size.height / 2.0)
+        } else if codex_visible {
+            if let Some((width, height)) = codex_expanded_size {
+                (width, height, 28.0 * self.config.global_scale)
+            } else {
+                let (width, height) = crate::core::render::codex_compact_size(
+                    self.codex_monitor.snapshot(),
+                    self.config.base_width,
+                    self.config.base_height,
+                    self.config.global_scale,
+                    self.selected_codex_pet().is_some(),
+                    self.config.font_size,
+                );
+                (width, height, height / 2.0)
+            }
         } else {
             (lyric_target_w, default_target_h, default_target_r)
         };

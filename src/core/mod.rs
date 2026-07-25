@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod codex;
 pub mod config;
 pub mod context;
 pub mod i18n;

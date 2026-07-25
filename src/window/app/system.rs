@@ -304,4 +304,23 @@ impl App {
             }
         }
     }
+
+    pub(super) fn resize_render_surface(&mut self, window: &Window, width: u32, height: u32) {
+        if self.os_w == width && self.os_h == height {
+            return;
+        }
+
+        self.os_w = width;
+        self.os_h = height;
+        let _ = window.request_inner_size(PhysicalSize::new(width, height));
+        if let Some(renderer) = self.renderer.as_mut() {
+            if let Err(error) = renderer.resize(MAIN_D3D_TARGET, width, height) {
+                log::error!("D3D12 renderer resize failed: {error}");
+            } else {
+                crate::utils::backdrop::clear_mica_cache();
+                crate::utils::glass::clear_glass_cache();
+                crate::utils::backdrop::clear_blurred_cover_cache();
+            }
+        }
+    }
 }

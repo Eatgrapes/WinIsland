@@ -1,11 +1,19 @@
 mod background;
+mod codex;
 mod expanded;
 mod mini;
 
 use self::background::{BackgroundParams, draw_background};
+use self::codex::{DrawCodexCompactParams, DrawCodexExpandedParams, draw_compact, draw_expanded};
 use self::expanded::{ExpandedContentParams, draw_expanded_content};
 use self::mini::{MiniContentParams, draw_mini_content};
 
+pub use self::codex::{
+    compact_size as codex_compact_size, expanded_header_height as codex_expanded_header_height,
+    expanded_metrics as codex_expanded_metrics,
+};
+
+use crate::core::codex::{CodexPet, CodexSnapshot};
 use crate::core::config::WidgetSlot;
 use crate::core::smtc::MediaInfo;
 use crate::ui::compact::CompactOverlay;
@@ -59,12 +67,21 @@ pub struct StyleParams<'a> {
 
 use crate::core::context::MiniContent;
 
+pub struct CodexIslandParams<'a> {
+    pub snapshot: &'a CodexSnapshot,
+    pub pet: Option<&'a CodexPet>,
+    pub expanded: bool,
+    pub scroll_offset: f32,
+    pub animation_time_secs: f32,
+}
+
 pub struct DrawIslandParams<'a> {
     pub layout: LayoutParams,
     pub media: MediaParams<'a>,
     pub lyrics: LyricsParams<'a>,
     pub mini_content: Option<MiniContent<'a>>,
     pub compact_overlay: &'a CompactOverlay,
+    pub codex: Option<CodexIslandParams<'a>>,
     pub window: WindowParams,
     pub style: StyleParams<'a>,
 }
@@ -80,6 +97,7 @@ pub fn draw_island(
         lyrics,
         mini_content,
         compact_overlay,
+        codex,
         window,
         style,
     } = params;
@@ -185,32 +203,64 @@ pub fn draw_island(
 
     let viz_h_scale = 0.45 + (1.0 - 0.45) * expansion_progress;
 
-    let widget_animating = draw_expanded_content(ExpandedContentParams {
-        canvas,
-        blur_filter: blur_filter.clone(),
-        expanded_alpha: expanded_alpha_f,
-        view_offset,
-        current_w,
-        offset_x,
-        offset_y,
-        current_h,
-        media,
-        music_active,
-        global_scale,
-        expansion_progress,
-        viz_h_scale,
-        use_blur,
-        font_size,
-        dt,
-        text_color,
-        text_color_sec,
-        palette: &palette,
-        lyrics_delay,
-        widget_layout,
-    });
+    let mut animating = false;
     if compact_overlay_visible {
         compact_overlay.draw(canvas, rect, global_scale, 1.0 - hide_progress);
+    } else if let Some(codex) = codex {
+        animating = if codex.expanded {
+            draw_expanded(DrawCodexExpandedParams {
+                canvas,
+                snapshot: codex.snapshot,
+                pet: codex.pet,
+                x: offset_x,
+                y: offset_y,
+                width: current_w,
+                height: current_h,
+                scale: global_scale,
+                font_size,
+                animation_time_secs: codex.animation_time_secs,
+                scroll_offset: codex.scroll_offset,
+                alpha: expanded_alpha_f,
+            })
+        } else {
+            draw_compact(DrawCodexCompactParams {
+                canvas,
+                snapshot: codex.snapshot,
+                pet: codex.pet,
+                x: offset_x,
+                y: offset_y,
+                width: current_w,
+                height: current_h,
+                scale: global_scale,
+                font_size,
+                animation_time_secs: codex.animation_time_secs,
+                alpha: mini_alpha_f,
+            })
+        };
     } else {
+        animating = draw_expanded_content(ExpandedContentParams {
+            canvas,
+            blur_filter: blur_filter.clone(),
+            expanded_alpha: expanded_alpha_f,
+            view_offset,
+            current_w,
+            offset_x,
+            offset_y,
+            current_h,
+            media,
+            music_active,
+            global_scale,
+            expansion_progress,
+            viz_h_scale,
+            use_blur,
+            font_size,
+            dt,
+            text_color,
+            text_color_sec,
+            palette: &palette,
+            lyrics_delay,
+            widget_layout,
+        });
         draw_mini_content(MiniContentParams {
             canvas,
             content: mini_content,
@@ -257,5 +307,5 @@ pub fn draw_island(
         );
         canvas.draw_rrect(border_rrect, &border_paint);
     }
-    widget_animating
+    animating
 }

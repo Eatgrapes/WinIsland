@@ -1,4 +1,5 @@
 use crate::core::audio::AudioProcessor;
+use crate::core::codex::{CodexPet, CodexSessionMonitor, discover_local_pets};
 use crate::core::config::AppConfig;
 use crate::core::context::ContextManager;
 use crate::core::persistence::{get_config_path, load_config};
@@ -38,6 +39,18 @@ enum HideEdge {
     Right,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HotkeyAction {
+    PreviousSource,
+    NextSource,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum IslandSource {
+    Media,
+    Codex,
+}
+
 fn should_show_widget_view(smtc_enabled: bool, has_media: bool) -> bool {
     !(smtc_enabled && has_media)
 }
@@ -50,8 +63,20 @@ pub struct App {
     smtc: SmtcListener,
     audio: AudioProcessor,
     compact_overlay: CompactOverlay,
+    codex_monitor: CodexSessionMonitor,
+    codex_pets: Vec<CodexPet>,
+    hotkey_rx: mpsc::Receiver<HotkeyAction>,
+    source_preference: Option<IslandSource>,
+    resolved_source: Option<IslandSource>,
     config: AppConfig,
     expanded: bool,
+    codex_expanded: bool,
+    codex_scroll_offset: f32,
+    codex_scroll_max: f32,
+    codex_expanded_width: f32,
+    codex_expanded_height: f32,
+    codex_animation_started: Instant,
+    last_codex_header_click: Option<(Instant, i32, i32)>,
     widget_view: bool,
     visible: bool,
     spring_w: Spring,
@@ -89,6 +114,8 @@ pub struct App {
     last_fullscreen_check: Instant,
     last_config_check: Instant,
     last_monitor_check: Instant,
+    last_codex_poll: Instant,
+    last_codex_pet_discovery: Instant,
     position_restore_after: Option<Instant>,
     last_working_set_trim: Instant,
     last_config_modified: Option<SystemTime>,
@@ -118,12 +145,25 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
+        let (_hotkey_tx, hotkey_rx) = mpsc::channel();
+        Self::with_hotkey_receiver(hotkey_rx)
+    }
+}
+
+impl App {
+    pub fn with_hotkey_receiver(hotkey_rx: mpsc::Receiver<HotkeyAction>) -> Self {
         let config = load_config();
         let last_config_modified = std::fs::metadata(get_config_path())
             .and_then(|metadata| metadata.modified())
             .ok();
         crate::utils::font::FontManager::global()
             .set_custom_font_path(config.custom_font_path.as_deref());
+        let codex_pets = discover_local_pets();
+        log::info!(
+            "Codex pets discovered: {} (selected: {})",
+            codex_pets.len(),
+            config.codex_pet_id.as_deref().unwrap_or("none")
+        );
         Self {
             window: None,
             renderer: None,
@@ -131,6 +171,13 @@ impl Default for App {
             tray: None,
             config: config.clone(),
             expanded: false,
+            codex_expanded: false,
+            codex_scroll_offset: 0.0,
+            codex_scroll_max: 0.0,
+            codex_expanded_width: 0.0,
+            codex_expanded_height: 0.0,
+            codex_animation_started: Instant::now(),
+            last_codex_header_click: None,
             widget_view: false,
             visible: true,
             spring_w: Spring::new(config.base_width * config.global_scale),
@@ -144,6 +191,11 @@ impl Default for App {
             ),
             audio: AudioProcessor::new(),
             compact_overlay: CompactOverlay::default(),
+            codex_monitor: CodexSessionMonitor::new(),
+            codex_pets,
+            hotkey_rx,
+            source_preference: None,
+            resolved_source: None,
             os_w: 0,
             os_h: 0,
             win_x: 0,
@@ -175,6 +227,8 @@ impl Default for App {
             last_fullscreen_check: Instant::now(),
             last_config_check: Instant::now(),
             last_monitor_check: Instant::now(),
+            last_codex_poll: Instant::now() - Duration::from_secs(1),
+            last_codex_pet_discovery: Instant::now() - Duration::from_secs(2),
             position_restore_after: None,
             last_working_set_trim: Instant::now(),
             last_config_modified,
@@ -200,6 +254,128 @@ impl Default for App {
             right_press_cursor: None,
             is_right_dragging: false,
             right_drag_start_offset: None,
+        }
+    }
+
+    pub(super) fn drain_hotkeys(&mut self) -> bool {
+        let mut changed = false;
+        while let Ok(action) = self.hotkey_rx.try_recv() {
+            changed |= self.cycle_island_source(action);
+        }
+        changed
+    }
+
+    pub(super) fn resolve_island_source(&mut self) -> bool {
+        let media_available = self.island_source_available(IslandSource::Media);
+        let codex_available = self.island_source_available(IslandSource::Codex);
+        let resolved = match self.source_preference {
+            Some(IslandSource::Media) if media_available => Some(IslandSource::Media),
+            Some(IslandSource::Codex) if codex_available => Some(IslandSource::Codex),
+            _ if codex_available => Some(IslandSource::Codex),
+            _ if media_available => Some(IslandSource::Media),
+            _ => None,
+        };
+
+        if resolved == self.resolved_source {
+            return false;
+        }
+
+        let previous = self.resolved_source;
+        self.resolved_source = resolved;
+        self.apply_resolved_source(resolved);
+        log::info!("Island source changed: {:?} -> {:?}", previous, resolved);
+        true
+    }
+
+    fn island_source_available(&self, source: IslandSource) -> bool {
+        match source {
+            IslandSource::Media => {
+                self.config.smtc_enabled && !self.smtc_media_info.title.is_empty()
+            }
+            IslandSource::Codex => self.codex_monitor.is_displayable(),
+        }
+    }
+
+    pub(super) fn selected_codex_pet(&self) -> Option<&CodexPet> {
+        let selected_id = self.config.codex_pet_id.as_deref()?;
+        self.codex_pets.iter().find(|pet| pet.id == selected_id)
+    }
+
+    pub(super) fn refresh_codex_pets(&mut self) -> bool {
+        if self.last_codex_pet_discovery.elapsed() < Duration::from_secs(2) {
+            return false;
+        }
+        self.last_codex_pet_discovery = Instant::now();
+        let pets = discover_local_pets();
+        if pets == self.codex_pets {
+            return false;
+        }
+        self.codex_pets = pets;
+        true
+    }
+
+    fn cycle_island_source(&mut self, action: HotkeyAction) -> bool {
+        let mut changed = self.resolve_island_source();
+        let Some(current) = self.resolved_source else {
+            return changed;
+        };
+
+        let sources = [
+            self.island_source_available(IslandSource::Media)
+                .then_some(IslandSource::Media),
+            self.island_source_available(IslandSource::Codex)
+                .then_some(IslandSource::Codex),
+        ];
+        let available_count = sources.iter().flatten().count();
+        if available_count < 2 {
+            return changed;
+        }
+
+        let current_index = sources
+            .iter()
+            .position(|source| *source == Some(current))
+            .expect("resolved source must be available");
+        let next_index = match action {
+            HotkeyAction::PreviousSource => (current_index + sources.len() - 1) % sources.len(),
+            HotkeyAction::NextSource => (current_index + 1) % sources.len(),
+        };
+        let next = sources[next_index].expect("cycled source must be available");
+        self.source_preference = Some(next);
+        changed |= self.resolve_island_source();
+        changed
+    }
+
+    fn apply_resolved_source(&mut self, source: Option<IslandSource>) {
+        match source {
+            Some(IslandSource::Codex) if self.expanded => {
+                self.widget_view = false;
+                self.spring_view.value = 0.0;
+                self.spring_view.velocity = 0.0;
+                self.codex_expanded = true;
+                self.codex_scroll_offset = 0.0;
+                self.codex_scroll_max = 0.0;
+                self.last_codex_header_click = None;
+            }
+            Some(IslandSource::Media) => {
+                let was_codex_expanded = self.codex_expanded;
+                self.codex_expanded = false;
+                self.codex_scroll_offset = 0.0;
+                self.codex_scroll_max = 0.0;
+                self.last_codex_header_click = None;
+                if self.expanded && was_codex_expanded {
+                    self.widget_view = false;
+                    self.spring_view.value = 0.0;
+                    self.spring_view.velocity = 0.0;
+                }
+            }
+            None if self.codex_expanded => {
+                self.expanded = false;
+                self.codex_expanded = false;
+                self.codex_scroll_offset = 0.0;
+                self.codex_scroll_max = 0.0;
+                self.last_codex_header_click = None;
+            }
+            _ => {}
         }
     }
 }

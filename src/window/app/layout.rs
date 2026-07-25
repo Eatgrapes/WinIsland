@@ -157,8 +157,16 @@ impl App {
         let (center_x, center_y) = self.collapsed_island_center(mon_pos, mon_size);
         let scale = self.config.global_scale as f64;
         let base_half_h = self.config.base_height as f64 * scale / 2.0;
-        let expanded_half_w = self.config.expanded_width as f64 * scale / 2.0;
-        let expanded_h = self.config.expanded_height as f64 * scale;
+        let expanded_half_w = if self.codex_expanded && self.codex_expanded_width > 0.0 {
+            self.codex_expanded_width as f64 / 2.0
+        } else {
+            self.config.expanded_width as f64 * scale / 2.0
+        };
+        let expanded_h = if self.codex_expanded && self.codex_expanded_height > 0.0 {
+            self.codex_expanded_height as f64
+        } else {
+            self.config.expanded_height as f64 * scale
+        };
         let horizontal = if center_x - expanded_half_w <= mon_pos.x as f64 {
             -1
         } else if center_x + expanded_half_w >= mon_pos.x as f64 + mon_size.width as f64 {

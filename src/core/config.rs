@@ -193,6 +193,8 @@ pub struct AppConfig {
     pub right_click_drag: bool,
     #[serde(default = "default_notification_display")]
     pub notification_display: bool,
+    #[serde(default)]
+    pub codex_pet_id: Option<String>,
     #[serde(default = "default_widget_layout")]
     pub widget_layout: Vec<WidgetSlot>,
 }
@@ -493,6 +495,7 @@ impl Default for AppConfig {
             update_channel: "stable".to_string(),
             right_click_drag: false,
             notification_display: false,
+            codex_pet_id: None,
             widget_layout: default_widget_layout(),
         }
     }

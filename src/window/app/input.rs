@@ -1,4 +1,5 @@
-use winit::event::ElementState;
+use std::time::{Duration, Instant};
+use winit::event::{ElementState, MouseScrollDelta};
 use winit::event_loop::ActiveEventLoop;
 
 use crate::core::config::{MIN_HIDDEN_WIDTH, WidgetKind};
@@ -9,7 +10,7 @@ use crate::ui::expanded::music_view::{
 use crate::ui::widget::widget_grid_layout;
 use crate::utils::mouse::{is_point_in_rect, is_point_in_rounded_rect};
 
-use super::{App, IslandLayout, should_show_widget_view};
+use super::{App, IslandLayout, IslandSource, should_show_widget_view};
 
 impl App {
     pub(super) fn handle_input(
@@ -117,6 +118,40 @@ impl App {
         }
 
         if self.expanded {
+            if self.codex_expanded {
+                let scale = self.config.global_scale as f64;
+                let header_bottom = island_y
+                    + crate::core::render::codex_expanded_header_height(
+                        self.config.global_scale,
+                        self.selected_codex_pet().is_some(),
+                    ) as f64;
+                let is_header_click = is_hovering_visible
+                    && (rel_y as f64) >= island_y
+                    && (rel_y as f64) <= header_bottom;
+                if !is_header_click {
+                    self.last_codex_header_click = None;
+                    return;
+                }
+
+                let now = Instant::now();
+                let double_click = self.last_codex_header_click.is_some_and(
+                    |(previous_at, previous_x, previous_y)| {
+                        now.duration_since(previous_at) <= Duration::from_millis(400)
+                            && (rel_x - previous_x).abs() as f64 <= 14.0 * scale
+                            && (rel_y - previous_y).abs() as f64 <= 14.0 * scale
+                    },
+                );
+                if double_click {
+                    self.expanded = false;
+                    self.codex_expanded = false;
+                    self.codex_scroll_offset = 0.0;
+                    self.codex_scroll_max = 0.0;
+                    self.last_codex_header_click = None;
+                } else {
+                    self.last_codex_header_click = Some((now, rel_x, rel_y));
+                }
+                return;
+            }
             let view_val = self.spring_view.value as f64;
             let w = self.spring_w.value as f64;
             let h = self.spring_h.value as f64;
@@ -304,7 +339,33 @@ impl App {
         }
     }
 
+    pub(super) fn handle_mouse_wheel(&mut self, delta: MouseScrollDelta) {
+        if !self.codex_expanded || self.codex_scroll_max <= 0.0 {
+            return;
+        }
+
+        let scroll_delta = match delta {
+            MouseScrollDelta::LineDelta(_, lines) => -lines * 36.0 * self.config.global_scale,
+            MouseScrollDelta::PixelDelta(position) => -position.y as f32,
+        };
+        self.codex_scroll_offset =
+            (self.codex_scroll_offset + scroll_delta).clamp(0.0, self.codex_scroll_max);
+    }
+
     fn expand(&mut self) {
+        self.resolve_island_source();
+        if self.resolved_source == Some(IslandSource::Codex) && self.codex_monitor.is_displayable()
+        {
+            self.widget_view = false;
+            self.spring_view.value = 0.0;
+            self.spring_view.velocity = 0.0;
+            self.expanded = true;
+            self.codex_expanded = true;
+            self.codex_scroll_offset = 0.0;
+            self.last_codex_header_click = None;
+            return;
+        }
+
         let media = self.smtc.get_info();
         let widget_view =
             should_show_widget_view(self.config.smtc_enabled, !media.title.is_empty());
@@ -312,5 +373,7 @@ impl App {
         self.spring_view.value = f32::from(widget_view);
         self.spring_view.velocity = 0.0;
         self.expanded = true;
+        self.codex_expanded = false;
+        self.last_codex_header_click = None;
     }
 }
