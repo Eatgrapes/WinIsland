@@ -35,6 +35,19 @@ impl App {
                 WindowEvent::Moved(position) => {
                     self.win_x = position.x;
                     self.win_y = position.y;
+                    if !self.is_dragging
+                        && !self.is_right_dragging
+                        && self.position_restore_after.is_none()
+                        && (position.x != self.configured_win_x
+                            || position.y != self.configured_win_y)
+                    {
+                        self.win_x = self.configured_win_x;
+                        self.win_y = self.configured_win_y;
+                        win.set_outer_position(winit::dpi::PhysicalPosition::new(
+                            self.configured_win_x,
+                            self.configured_win_y,
+                        ));
+                    }
                 }
                 WindowEvent::CloseRequested => (),
                 WindowEvent::DroppedFile(path)
