@@ -147,23 +147,65 @@ async fn do_check(app_dir: &Path, manual: bool) {
     }
 }
 
+async fn notify_check_failed(manual: bool) {
+    if manual {
+        show_error_box(tr("update_failed_title"), tr("update_failed_desc")).await;
+    }
+}
+
+async fn notify_up_to_date(manual: bool) {
+    if manual {
+        show_error_box(tr("update_no_update_title"), tr("update_no_update_desc")).await;
+    }
+}
+
+async fn prompt_update(
+    channel_name: &str,
+    version_display: &str,
+    download_url: &str,
+    json: String,
+    channel: InstallerChannel,
+    app_dir: &Path,
+) {
+    let title_w: Vec<u16> = format!("{} ({})\0", tr("update_available_title"), channel_name)
+        .encode_utf16()
+        .collect();
+    let text_w: Vec<u16> = tr("update_available_desc")
+        .replace("{}", version_display)
+        .add_null()
+        .encode_utf16()
+        .collect();
+
+    let result = tokio::task::spawn_blocking(move || unsafe {
+        MessageBoxW(
+            None,
+            PCWSTR(text_w.as_ptr()),
+            PCWSTR(title_w.as_ptr()),
+            MB_OKCANCEL | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND,
+        )
+    })
+    .await;
+
+    if let Ok(r) = result
+        && (r == IDOK || r == IDYES)
+    {
+        perform_update(download_url, json, app_dir.to_path_buf(), channel).await;
+    }
+}
+
 async fn do_beta_check(app_dir: &Path, manual: bool) {
     let remote_json_str = match HTTP_CLIENT.get(UPDATE_URL_JSON).send().await {
         Ok(resp) => match resp.text().await {
             Ok(s) => s,
             Err(_) => {
                 log::warn!("Update check (Beta): failed to read remote version info");
-                if manual {
-                    show_error_box(tr("update_failed_title"), tr("update_failed_desc")).await;
-                }
+                notify_check_failed(manual).await;
                 return;
             }
         },
         Err(_) => {
             log::warn!("Update check (Beta): HTTP request failed for version_info.json");
-            if manual {
-                show_error_box(tr("update_failed_title"), tr("update_failed_desc")).await;
-            }
+            notify_check_failed(manual).await;
             return;
         }
     };
@@ -172,9 +214,7 @@ async fn do_beta_check(app_dir: &Path, manual: bool) {
         Ok(info) => info,
         Err(_) => {
             log::warn!("Update check (Beta): failed to parse remote version info");
-            if manual {
-                show_error_box(tr("update_failed_title"), tr("update_failed_desc")).await;
-            }
+            notify_check_failed(manual).await;
             return;
         }
     };
@@ -183,9 +223,7 @@ async fn do_beta_check(app_dir: &Path, manual: bool) {
         Some(t) => t,
         None => {
             log::warn!("Update check (Beta): remote version info does not contain timestamp");
-            if manual {
-                show_error_box(tr("update_failed_title"), tr("update_failed_desc")).await;
-            }
+            notify_check_failed(manual).await;
             return;
         }
     };
@@ -198,46 +236,22 @@ async fn do_beta_check(app_dir: &Path, manual: bool) {
             env!("BUILD_TIMESTAMP"),
             remote_timestamp
         );
-        let channel_name = tr("channel_beta");
-        let title_w: Vec<u16> = format!("{} ({})\0", tr("update_available_title"), channel_name)
-            .encode_utf16()
-            .collect();
-        let text_w: Vec<u16> = tr("update_available_desc")
-            .replace("{}", remote_timestamp)
-            .add_null()
-            .encode_utf16()
-            .collect();
-
-        let result = tokio::task::spawn_blocking(move || unsafe {
-            MessageBoxW(
-                None,
-                PCWSTR(text_w.as_ptr()),
-                PCWSTR(title_w.as_ptr()),
-                MB_OKCANCEL | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND,
-            )
-        })
+        prompt_update(
+            &tr("channel_beta"),
+            remote_timestamp,
+            UPDATE_URL_NIGHTLY_INSTALLER,
+            remote_json_str,
+            InstallerChannel::Nightly,
+            app_dir,
+        )
         .await;
-
-        if let Ok(r) = result
-            && (r == IDOK || r == IDYES)
-        {
-            perform_update(
-                UPDATE_URL_NIGHTLY_INSTALLER,
-                remote_json_str,
-                app_dir.to_path_buf(),
-                InstallerChannel::Nightly,
-            )
-            .await;
-        }
     } else {
         log::info!(
             "Update check (Beta): current version is up-to-date (local: {}, remote: {})",
             env!("BUILD_TIMESTAMP"),
             remote_timestamp
         );
-        if manual {
-            show_error_box(tr("update_no_update_title"), tr("update_no_update_desc")).await;
-        }
+        notify_up_to_date(manual).await;
     }
 }
 
@@ -253,9 +267,7 @@ async fn do_stable_check(app_dir: &Path, manual: bool) {
                 "Update check (Stable): HTTP request failed for latest release: {:?}",
                 e
             );
-            if manual {
-                show_error_box(tr("update_failed_title"), tr("update_failed_desc")).await;
-            }
+            notify_check_failed(manual).await;
             return;
         }
     };
@@ -274,9 +286,7 @@ async fn do_stable_check(app_dir: &Path, manual: bool) {
                 "Update check (Stable): failed to extract latest release tag from URL path '{}'",
                 path
             );
-            if manual {
-                show_error_box(tr("update_failed_title"), tr("update_failed_desc")).await;
-            }
+            notify_check_failed(manual).await;
             return;
         }
     };
@@ -295,51 +305,26 @@ async fn do_stable_check(app_dir: &Path, manual: bool) {
             "https://github.com/Eatgrapes/WinIsland/releases/download/{}/WinIsland-Setup.exe",
             tag_name
         );
-
-        let channel_name = tr("channel_stable");
-        let title_w: Vec<u16> = format!("{} ({})\0", tr("update_available_title"), channel_name)
-            .encode_utf16()
-            .collect();
-        let text_w: Vec<u16> = tr("update_available_desc")
-            .replace("{}", remote_version)
-            .add_null()
-            .encode_utf16()
-            .collect();
-
-        let result = tokio::task::spawn_blocking(move || unsafe {
-            MessageBoxW(
-                None,
-                PCWSTR(text_w.as_ptr()),
-                PCWSTR(title_w.as_ptr()),
-                MB_OKCANCEL | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND,
-            )
-        })
+        let local_version_info = VersionInfo {
+            version: Some(remote_version.to_string()),
+            timestamp: None,
+        };
+        let serialized = serde_json::to_string(&local_version_info).unwrap_or_default();
+        prompt_update(
+            &tr("channel_stable"),
+            remote_version,
+            &download_url,
+            serialized,
+            InstallerChannel::Stable,
+            app_dir,
+        )
         .await;
-
-        if let Ok(r) = result
-            && (r == IDOK || r == IDYES)
-        {
-            let local_version_info = VersionInfo {
-                version: Some(remote_version.to_string()),
-                timestamp: None,
-            };
-            let serialized = serde_json::to_string(&local_version_info).unwrap_or_default();
-            perform_update(
-                &download_url,
-                serialized,
-                app_dir.to_path_buf(),
-                InstallerChannel::Stable,
-            )
-            .await;
-        }
     } else {
         log::info!(
             "Update check (Stable): current version is up-to-date ({})",
             crate::core::config::APP_VERSION
         );
-        if manual {
-            show_error_box(tr("update_no_update_title"), tr("update_no_update_desc")).await;
-        }
+        notify_up_to_date(manual).await;
     }
 }
 
