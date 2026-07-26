@@ -55,44 +55,7 @@ pub(super) fn fetch_properties(
             None => true,
         });
 
-    let mut smtc_pos = LAST_FETCHED_SMTC_POS.with(|cell| cell.get());
-    let mut duration_secs = LAST_FETCHED_DURATION_SECS.with(|cell| cell.get());
-    let mut duration_ms_from_tl = LAST_FETCHED_DURATION_MS.with(|cell| cell.get());
-
-    if should_fetch {
-        if let Ok(tl) = session.GetTimelineProperties() {
-            if let Ok(pos) = tl.Position() {
-                let raw = pos.Duration;
-                smtc_pos = if raw > 0 { (raw / 10_000) as u64 } else { 0 };
-            } else {
-                smtc_pos = 0;
-            }
-
-            if let Ok(end) = tl.EndTime() {
-                let raw = end.Duration;
-                if raw > 0 {
-                    duration_secs = (raw / 10_000_000) as u64;
-                    duration_ms_from_tl = (raw / 10_000) as u64;
-                } else {
-                    duration_secs = 0;
-                    duration_ms_from_tl = 0;
-                }
-            } else {
-                duration_secs = 0;
-                duration_ms_from_tl = 0;
-            }
-
-            LAST_TIMELINE_FETCH.with(|cell| cell.set(Some(Instant::now())));
-            LAST_FETCHED_SMTC_POS.with(|cell| cell.set(smtc_pos));
-            LAST_FETCHED_DURATION_SECS.with(|cell| cell.set(duration_secs));
-            LAST_FETCHED_DURATION_MS.with(|cell| cell.set(duration_ms_from_tl));
-        } else {
-            smtc_pos = 0;
-            duration_secs = 0;
-            duration_ms_from_tl = 0;
-            LAST_TIMELINE_FETCH.with(|cell| cell.set(Some(Instant::now())));
-        }
-    }
+    let (smtc_pos, duration_secs, duration_ms_from_tl) = read_timeline(session, should_fetch);
 
     let mut should_fetch_lyrics = false;
     let mut should_fetch_thumbnail = false;
@@ -183,125 +146,203 @@ pub(super) fn fetch_properties(
     }
 
     if should_fetch_thumbnail {
-        let info_tx_clone = info_tx.clone();
-        let session_clone = session.clone();
-        let title_clone = new_title.clone();
-        let artist_clone = new_artist.clone();
-        let is_song_change = should_fetch_lyrics;
-        tokio::task::spawn_blocking(move || {
-            if is_song_change {
-                std::thread::sleep(Duration::from_millis(800));
-            }
-            for attempt in 0..10 {
-                let res = (|| -> windows::core::Result<(String, String, Vec<u8>)> {
-                    let props = session_clone.TryGetMediaPropertiesAsync()?.join()?;
-                    let fetched_title = props.Title()?.to_string();
-                    let fetched_artist = props.Artist()?.to_string();
-                    if fetched_title != title_clone || fetched_artist != artist_clone {
-                        // HRESULT(-2) is a sentinel value to signal stale media properties,
-                        // not a standard COM error code. The caller retries on this error.
-                        return Err(windows::core::Error::new(
-                            windows::core::HRESULT(-2),
-                            "Stale properties",
-                        ));
-                    }
-                    let thumb_ref = props.Thumbnail()?;
-                    let stream = thumb_ref.OpenReadAsync()?.join()?;
-                    let size = stream.Size()?;
-                    if size == 0 {
-                        return Err(windows::core::Error::new(
-                            windows::core::HRESULT(-1),
-                            "Empty thumbnail",
-                        ));
-                    }
-                    let buffer = windows::Storage::Streams::Buffer::Create(size as u32)?;
-                    let res_buffer = stream
-                        .ReadAsync(
-                            &buffer,
-                            size as u32,
-                            windows::Storage::Streams::InputStreamOptions::None,
-                        )?
-                        .join()?;
-                    let reader = windows::Storage::Streams::DataReader::FromBuffer(&res_buffer)?;
-                    let mut bytes = vec![0u8; size as usize];
-                    reader.ReadBytes(&mut bytes)?;
-                    Ok((fetched_title, fetched_artist, bytes))
-                })();
-
-                if let Ok((_t, _a, bytes)) = res {
-                    use std::collections::hash_map::DefaultHasher;
-                    use std::hash::{Hash, Hasher};
-                    let mut hasher = DefaultHasher::new();
-                    bytes.hash(&mut hasher);
-                    let hash = hasher.finish();
-
-                    let current = info_tx_clone.borrow();
-                    if current.title == title_clone
-                        && current.artist == artist_clone
-                        && current.thumbnail_hash != hash
-                    {
-                        drop(current);
-                        let mut new_info = info_tx_clone.borrow().clone();
-                        let byte_len = bytes.len();
-                        new_info.thumbnail = Some(Data::new_copy(&bytes));
-                        new_info.thumbnail_hash = hash;
-                        let _ = info_tx_clone.send(new_info);
-                        log::info!(
-                            "SMTC: thumbnail fetched ({} bytes, hash={:#x})",
-                            byte_len,
-                            hash
-                        );
-                    }
-                    return;
-                }
-                let delay = if attempt < 3 { 300 } else { 500 };
-                std::thread::sleep(Duration::from_millis(delay));
-            }
-            log::warn!(
-                "SMTC: thumbnail fetch failed for '{}' - '{}' after 10 attempts",
-                title_clone,
-                artist_clone
-            );
-        });
+        spawn_thumbnail_fetch(
+            session,
+            info_tx,
+            new_title.clone(),
+            new_artist.clone(),
+            should_fetch_lyrics,
+        );
     }
 
     if should_fetch_lyrics {
-        let info_tx_clone = info_tx.clone();
-        let title = new_title.clone();
-        let artist = new_artist.clone();
-        let src = lyrics_source.to_string();
-        let fb = lyrics_fallback;
-        let local_dir = local_dir.map(|s| s.to_string());
-        tokio::spawn(async move {
-            let lyrics = fetch_lyrics(
-                &title,
-                &artist,
-                duration_secs,
-                &src,
-                fb,
-                local_dir.as_deref(),
-            )
-            .await;
-            match lyrics {
-                Some(lyrics) => {
-                    log::info!("SMTC: lyrics fetched ({} lines from {})", lyrics.len(), src);
-                    let current = info_tx_clone.borrow();
-                    if current.title == title && current.artist == artist {
-                        drop(current);
-                        let mut new_info = info_tx_clone.borrow().clone();
-                        new_info.lyrics = Some(lyrics);
-                        let _ = info_tx_clone.send(new_info);
-                    }
-                }
-                None => {
-                    log::warn!(
-                        "SMTC: lyrics fetch returned none for '{}' - '{}'",
-                        title,
-                        artist
-                    );
-                }
-            }
-        });
+        spawn_lyrics_fetch(
+            info_tx,
+            new_title.clone(),
+            new_artist.clone(),
+            duration_secs,
+            lyrics_source,
+            lyrics_fallback,
+            local_dir,
+        );
     }
     Ok(())
+}
+
+fn read_timeline(
+    session: &GlobalSystemMediaTransportControlsSession,
+    should_fetch: bool,
+) -> (u64, u64, u64) {
+    if !should_fetch {
+        return (
+            LAST_FETCHED_SMTC_POS.with(|cell| cell.get()),
+            LAST_FETCHED_DURATION_SECS.with(|cell| cell.get()),
+            LAST_FETCHED_DURATION_MS.with(|cell| cell.get()),
+        );
+    }
+
+    let Ok(tl) = session.GetTimelineProperties() else {
+        LAST_TIMELINE_FETCH.with(|cell| cell.set(Some(Instant::now())));
+        return (0, 0, 0);
+    };
+
+    let smtc_pos = tl
+        .Position()
+        .ok()
+        .map(|pos| {
+            if pos.Duration > 0 {
+                (pos.Duration / 10_000) as u64
+            } else {
+                0
+            }
+        })
+        .unwrap_or(0);
+    let (duration_secs, duration_ms) = tl
+        .EndTime()
+        .ok()
+        .map(|end| {
+            if end.Duration > 0 {
+                (
+                    (end.Duration / 10_000_000) as u64,
+                    (end.Duration / 10_000) as u64,
+                )
+            } else {
+                (0, 0)
+            }
+        })
+        .unwrap_or((0, 0));
+
+    LAST_TIMELINE_FETCH.with(|cell| cell.set(Some(Instant::now())));
+    LAST_FETCHED_SMTC_POS.with(|cell| cell.set(smtc_pos));
+    LAST_FETCHED_DURATION_SECS.with(|cell| cell.set(duration_secs));
+    LAST_FETCHED_DURATION_MS.with(|cell| cell.set(duration_ms));
+    (smtc_pos, duration_secs, duration_ms)
+}
+
+fn spawn_thumbnail_fetch(
+    session: &GlobalSystemMediaTransportControlsSession,
+    info_tx: &watch::Sender<MediaInfo>,
+    title: String,
+    artist: String,
+    is_song_change: bool,
+) {
+    let info_tx = info_tx.clone();
+    let session = session.clone();
+    tokio::task::spawn_blocking(move || {
+        if is_song_change {
+            std::thread::sleep(Duration::from_millis(800));
+        }
+        for attempt in 0..10 {
+            let res = (|| -> windows::core::Result<Vec<u8>> {
+                let props = session.TryGetMediaPropertiesAsync()?.join()?;
+                if props.Title()?.to_string() != title || props.Artist()?.to_string() != artist {
+                    // HRESULT(-2) is a sentinel value to signal stale media properties,
+                    // not a standard COM error code. The caller retries on this error.
+                    return Err(windows::core::Error::new(
+                        windows::core::HRESULT(-2),
+                        "Stale properties",
+                    ));
+                }
+                let thumb_ref = props.Thumbnail()?;
+                let stream = thumb_ref.OpenReadAsync()?.join()?;
+                let size = stream.Size()?;
+                if size == 0 {
+                    return Err(windows::core::Error::new(
+                        windows::core::HRESULT(-1),
+                        "Empty thumbnail",
+                    ));
+                }
+                let buffer = windows::Storage::Streams::Buffer::Create(size as u32)?;
+                let res_buffer = stream
+                    .ReadAsync(
+                        &buffer,
+                        size as u32,
+                        windows::Storage::Streams::InputStreamOptions::None,
+                    )?
+                    .join()?;
+                let reader = windows::Storage::Streams::DataReader::FromBuffer(&res_buffer)?;
+                let mut bytes = vec![0u8; size as usize];
+                reader.ReadBytes(&mut bytes)?;
+                Ok(bytes)
+            })();
+
+            if let Ok(bytes) = res {
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let mut hasher = DefaultHasher::new();
+                bytes.hash(&mut hasher);
+                let hash = hasher.finish();
+
+                let current = info_tx.borrow();
+                if current.title == title
+                    && current.artist == artist
+                    && current.thumbnail_hash != hash
+                {
+                    drop(current);
+                    let mut new_info = info_tx.borrow().clone();
+                    let byte_len = bytes.len();
+                    new_info.thumbnail = Some(Data::new_copy(&bytes));
+                    new_info.thumbnail_hash = hash;
+                    let _ = info_tx.send(new_info);
+                    log::info!(
+                        "SMTC: thumbnail fetched ({} bytes, hash={:#x})",
+                        byte_len,
+                        hash
+                    );
+                }
+                return;
+            }
+            let delay = if attempt < 3 { 300 } else { 500 };
+            std::thread::sleep(Duration::from_millis(delay));
+        }
+        log::warn!(
+            "SMTC: thumbnail fetch failed for '{}' - '{}' after 10 attempts",
+            title,
+            artist
+        );
+    });
+}
+
+fn spawn_lyrics_fetch(
+    info_tx: &watch::Sender<MediaInfo>,
+    title: String,
+    artist: String,
+    duration_secs: u64,
+    lyrics_source: &str,
+    lyrics_fallback: bool,
+    local_dir: Option<&str>,
+) {
+    let info_tx = info_tx.clone();
+    let src = lyrics_source.to_string();
+    let local_dir = local_dir.map(|s| s.to_string());
+    tokio::spawn(async move {
+        let lyrics = fetch_lyrics(
+            &title,
+            &artist,
+            duration_secs,
+            &src,
+            lyrics_fallback,
+            local_dir.as_deref(),
+        )
+        .await;
+        match lyrics {
+            Some(lyrics) => {
+                log::info!("SMTC: lyrics fetched ({} lines from {})", lyrics.len(), src);
+                let current = info_tx.borrow();
+                if current.title == title && current.artist == artist {
+                    drop(current);
+                    let mut new_info = info_tx.borrow().clone();
+                    new_info.lyrics = Some(lyrics);
+                    let _ = info_tx.send(new_info);
+                }
+            }
+            None => {
+                log::warn!(
+                    "SMTC: lyrics fetch returned none for '{}' - '{}'",
+                    title,
+                    artist
+                );
+            }
+        }
+    });
 }
