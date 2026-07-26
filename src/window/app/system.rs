@@ -237,8 +237,8 @@ impl App {
                     let new_os_h =
                         (self.config.expanded_height * self.config.global_scale + PADDING) as u32;
 
-                    let size_changed = new_os_w != self.os_w
-                        || new_os_h != self.os_h
+                    let size_changed = new_os_w != self.geom.os_w
+                        || new_os_h != self.geom.os_h
                         || (old_scale - self.config.global_scale).abs() > 0.001
                         || (old_max_w - self.config.expanded_width).abs() > 0.1
                         || (old_max_h - self.config.expanded_height).abs() > 0.1;
@@ -247,12 +247,13 @@ impl App {
                         || old_monitor_index != self.config.monitor_index;
 
                     if size_changed {
-                        self.os_w = new_os_w;
-                        self.os_h = new_os_h;
-                        let _ = window.request_inner_size(PhysicalSize::new(self.os_w, self.os_h));
+                        self.geom.os_w = new_os_w;
+                        self.geom.os_h = new_os_h;
+                        let _ = window
+                            .request_inner_size(PhysicalSize::new(self.geom.os_w, self.geom.os_h));
                         if let Some(renderer) = self.renderer.as_mut() {
                             if let Err(error) =
-                                renderer.resize(MAIN_D3D_TARGET, self.os_w, self.os_h)
+                                renderer.resize(MAIN_D3D_TARGET, self.geom.os_w, self.geom.os_h)
                             {
                                 log::error!("D3D12 renderer resize failed: {error}");
                             } else {
@@ -271,8 +272,8 @@ impl App {
                         let mon_pos = monitor.position();
                         self.update_animation_frame_interval(&monitor);
                         if mon_size.width > 0 && mon_size.height > 0 {
-                            self.last_mon_size = (mon_size.width, mon_size.height);
-                            self.last_mon_pos = (mon_pos.x, mon_pos.y);
+                            self.geom.monitor_size = (mon_size.width, mon_size.height);
+                            self.geom.monitor_pos = (mon_pos.x, mon_pos.y);
                             let (position_x, position_y) =
                                 self.compute_window_position(mon_pos, mon_size);
                             self.set_configured_window_position(window, position_x, position_y);
@@ -292,15 +293,15 @@ impl App {
             self.update_animation_frame_interval(&monitor);
             let cur_mon_size = (mon_size.width, mon_size.height);
             let cur_mon_pos = (mon_pos.x, mon_pos.y);
-            if (cur_mon_size != self.last_mon_size || cur_mon_pos != self.last_mon_pos)
+            if (cur_mon_size != self.geom.monitor_size || cur_mon_pos != self.geom.monitor_pos)
                 && cur_mon_size.0 > 0
                 && cur_mon_size.1 > 0
             {
-                self.last_mon_size = cur_mon_size;
-                self.last_mon_pos = cur_mon_pos;
+                self.geom.monitor_size = cur_mon_size;
+                self.geom.monitor_pos = cur_mon_pos;
                 let (position_x, position_y) = self.compute_window_position(mon_pos, mon_size);
                 self.set_configured_window_position(window, position_x, position_y);
-                self.position_restore_after = Some(now + Duration::from_millis(750));
+                self.geom.position_restore_after = Some(now + Duration::from_millis(750));
             }
         }
     }

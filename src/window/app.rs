@@ -55,12 +55,7 @@ pub struct App {
     widget_view: bool,
     visible: bool,
     springs: IslandSprings,
-    os_w: u32,
-    os_h: u32,
-    win_x: i32,
-    win_y: i32,
-    configured_win_x: i32,
-    configured_win_y: i32,
+    geom: WindowGeometry,
     smtc_media_info: MediaInfo,
     last_media_title: String,
     lyrics: LyricState,
@@ -79,13 +74,10 @@ pub struct App {
     last_fullscreen_check: Instant,
     last_config_check: Instant,
     last_monitor_check: Instant,
-    position_restore_after: Option<Instant>,
     last_working_set_trim: Instant,
     last_config_modified: Option<SystemTime>,
     next_frame_deadline: Instant,
     animation_frame_interval: Duration,
-    last_mon_size: (u32, u32),
-    last_mon_pos: (i32, i32),
     seek: SeekDrag,
     is_fullscreen_suppressed: bool,
     is_cursor_suppressed: bool,
@@ -118,6 +110,7 @@ impl Default for App {
             widget_view: false,
             visible: true,
             springs: IslandSprings::new(&config),
+            geom: WindowGeometry::default(),
             smtc: SmtcListener::new(
                 config.lyrics_source.clone(),
                 config.lyrics_fallback,
@@ -125,12 +118,6 @@ impl Default for App {
             ),
             audio: AudioProcessor::new(),
             compact_overlay: CompactOverlay::default(),
-            os_w: 0,
-            os_h: 0,
-            win_x: 0,
-            win_y: 0,
-            configured_win_x: 0,
-            configured_win_y: 0,
             smtc_media_info: MediaInfo::default(),
             last_media_title: String::new(),
             lyrics: LyricState::default(),
@@ -149,13 +136,10 @@ impl Default for App {
             last_fullscreen_check: Instant::now(),
             last_config_check: Instant::now(),
             last_monitor_check: Instant::now(),
-            position_restore_after: None,
             last_working_set_trim: Instant::now(),
             last_config_modified,
             next_frame_deadline: Instant::now(),
             animation_frame_interval: DEFAULT_ANIMATION_FRAME_INTERVAL,
-            last_mon_size: (0, 0),
-            last_mon_pos: (0, 0),
             seek: SeekDrag::default(),
             is_fullscreen_suppressed: false,
             is_cursor_suppressed: false,
@@ -170,6 +154,19 @@ impl Default for App {
             right_drag_start_offset: None,
         }
     }
+}
+
+#[derive(Default)]
+struct WindowGeometry {
+    os_w: u32,
+    os_h: u32,
+    win_x: i32,
+    win_y: i32,
+    configured_x: i32,
+    configured_y: i32,
+    monitor_size: (u32, u32),
+    monitor_pos: (i32, i32),
+    position_restore_after: Option<Instant>,
 }
 
 #[derive(Default)]

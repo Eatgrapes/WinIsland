@@ -90,10 +90,10 @@ impl App {
         position_x: i32,
         position_y: i32,
     ) {
-        self.configured_win_x = position_x;
-        self.configured_win_y = position_y;
-        self.win_x = position_x;
-        self.win_y = position_y;
+        self.geom.configured_x = position_x;
+        self.geom.configured_y = position_y;
+        self.geom.win_x = position_x;
+        self.geom.win_y = position_y;
         window.set_outer_position(PhysicalPosition::new(position_x, position_y));
     }
 
@@ -114,15 +114,15 @@ impl App {
         } else if dock_position.is_right() {
             (
                 collapsed_center_x + base_half_w,
-                self.os_w as f64 - PADDING as f64 / 2.0,
+                self.geom.os_w as f64 - PADDING as f64 / 2.0,
             )
         } else {
-            (collapsed_center_x, self.os_w as f64 / 2.0)
+            (collapsed_center_x, self.geom.os_w as f64 / 2.0)
         };
         let (anchor_y, local_anchor_y) = if dock_position.is_bottom() {
             (
                 collapsed_center_y + base_half_h,
-                self.os_h as f64 - PADDING as f64 / 2.0,
+                self.geom.os_h as f64 - PADDING as f64 / 2.0,
             )
         } else {
             (collapsed_center_y - base_half_h, PADDING as f64 / 2.0)
@@ -223,20 +223,20 @@ impl App {
     }
 
     pub(super) fn nearest_hide_edge(&self) -> HideEdge {
-        if self.last_mon_size.0 == 0 || self.last_mon_size.1 == 0 {
+        if self.geom.monitor_size.0 == 0 || self.geom.monitor_size.1 == 0 {
             return self.hide.edge;
         }
         let layout = self.compute_island_layout();
-        let island_x = self.win_x + layout.current_island_x.round() as i32;
-        let island_y = self.win_y + layout.current_island_y.round() as i32;
+        let island_x = self.geom.win_x + layout.current_island_x.round() as i32;
+        let island_y = self.geom.win_y + layout.current_island_y.round() as i32;
         let island_w = self.springs.w.value.round().max(1.0) as i32;
         let island_h = self.springs.h.value.round().max(1.0) as i32;
-        let mon_right = self.last_mon_pos.0 + self.last_mon_size.0 as i32;
-        let mon_bottom = self.last_mon_pos.1 + self.last_mon_size.1 as i32;
+        let mon_right = self.geom.monitor_pos.0 + self.geom.monitor_size.0 as i32;
+        let mon_bottom = self.geom.monitor_pos.1 + self.geom.monitor_size.1 as i32;
         [
-            ((island_y - self.last_mon_pos.1).max(0), HideEdge::Top),
+            ((island_y - self.geom.monitor_pos.1).max(0), HideEdge::Top),
             ((mon_bottom - island_y - island_h).max(0), HideEdge::Bottom),
-            ((island_x - self.last_mon_pos.0).max(0), HideEdge::Left),
+            ((island_x - self.geom.monitor_pos.0).max(0), HideEdge::Left),
             ((mon_right - island_x - island_w).max(0), HideEdge::Right),
         ]
         .into_iter()
@@ -258,16 +258,21 @@ impl App {
         let island_h = self.springs.h.value.round() as i32;
 
         match self.hide.edge {
-            HideEdge::Top => self.win_y = mon_pos.y + TOP_OFFSET - layout.island_y.round() as i32,
-            HideEdge::Bottom => {
-                self.win_y = mon_bottom - TOP_OFFSET - island_h - layout.island_y.round() as i32
+            HideEdge::Top => {
+                self.geom.win_y = mon_pos.y + TOP_OFFSET - layout.island_y.round() as i32
             }
-            HideEdge::Left => self.win_x = mon_pos.x + TOP_OFFSET - layout.offset_x.round() as i32,
+            HideEdge::Bottom => {
+                self.geom.win_y =
+                    mon_bottom - TOP_OFFSET - island_h - layout.island_y.round() as i32
+            }
+            HideEdge::Left => {
+                self.geom.win_x = mon_pos.x + TOP_OFFSET - layout.offset_x.round() as i32
+            }
             HideEdge::Right => {
-                self.win_x = mon_right - TOP_OFFSET - island_w - layout.offset_x.round() as i32
+                self.geom.win_x = mon_right - TOP_OFFSET - island_w - layout.offset_x.round() as i32
             }
         }
-        window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+        window.set_outer_position(PhysicalPosition::new(self.geom.win_x, self.geom.win_y));
     }
 
     pub(super) fn restore_hide_origin(&mut self, window: &Window) {
@@ -275,8 +280,8 @@ impl App {
             return;
         }
         if let Some((win_x, win_y)) = self.hide.origin.take() {
-            self.win_x = win_x;
-            self.win_y = win_y;
+            self.geom.win_x = win_x;
+            self.geom.win_y = win_y;
             window.set_outer_position(PhysicalPosition::new(win_x, win_y));
         }
     }
@@ -307,24 +312,24 @@ impl App {
         }
         self.hide.edge = hide_edge;
         if self.hide.origin.is_none() {
-            self.hide.origin = Some((self.win_x, self.win_y));
+            self.hide.origin = Some((self.geom.win_x, self.geom.win_y));
             self.snap_to_hide_edge(window);
         }
         true
     }
 
     pub(super) fn compute_island_layout(&self) -> IslandLayout {
-        let dock_position = if self.last_mon_size.0 > 0 && self.last_mon_size.1 > 0 {
+        let dock_position = if self.geom.monitor_size.0 > 0 && self.geom.monitor_size.1 > 0 {
             self.automatic_dock_position(
-                PhysicalPosition::new(self.last_mon_pos.0, self.last_mon_pos.1),
-                PhysicalSize::new(self.last_mon_size.0, self.last_mon_size.1),
+                PhysicalPosition::new(self.geom.monitor_pos.0, self.geom.monitor_pos.1),
+                PhysicalSize::new(self.geom.monitor_size.0, self.geom.monitor_size.1),
             )
         } else {
             DockPosition::TopCenter
         };
         let dock_bottom = dock_position.is_bottom();
         let island_y = if dock_bottom {
-            self.os_h as f64 - PADDING as f64 / 2.0 - self.springs.h.value as f64
+            self.geom.os_h as f64 - PADDING as f64 / 2.0 - self.springs.h.value as f64
         } else {
             PADDING as f64 / 2.0
         };
@@ -332,9 +337,9 @@ impl App {
         let offset_x = if dock_position.is_left() {
             PADDING as f64 / 2.0
         } else if dock_position.is_right() {
-            (self.os_w as f64 - PADDING as f64 / 2.0 - self.springs.w.value as f64).max(0.0)
+            (self.geom.os_w as f64 - PADDING as f64 / 2.0 - self.springs.w.value as f64).max(0.0)
         } else {
-            (self.os_w as f64 - self.springs.w.value as f64) / 2.0
+            (self.geom.os_w as f64 - self.springs.w.value as f64) / 2.0
         };
 
         let hide_edge = self.hide.edge;
@@ -363,7 +368,7 @@ impl App {
             HideEdge::Right => (offset_x + hide_offset, island_y),
         };
         let stable_base_y = if dock_bottom {
-            self.os_h as f64 - PADDING as f64 / 2.0 - self.config.base_height as f64 * scale
+            self.geom.os_h as f64 - PADDING as f64 / 2.0 - self.config.base_height as f64 * scale
         } else {
             PADDING as f64 / 2.0
         };

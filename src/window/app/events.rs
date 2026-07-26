@@ -33,19 +33,19 @@ impl App {
                     win.set_maximized(false);
                 }
                 WindowEvent::Moved(position) => {
-                    self.win_x = position.x;
-                    self.win_y = position.y;
+                    self.geom.win_x = position.x;
+                    self.geom.win_y = position.y;
                     if !self.is_dragging
                         && !self.is_right_dragging
-                        && self.position_restore_after.is_none()
-                        && (position.x != self.configured_win_x
-                            || position.y != self.configured_win_y)
+                        && self.geom.position_restore_after.is_none()
+                        && (position.x != self.geom.configured_x
+                            || position.y != self.geom.configured_y)
                     {
-                        self.win_x = self.configured_win_x;
-                        self.win_y = self.configured_win_y;
+                        self.geom.win_x = self.geom.configured_x;
+                        self.geom.win_y = self.geom.configured_y;
                         win.set_outer_position(winit::dpi::PhysicalPosition::new(
-                            self.configured_win_x,
-                            self.configured_win_y,
+                            self.geom.configured_x,
+                            self.geom.configured_y,
                         ));
                     }
                 }
@@ -70,8 +70,8 @@ impl App {
                 }
                 WindowEvent::Touch(touch) => {
                     let (px, py) = (
-                        (touch.location.x + self.win_x as f64) as i32,
-                        (touch.location.y + self.win_y as f64) as i32,
+                        (touch.location.x + self.geom.win_x as f64) as i32,
+                        (touch.location.y + self.geom.win_y as f64) as i32,
                     );
                     self.touch_pos = touch.location;
                     match touch.phase {
@@ -207,12 +207,12 @@ impl App {
                                             lyric_scroll_offset: self.lyrics.scroll_offset,
                                         },
                                         window: crate::core::render::WindowParams {
-                                            win_x: self.win_x,
-                                            win_y: self.win_y,
-                                            monitor_x: self.last_mon_pos.0,
-                                            monitor_y: self.last_mon_pos.1,
-                                            monitor_w: self.last_mon_size.0,
-                                            monitor_h: self.last_mon_size.1,
+                                            win_x: self.geom.win_x,
+                                            win_y: self.geom.win_y,
+                                            monitor_x: self.geom.monitor_pos.0,
+                                            monitor_y: self.geom.monitor_pos.1,
+                                            monitor_w: self.geom.monitor_size.0,
+                                            monitor_h: self.geom.monitor_size.1,
                                         },
                                         style: crate::core::render::StyleParams {
                                             island_style: &self.config.island_style,

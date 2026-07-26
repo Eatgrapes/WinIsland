@@ -30,11 +30,12 @@ impl App {
             let host_api = crate::plugin::manager::init_host_api();
             self.plugin_mgr.init_plugin_host_api(host_api);
             let max_w = self.config.expanded_width.max(450.0);
-            self.os_w = (max_w * self.config.global_scale + PADDING) as u32;
-            self.os_h = (self.config.expanded_height * self.config.global_scale + PADDING) as u32;
+            self.geom.os_w = (max_w * self.config.global_scale + PADDING) as u32;
+            self.geom.os_h =
+                (self.config.expanded_height * self.config.global_scale + PADDING) as u32;
             let attrs = Window::default_attributes()
                 .with_title(WINDOW_TITLE)
-                .with_inner_size(PhysicalSize::new(self.os_w, self.os_h))
+                .with_inner_size(PhysicalSize::new(self.geom.os_w, self.geom.os_h))
                 .with_transparent(true)
                 .with_no_redirection_bitmap(true)
                 .with_visible(false)
@@ -49,8 +50,8 @@ impl App {
             self.window = Some(window.clone());
             log::info!(
                 "Window created: {}x{} (base {}x{})",
-                self.os_w,
-                self.os_h,
+                self.geom.os_w,
+                self.geom.os_h,
                 self.config.base_width,
                 self.config.base_height
             );
@@ -72,8 +73,8 @@ impl App {
                 let mon_size = monitor.size();
                 let mon_pos = monitor.position();
                 self.update_animation_frame_interval(&monitor);
-                self.last_mon_size = (mon_size.width, mon_size.height);
-                self.last_mon_pos = (mon_pos.x, mon_pos.y);
+                self.geom.monitor_size = (mon_size.width, mon_size.height);
+                self.geom.monitor_pos = (mon_pos.x, mon_pos.y);
                 self.migrate_legacy_dock_position(mon_pos, mon_size);
                 let (position_x, position_y) = self.compute_window_position(mon_pos, mon_size);
                 self.set_configured_window_position(&window, position_x, position_y);
@@ -83,8 +84,8 @@ impl App {
                     mon_size.height,
                     mon_pos.x,
                     mon_pos.y,
-                    self.win_x,
-                    self.win_y
+                    self.geom.win_x,
+                    self.geom.win_y
                 );
                 if self.config.island_style == "mica" {
                     crate::utils::backdrop::clear_mica_cache();
@@ -94,7 +95,8 @@ impl App {
                 }
             }
             self.renderer =
-                match crate::window::d3d::D3DRenderer::new(&window, self.os_w, self.os_h) {
+                match crate::window::d3d::D3DRenderer::new(&window, self.geom.os_w, self.geom.os_h)
+                {
                     Ok(renderer) => Some(renderer),
                     Err(error) => {
                         log::error!("D3D12 renderer initialization failed: {error}");

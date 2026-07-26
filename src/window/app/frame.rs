@@ -35,13 +35,14 @@ impl App {
             return;
         }
         if self
+            .geom
             .position_restore_after
             .is_some_and(|restore_after| now >= restore_after)
         {
-            self.position_restore_after = None;
-            self.win_x = self.configured_win_x;
-            self.win_y = self.configured_win_y;
-            window.set_outer_position(PhysicalPosition::new(self.win_x, self.win_y));
+            self.geom.position_restore_after = None;
+            self.geom.win_x = self.geom.configured_x;
+            self.geom.win_y = self.geom.configured_y;
+            window.set_outer_position(PhysicalPosition::new(self.geom.win_x, self.geom.win_y));
         }
         if now.duration_since(self.last_topmost_check) >= Duration::from_secs(1) {
             Self::enforce_topmost(&window);
@@ -66,8 +67,8 @@ impl App {
         }
         let (px, py) = if self.touch_id.is_some() {
             (
-                (self.touch_pos.x + self.win_x as f64) as i32,
-                (self.touch_pos.y + self.win_y as f64) as i32,
+                (self.touch_pos.x + self.geom.win_x as f64) as i32,
+                (self.touch_pos.y + self.geom.win_y as f64) as i32,
             )
         } else {
             get_global_cursor_pos()
@@ -78,8 +79,8 @@ impl App {
             self.update_fullscreen_suppression(&window, now);
         }
 
-        let rel_x = px - self.win_x;
-        let rel_y = py - self.win_y;
+        let rel_x = px - self.geom.win_x;
+        let rel_y = py - self.geom.win_y;
         let layout = self.compute_island_layout();
         let island_y = layout.island_y;
         let offset_x = layout.offset_x;
@@ -198,7 +199,7 @@ impl App {
             let mon_size = monitor.size();
             let mon_pos = monitor.position();
             let (new_x, new_y) = self.compute_window_position(mon_pos, mon_size);
-            if new_x != self.configured_win_x || new_y != self.configured_win_y {
+            if new_x != self.geom.configured_x || new_y != self.geom.configured_y {
                 self.set_configured_window_position(window, new_x, new_y);
             }
         }
@@ -209,10 +210,10 @@ impl App {
         self.last_fullscreen_check = now;
         let prev_fullscreen = self.is_fullscreen_suppressed;
         self.is_fullscreen_suppressed = is_foreground_fullscreen(
-            self.last_mon_pos.0,
-            self.last_mon_pos.1,
-            self.last_mon_size.0,
-            self.last_mon_size.1,
+            self.geom.monitor_pos.0,
+            self.geom.monitor_pos.1,
+            self.geom.monitor_size.0,
+            self.geom.monitor_size.1,
         );
         self.is_cursor_suppressed = is_cursor_hidden();
         let has_live_activity = self.config.smtc_enabled

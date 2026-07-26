@@ -22,8 +22,8 @@ impl App {
         if self.is_cursor_suppressed {
             return;
         }
-        let rel_x = px - self.win_x;
-        let rel_y = py - self.win_y;
+        let rel_x = px - self.geom.win_x;
+        let rel_y = py - self.geom.win_y;
         let layout = self.compute_island_layout();
 
         if state == ElementState::Pressed {
@@ -39,8 +39,8 @@ impl App {
         }
         match state {
             ElementState::Pressed => {
-                let rel_x = px - self.win_x;
-                let rel_y = py - self.win_y;
+                let rel_x = px - self.geom.win_x;
+                let rel_y = py - self.geom.win_y;
                 let layout = self.compute_island_layout();
                 let is_hovering = is_point_in_rounded_rect(
                     rel_x as f64,
@@ -54,8 +54,8 @@ impl App {
                 if is_hovering {
                     self.right_press_cursor = Some((px, py));
                     self.right_drag_start_offset = Some((
-                        self.config.position_x_offset + self.win_x - self.configured_win_x,
-                        self.config.position_y_offset + self.win_y - self.configured_win_y,
+                        self.config.position_x_offset + self.geom.win_x - self.geom.configured_x,
+                        self.config.position_y_offset + self.geom.win_y - self.geom.configured_y,
                     ));
                 }
             }
@@ -110,8 +110,8 @@ impl App {
         if !self.expanded && self.compact_overlay.is_notification_visible() && is_hovering_visible {
             self.dismissing_notification = true;
             self.is_dragging = true;
-            self.drag_start_px = rel_x + self.win_x;
-            self.drag_start_py = rel_y + self.win_y;
+            self.drag_start_px = rel_x + self.geom.win_x;
+            self.drag_start_py = rel_y + self.geom.win_y;
             self.drag_has_moved = false;
             return;
         }
@@ -255,8 +255,8 @@ impl App {
                 return;
             }
             self.is_dragging = true;
-            self.drag_start_px = rel_x + self.win_x;
-            self.drag_start_py = rel_y + self.win_y;
+            self.drag_start_px = rel_x + self.geom.win_x;
+            self.drag_start_py = rel_y + self.geom.win_y;
             self.drag_start_hide_val = self.springs.hide.value;
             self.drag_has_moved = false;
         }
