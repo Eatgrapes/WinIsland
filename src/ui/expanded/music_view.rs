@@ -556,54 +556,9 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             text_color,
         );
 
-        let (pause_s, pause_blur) = PAUSE_SPRING.with(|cell| {
-            let mut s = cell.borrow_mut();
-            if s.velocity < 0.0 {
-                s.value = (s.value + s.velocity).max(0.01);
-                s.velocity *= 0.8;
-                if s.velocity > -0.01 || s.value <= 0.01 {
-                    s.velocity = 0.0;
-                }
-            } else {
-                s.velocity = (1.0 - s.value) * 0.15;
-                s.value += s.velocity;
-            }
-            (s.value, (s.velocity.abs() * 40.0 * scale).clamp(0.0, 15.0))
-        });
-
-        canvas.save();
-        if pause_blur > 0.1 && use_blur {
-            let mut blur_paint = Paint::default();
-            blur_paint.set_image_filter(image_filters::blur(
-                (pause_blur, pause_blur),
-                None,
-                None,
-                None,
-            ));
-            canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&blur_paint));
-        }
-        canvas.translate((btn_cx, btn_cy));
-        canvas.scale((pause_s, pause_s));
-        if pause_t > 0.99 {
-            draw_pause_button(canvas, 0.0, 0.0, alpha, scale, text_color);
-        } else if pause_t < 0.01 {
-            draw_play_button(canvas, 0.0, 0.0, alpha, scale, text_color);
-        } else {
-            let pause_alpha = (alpha as f32 * pause_t) as u8;
-            let play_alpha = (alpha as f32 * (1.0 - pause_t)) as u8;
-
-            if pause_alpha > 0 {
-                draw_pause_button(canvas, 0.0, 0.0, pause_alpha, scale, text_color);
-            }
-
-            if play_alpha > 0 {
-                draw_play_button(canvas, 0.0, 0.0, play_alpha, scale, text_color);
-            }
-        }
-        if pause_blur > 0.1 && use_blur {
-            canvas.restore();
-        }
-        canvas.restore();
+        draw_pause_control(
+            canvas, btn_cx, btn_cy, pause_t, alpha, scale, use_blur, text_color,
+        );
 
         let next_t = NEXT_SKIP_ANIM.with(|cell| {
             let start = *cell.borrow();
@@ -748,6 +703,67 @@ fn draw_track_text(params: TrackTextParams) {
             scale,
         });
     });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_pause_control(
+    canvas: &Canvas,
+    btn_cx: f32,
+    btn_cy: f32,
+    pause_t: f32,
+    alpha: u8,
+    scale: f32,
+    use_blur: bool,
+    text_color: Color,
+) {
+    let (pause_s, pause_blur) = PAUSE_SPRING.with(|cell| {
+        let mut s = cell.borrow_mut();
+        if s.velocity < 0.0 {
+            s.value = (s.value + s.velocity).max(0.01);
+            s.velocity *= 0.8;
+            if s.velocity > -0.01 || s.value <= 0.01 {
+                s.velocity = 0.0;
+            }
+        } else {
+            s.velocity = (1.0 - s.value) * 0.15;
+            s.value += s.velocity;
+        }
+        (s.value, (s.velocity.abs() * 40.0 * scale).clamp(0.0, 15.0))
+    });
+
+    canvas.save();
+    if pause_blur > 0.1 && use_blur {
+        let mut blur_paint = Paint::default();
+        blur_paint.set_image_filter(image_filters::blur(
+            (pause_blur, pause_blur),
+            None,
+            None,
+            None,
+        ));
+        canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&blur_paint));
+    }
+    canvas.translate((btn_cx, btn_cy));
+    canvas.scale((pause_s, pause_s));
+    if pause_t > 0.99 {
+        draw_pause_button(canvas, 0.0, 0.0, alpha, scale, text_color);
+    } else if pause_t < 0.01 {
+        draw_play_button(canvas, 0.0, 0.0, alpha, scale, text_color);
+    } else {
+        let pause_alpha = (alpha as f32 * pause_t) as u8;
+        let play_alpha = (alpha as f32 * (1.0 - pause_t)) as u8;
+
+        if pause_alpha > 0 {
+            draw_pause_button(canvas, 0.0, 0.0, pause_alpha, scale, text_color);
+        }
+
+        if play_alpha > 0 {
+            draw_play_button(canvas, 0.0, 0.0, play_alpha, scale, text_color);
+        }
+    }
+    if pause_blur > 0.1 && use_blur {
+        canvas.restore();
+    }
+    canvas.restore();
 }
 
 #[allow(clippy::too_many_arguments)]
