@@ -202,10 +202,10 @@ impl App {
                                             music_active,
                                         },
                                         lyrics: crate::core::render::LyricsParams {
-                                            current_lyric: &self.current_lyric_text,
-                                            old_lyric: &self.old_lyric_text,
-                                            lyric_transition: self.lyric_transition,
-                                            lyric_scroll_offset: self.lyric_scroll_offset,
+                                            current_lyric: &self.lyrics.current_text,
+                                            old_lyric: &self.lyrics.old_text,
+                                            lyric_transition: self.lyrics.transition,
+                                            lyric_scroll_offset: self.lyrics.scroll_offset,
                                         },
                                         window: crate::core::render::WindowParams {
                                             win_x: self.win_x,

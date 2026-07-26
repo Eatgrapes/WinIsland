@@ -63,9 +63,7 @@ pub struct App {
     configured_win_y: i32,
     smtc_media_info: MediaInfo,
     last_media_title: String,
-    current_lyric_text: String,
-    old_lyric_text: String,
-    lyric_transition: f32,
+    lyrics: LyricState,
     idle_timer: Instant,
     last_glass_refresh: Instant,
     hide: HideState,
@@ -88,8 +86,6 @@ pub struct App {
     animation_frame_interval: Duration,
     last_mon_size: (u32, u32),
     last_mon_pos: (i32, i32),
-    lyric_scroll_offset: f32,
-    lyric_scroll_pause: f32,
     seeking_progress: bool,
     seeking_bar_left: f32,
     seeking_bar_right: f32,
@@ -141,9 +137,7 @@ impl Default for App {
             configured_win_y: 0,
             smtc_media_info: MediaInfo::default(),
             last_media_title: String::new(),
-            current_lyric_text: String::new(),
-            old_lyric_text: String::new(),
-            lyric_transition: 1.0,
+            lyrics: LyricState::default(),
             idle_timer: Instant::now(),
             last_glass_refresh: Instant::now(),
             hide: HideState::default(),
@@ -166,8 +160,6 @@ impl Default for App {
             animation_frame_interval: DEFAULT_ANIMATION_FRAME_INTERVAL,
             last_mon_size: (0, 0),
             last_mon_pos: (0, 0),
-            lyric_scroll_offset: 0.0,
-            lyric_scroll_pause: 0.0,
             seeking_progress: false,
             seeking_bar_left: 0.0,
             seeking_bar_right: 0.0,
@@ -185,6 +177,35 @@ impl Default for App {
             is_right_dragging: false,
             right_drag_start_offset: None,
         }
+    }
+}
+
+struct LyricState {
+    current_text: String,
+    old_text: String,
+    transition: f32,
+    scroll_offset: f32,
+    scroll_pause: f32,
+}
+
+impl Default for LyricState {
+    fn default() -> Self {
+        Self {
+            current_text: String::new(),
+            old_text: String::new(),
+            transition: 1.0,
+            scroll_offset: 0.0,
+            scroll_pause: 0.0,
+        }
+    }
+}
+
+impl LyricState {
+    fn transition_to(&mut self, text: String) {
+        self.old_text = std::mem::replace(&mut self.current_text, text);
+        self.transition = 0.0;
+        self.scroll_offset = 0.0;
+        self.scroll_pause = 0.0;
     }
 }
 

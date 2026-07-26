@@ -436,15 +436,15 @@ impl App {
         let is_currently_hidden = self.is_hidden() || self.springs.hide.value > 0.1;
         let target_base_w = if music_active && !self.expanded && !is_currently_hidden {
             let has_visible_lyrics = self.config.show_lyrics
-                && (!self.current_lyric_text.is_empty()
-                    || (!self.old_lyric_text.is_empty() && self.lyric_transition < 1.0));
+                && (!self.lyrics.current_text.is_empty()
+                    || (!self.lyrics.old_text.is_empty() && self.lyrics.transition < 1.0));
 
             if has_visible_lyrics {
                 if self.config.lyrics_scroll {
-                    let display_text = if !self.current_lyric_text.is_empty() {
-                        &self.current_lyric_text
+                    let display_text = if !self.lyrics.current_text.is_empty() {
+                        &self.lyrics.current_text
                     } else {
-                        &self.old_lyric_text
+                        &self.lyrics.old_text
                     };
                     let text_w = self.measure_lyric_text_width(display_text);
                     let natural_w = 60.0 + text_w;
@@ -454,35 +454,35 @@ impl App {
                         let available_text_w = (fixed_w - 59.0) * self.config.global_scale;
                         let full_text_w = text_w * self.config.global_scale;
                         let overflow = full_text_w - available_text_w;
-                        if overflow > 0.0 && self.lyric_transition >= 1.0 && !is_paused {
-                            if self.lyric_scroll_offset < overflow {
-                                if self.lyric_scroll_pause > 0.0 {
-                                    self.lyric_scroll_pause -= dt / 60.0;
+                        if overflow > 0.0 && self.lyrics.transition >= 1.0 && !is_paused {
+                            if self.lyrics.scroll_offset < overflow {
+                                if self.lyrics.scroll_pause > 0.0 {
+                                    self.lyrics.scroll_pause -= dt / 60.0;
                                 } else {
-                                    self.lyric_scroll_offset += 0.8 * dt;
-                                    if self.lyric_scroll_offset >= overflow {
-                                        self.lyric_scroll_offset = overflow;
+                                    self.lyrics.scroll_offset += 0.8 * dt;
+                                    if self.lyrics.scroll_offset >= overflow {
+                                        self.lyrics.scroll_offset = overflow;
                                     }
                                 }
                                 window.request_redraw();
                             }
                         } else {
-                            self.lyric_scroll_offset = 0.0;
+                            self.lyrics.scroll_offset = 0.0;
                         }
                         fixed_w
                     } else {
-                        self.lyric_scroll_offset = 0.0;
+                        self.lyrics.scroll_offset = 0.0;
                         let min_w = self.config.base_width + 35.0;
                         natural_w.clamp(min_w.min(max_w), max_w)
                     }
                 } else {
-                    let display_text = if !self.current_lyric_text.is_empty() {
-                        &self.current_lyric_text
+                    let display_text = if !self.lyrics.current_text.is_empty() {
+                        &self.lyrics.current_text
                     } else {
-                        &self.old_lyric_text
+                        &self.lyrics.old_text
                     };
                     let text_w = self.measure_lyric_text_width(display_text);
-                    self.lyric_scroll_offset = 0.0;
+                    self.lyrics.scroll_offset = 0.0;
                     let min_w = self.config.base_width + 35.0;
                     let w: f32 = 60.0 + text_w;
                     w.clamp(min_w.min(450.0), 450.0)
@@ -491,7 +491,7 @@ impl App {
                 self.config.base_width + 35.0
             }
         } else {
-            self.lyric_scroll_offset = 0.0;
+            self.lyrics.scroll_offset = 0.0;
             self.config.base_width
         };
         (if self.expanded {

@@ -483,30 +483,23 @@ impl App {
             None
         };
         if let Some(lyric) = current_lyric {
-            if lyric != self.current_lyric_text {
-                self.old_lyric_text = self.current_lyric_text.clone();
-                self.current_lyric_text = lyric.to_owned();
-                self.lyric_transition = 0.0;
-                self.lyric_scroll_offset = 0.0;
-                self.lyric_scroll_pause = 0.0;
+            if lyric != self.lyrics.current_text {
+                let text = lyric.to_owned();
+                self.lyrics.transition_to(text);
             }
-        } else if !is_paused && !self.current_lyric_text.is_empty() {
-            self.old_lyric_text = self.current_lyric_text.clone();
-            self.current_lyric_text = String::new();
-            self.lyric_transition = 0.0;
-            self.lyric_scroll_offset = 0.0;
-            self.lyric_scroll_pause = 0.0;
+        } else if !is_paused && !self.lyrics.current_text.is_empty() {
+            self.lyrics.transition_to(String::new());
         }
 
-        if self.lyric_transition < 1.0 {
-            self.lyric_transition += 0.05 * dt;
-            if self.lyric_transition > 1.0 {
-                self.lyric_transition = 1.0;
+        if self.lyrics.transition < 1.0 {
+            self.lyrics.transition += 0.05 * dt;
+            if self.lyrics.transition > 1.0 {
+                self.lyrics.transition = 1.0;
             }
             window.request_redraw();
         }
-        if self.lyric_transition >= 1.0 && !self.old_lyric_text.is_empty() {
-            self.old_lyric_text = String::new();
+        if self.lyrics.transition >= 1.0 && !self.lyrics.old_text.is_empty() {
+            self.lyrics.old_text = String::new();
         }
     }
 
@@ -566,7 +559,7 @@ impl App {
     ) {
         let should_periodic_redraw = self.periodic_glass_redraw_due();
         let animation_active = self.springs.any_animating()
-            || self.lyric_transition < 1.0
+            || self.lyrics.transition < 1.0
             || self.is_dragging
             || self.seeking_progress
             || self.is_right_dragging;
