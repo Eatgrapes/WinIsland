@@ -9,6 +9,7 @@ use super::DrawItemsParams;
 use super::controls::*;
 use super::widget_preview::{WidgetPreviewParams, draw_widget_preview};
 
+#[allow(clippy::too_many_arguments)]
 fn advance_group_row(
     canvas: &Canvas,
     theme: &SettingsTheme,
