@@ -5,15 +5,151 @@ use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, DrawTextInRectParams, FontManager};
 
 use super::super::items::*;
-use super::DrawItemsParams;
 use super::controls::*;
 use super::widget_preview::{WidgetPreviewParams, draw_widget_preview};
+use super::{ActiveStepperValue, DrawItemsParams};
+
+struct ItemCtx<'a> {
+    canvas: &'a Canvas,
+    theme: &'a SettingsTheme,
+    content_w: f32,
+    visible_min_y: f32,
+    visible_max_y: f32,
+}
+
+impl ItemCtx<'_> {
+    fn row_visible(&self, y: f32, height: f32) -> bool {
+        y + height >= self.visible_min_y && y <= self.visible_max_y
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
+fn draw_row_stepper(
+    ctx: &ItemCtx,
+    y: f32,
+    label: &str,
+    value: &str,
+    enabled: bool,
+    active_stepper_value: &Option<ActiveStepperValue>,
+    in_group: bool,
+    group_row_count: usize,
+    group_current_row: &mut usize,
+) {
+    let canvas = ctx.canvas;
+    let theme = ctx.theme;
+    let content_w = ctx.content_w;
+    let fm = FontManager::global();
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
+    let cy = y + ROW_HEIGHT / 2.0;
+    let visible = ctx.row_visible(y, ROW_HEIGHT);
+
+    if visible {
+        paint.set_color(if enabled {
+            theme.text_pri
+        } else {
+            theme.text_sec
+        });
+        fm.draw_text_cached(DrawTextCachedParams {
+            canvas,
+            text: label,
+            x: row_x,
+            y: cy + 5.0,
+            size: 13.0,
+            bold: false,
+            paint: &paint,
+        });
+    }
+
+    let btn_inc_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - STEPPER_BTN_SIZE;
+    let value_x = btn_inc_x - STEPPER_GAP - STEPPER_VALUE_W;
+    let btn_dec_x = value_x - STEPPER_GAP - STEPPER_BTN_SIZE;
+    let btn_y = cy - STEPPER_BTN_SIZE / 2.0;
+    if visible {
+        draw_stepper_btn(canvas, btn_dec_x, btn_y, "-", enabled, theme);
+        draw_stepper_btn(canvas, btn_inc_x, btn_y, "+", enabled, theme);
+    }
+
+    let val_center = value_x + STEPPER_VALUE_W / 2.0;
+    if visible {
+        let is_editing = active_stepper_value.as_ref().is_some_and(|input| {
+            (input.rect.left - value_x).abs() < 0.5 && (input.rect.top - btn_y).abs() < 0.5
+        });
+        let display_value = active_stepper_value
+            .as_ref()
+            .filter(|_| is_editing)
+            .map(|input| input.text)
+            .unwrap_or(value);
+        let show_caret = active_stepper_value
+            .as_ref()
+            .is_some_and(|input| is_editing && input.show_caret);
+        if is_editing {
+            let mut input_paint = Paint::default();
+            input_paint.set_anti_alias(true);
+            input_paint.set_color(theme.card_highlight);
+            canvas.draw_round_rect(
+                Rect::from_xywh(value_x, btn_y, STEPPER_VALUE_W, STEPPER_BTN_SIZE),
+                5.0,
+                5.0,
+                &input_paint,
+            );
+            input_paint.set_style(skia_safe::paint::Style::Stroke);
+            input_paint.set_stroke_width(1.0);
+            input_paint.set_color(theme.accent);
+            canvas.draw_round_rect(
+                Rect::from_xywh(
+                    value_x + 0.5,
+                    btn_y + 0.5,
+                    STEPPER_VALUE_W - 1.0,
+                    STEPPER_BTN_SIZE - 1.0,
+                ),
+                4.5,
+                4.5,
+                &input_paint,
+            );
+        }
+        paint.set_color(if enabled {
+            theme.text_pri
+        } else {
+            theme.text_sec
+        });
+        let val_w = fm.measure_text_cached(display_value, 13.0, FontStyle::normal());
+        fm.draw_text_cached(DrawTextCachedParams {
+            canvas,
+            text: display_value,
+            x: val_center - val_w / 2.0,
+            y: cy + 5.0,
+            size: 13.0,
+            bold: false,
+            paint: &paint,
+        });
+        if show_caret {
+            let mut caret_paint = Paint::default();
+            caret_paint.set_anti_alias(true);
+            caret_paint.set_stroke_width(1.0);
+            caret_paint.set_color(theme.accent);
+            let caret_x = val_center + val_w / 2.0 + 1.5;
+            canvas.draw_line(
+                (caret_x, btn_y + 5.0),
+                (caret_x, btn_y + STEPPER_BTN_SIZE - 5.0),
+                &caret_paint,
+            );
+        }
+    }
+
+    advance_group_row(
+        ctx,
+        y + ROW_HEIGHT,
+        in_group,
+        group_current_row,
+        group_row_count,
+        visible,
+    );
+}
+
 fn advance_group_row(
-    canvas: &Canvas,
-    theme: &SettingsTheme,
-    content_w: f32,
+    ctx: &ItemCtx,
     sep_y: f32,
     in_group: bool,
     group_current_row: &mut usize,
@@ -25,7 +161,7 @@ fn advance_group_row(
     }
     *group_current_row += 1;
     if *group_current_row < group_row_count && visible {
-        draw_row_separator(canvas, theme, content_w, sep_y);
+        draw_row_separator(ctx.canvas, ctx.theme, ctx.content_w, sep_y);
     }
 }
 
@@ -65,6 +201,13 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
     let mut group_row_count = 0;
     let mut group_current_row = 0;
     let content_w = width - CONTENT_PADDING * 2.0;
+    let ctx = ItemCtx {
+        canvas,
+        theme,
+        content_w,
+        visible_min_y,
+        visible_max_y,
+    };
 
     let mut i = 0;
     while i < items.len() {
@@ -117,112 +260,16 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 value,
                 enabled,
             } => {
-                let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
-                let cy = y + ROW_HEIGHT / 2.0;
-
-                if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
-                    paint.set_color(if *enabled {
-                        theme.text_pri
-                    } else {
-                        theme.text_sec
-                    });
-                    fm.draw_text_cached(DrawTextCachedParams {
-                        canvas,
-                        text: label,
-                        x: row_x,
-                        y: cy + 5.0,
-                        size: 13.0,
-                        bold: false,
-                        paint: &paint,
-                    });
-                }
-
-                let btn_inc_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - STEPPER_BTN_SIZE;
-                let value_x = btn_inc_x - STEPPER_GAP - STEPPER_VALUE_W;
-                let btn_dec_x = value_x - STEPPER_GAP - STEPPER_BTN_SIZE;
-                let btn_y = cy - STEPPER_BTN_SIZE / 2.0;
-                if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
-                    draw_stepper_btn(canvas, btn_dec_x, btn_y, "-", *enabled, theme);
-                    draw_stepper_btn(canvas, btn_inc_x, btn_y, "+", *enabled, theme);
-                }
-
-                let val_center = value_x + STEPPER_VALUE_W / 2.0;
-                if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
-                    let is_editing = active_stepper_value.as_ref().is_some_and(|input| {
-                        (input.rect.left - value_x).abs() < 0.5
-                            && (input.rect.top - btn_y).abs() < 0.5
-                    });
-                    let display_value = active_stepper_value
-                        .as_ref()
-                        .filter(|_| is_editing)
-                        .map(|input| input.text)
-                        .unwrap_or(value);
-                    let show_caret = active_stepper_value
-                        .as_ref()
-                        .is_some_and(|input| is_editing && input.show_caret);
-                    if is_editing {
-                        let mut input_paint = Paint::default();
-                        input_paint.set_anti_alias(true);
-                        input_paint.set_color(theme.card_highlight);
-                        canvas.draw_round_rect(
-                            Rect::from_xywh(value_x, btn_y, STEPPER_VALUE_W, STEPPER_BTN_SIZE),
-                            5.0,
-                            5.0,
-                            &input_paint,
-                        );
-                        input_paint.set_style(skia_safe::paint::Style::Stroke);
-                        input_paint.set_stroke_width(1.0);
-                        input_paint.set_color(theme.accent);
-                        canvas.draw_round_rect(
-                            Rect::from_xywh(
-                                value_x + 0.5,
-                                btn_y + 0.5,
-                                STEPPER_VALUE_W - 1.0,
-                                STEPPER_BTN_SIZE - 1.0,
-                            ),
-                            4.5,
-                            4.5,
-                            &input_paint,
-                        );
-                    }
-                    paint.set_color(if *enabled {
-                        theme.text_pri
-                    } else {
-                        theme.text_sec
-                    });
-                    let val_w = fm.measure_text_cached(display_value, 13.0, FontStyle::normal());
-                    fm.draw_text_cached(DrawTextCachedParams {
-                        canvas,
-                        text: display_value,
-                        x: val_center - val_w / 2.0,
-                        y: cy + 5.0,
-                        size: 13.0,
-                        bold: false,
-                        paint: &paint,
-                    });
-                    if show_caret {
-                        let mut caret_paint = Paint::default();
-                        caret_paint.set_anti_alias(true);
-                        caret_paint.set_stroke_width(1.0);
-                        caret_paint.set_color(theme.accent);
-                        let caret_x = val_center + val_w / 2.0 + 1.5;
-                        canvas.draw_line(
-                            (caret_x, btn_y + 5.0),
-                            (caret_x, btn_y + STEPPER_BTN_SIZE - 5.0),
-                            &caret_paint,
-                        );
-                    }
-                }
-
-                advance_group_row(
-                    canvas,
-                    theme,
-                    content_w,
-                    y + ROW_HEIGHT,
+                draw_row_stepper(
+                    &ctx,
+                    y,
+                    label,
+                    value,
+                    *enabled,
+                    &active_stepper_value,
                     in_group,
-                    &mut group_current_row,
                     group_row_count,
-                    y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y,
+                    &mut group_current_row,
                 );
             }
             SettingsItem::RowSwitch {
@@ -265,9 +312,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 switch_idx += 1;
 
                 advance_group_row(
-                    canvas,
-                    theme,
-                    content_w,
+                    &ctx,
                     y + ROW_HEIGHT,
                     in_group,
                     &mut group_current_row,
@@ -326,9 +371,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 }
 
                 advance_group_row(
-                    canvas,
-                    theme,
-                    content_w,
+                    &ctx,
                     y + ROW_HEIGHT,
                     in_group,
                     &mut group_current_row,
@@ -428,9 +471,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 }
 
                 advance_group_row(
-                    canvas,
-                    theme,
-                    content_w,
+                    &ctx,
                     y + row_h,
                     in_group,
                     &mut group_current_row,
@@ -537,9 +578,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 }
 
                 advance_group_row(
-                    canvas,
-                    theme,
-                    content_w,
+                    &ctx,
                     y + ROW_HEIGHT,
                     in_group,
                     &mut group_current_row,
@@ -597,9 +636,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 }
 
                 advance_group_row(
-                    canvas,
-                    theme,
-                    content_w,
+                    &ctx,
                     y + ROW_HEIGHT,
                     in_group,
                     &mut group_current_row,
@@ -681,9 +718,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 }
 
                 advance_group_row(
-                    canvas,
-                    theme,
-                    content_w,
+                    &ctx,
                     y + ROW_HEIGHT,
                     in_group,
                     &mut group_current_row,
@@ -709,9 +744,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 }
 
                 advance_group_row(
-                    canvas,
-                    theme,
-                    content_w,
+                    &ctx,
                     y + ROW_HEIGHT,
                     in_group,
                     &mut group_current_row,
