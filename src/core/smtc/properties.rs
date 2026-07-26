@@ -235,7 +235,9 @@ fn spawn_thumbnail_fetch(
         for attempt in 0..10 {
             let res = (|| -> windows::core::Result<Vec<u8>> {
                 let props = session.TryGetMediaPropertiesAsync()?.join()?;
-                if props.Title()?.to_string() != title || props.Artist()?.to_string() != artist {
+                let fetched_title = props.Title()?.to_string();
+                let fetched_artist = props.Artist()?.to_string();
+                if fetched_title != title || fetched_artist != artist {
                     // HRESULT(-2) is a sentinel value to signal stale media properties,
                     // not a standard COM error code. The caller retries on this error.
                     return Err(windows::core::Error::new(
