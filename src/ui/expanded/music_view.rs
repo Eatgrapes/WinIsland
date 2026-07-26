@@ -600,50 +600,17 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             }
         });
 
-        canvas.save();
-        canvas.translate((btn_cx - skip_gap, btn_cy));
-        canvas.scale((-1.0, 1.0));
-        if let Some(t) = prev_t {
-            let skip_blur = (1.0 - t / 0.3).max(0.0) * 6.0 * scale;
-            if skip_blur > 0.1 && use_blur {
-                let mut blur_paint = Paint::default();
-                blur_paint.set_image_filter(image_filters::blur(
-                    (skip_blur, skip_blur * 0.3),
-                    None,
-                    None,
-                    None,
-                ));
-                canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&blur_paint));
-            }
-
-            let shoot_t = (t / 0.25).min(1.0);
-            let shoot_x = 10.92 * scale + 22.0 * scale * shoot_t;
-            let shoot_alpha = ((alpha as f32) * (1.0 - shoot_t)) as u8;
-            if shoot_alpha > 0 {
-                draw_control_triangle(canvas, shoot_x, 0.0, shoot_alpha, 0.055, scale, text_color);
-            }
-
-            let move_t = (t / 0.55).min(1.0);
-            let mid_x = -10.92 * scale + (10.92 * 2.0) * scale * move_t;
-            let mid_s = 0.050 + (0.055 - 0.050) * move_t;
-            draw_control_triangle(canvas, mid_x, 0.0, alpha, mid_s, scale, text_color);
-
-            let fade_raw = ((t - 0.15) / 0.85).clamp(0.0, 1.0);
-            let fade_eased = ease_out_back(fade_raw);
-            let new_x = -25.0 * scale + (25.0 - 10.92) * scale * fade_eased;
-            let new_alpha = ((alpha as f32) * fade_raw) as u8;
-            if new_alpha > 0 {
-                draw_control_triangle(canvas, new_x, 0.0, new_alpha, 0.050, scale, text_color);
-            }
-
-            if skip_blur > 0.1 && use_blur {
-                canvas.restore();
-            }
-        } else {
-            draw_control_triangle(canvas, -10.92 * scale, 0.0, alpha, 0.050, scale, text_color);
-            draw_control_triangle(canvas, 10.92 * scale, 0.0, alpha, 0.055, scale, text_color);
-        }
-        canvas.restore();
+        draw_skip_button(
+            canvas,
+            btn_cx - skip_gap,
+            btn_cy,
+            true,
+            prev_t,
+            alpha,
+            scale,
+            use_blur,
+            text_color,
+        );
 
         let (pause_s, pause_blur) = PAUSE_SPRING.with(|cell| {
             let mut s = cell.borrow_mut();
@@ -709,49 +676,17 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             }
         });
 
-        canvas.save();
-        canvas.translate((btn_cx + skip_gap, btn_cy));
-        if let Some(t) = next_t {
-            let skip_blur = (1.0 - t / 0.3).max(0.0) * 6.0 * scale;
-            if skip_blur > 0.1 && use_blur {
-                let mut blur_paint = Paint::default();
-                blur_paint.set_image_filter(image_filters::blur(
-                    (skip_blur, skip_blur * 0.3),
-                    None,
-                    None,
-                    None,
-                ));
-                canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&blur_paint));
-            }
-
-            let shoot_t = (t / 0.25).min(1.0);
-            let shoot_x = 10.92 * scale + 22.0 * scale * shoot_t;
-            let shoot_alpha = ((alpha as f32) * (1.0 - shoot_t)) as u8;
-            if shoot_alpha > 0 {
-                draw_control_triangle(canvas, shoot_x, 0.0, shoot_alpha, 0.055, scale, text_color);
-            }
-
-            let move_t = (t / 0.55).min(1.0);
-            let mid_x = -10.92 * scale + (10.92 * 2.0) * scale * move_t;
-            let mid_s = 0.050 + (0.055 - 0.050) * move_t;
-            draw_control_triangle(canvas, mid_x, 0.0, alpha, mid_s, scale, text_color);
-
-            let fade_raw = ((t - 0.15) / 0.85).clamp(0.0, 1.0);
-            let fade_eased = ease_out_back(fade_raw);
-            let new_x = -25.0 * scale + (25.0 - 10.92) * scale * fade_eased;
-            let new_alpha = ((alpha as f32) * fade_raw) as u8;
-            if new_alpha > 0 {
-                draw_control_triangle(canvas, new_x, 0.0, new_alpha, 0.050, scale, text_color);
-            }
-
-            if skip_blur > 0.1 && use_blur {
-                canvas.restore();
-            }
-        } else {
-            draw_control_triangle(canvas, -10.92 * scale, 0.0, alpha, 0.050, scale, text_color);
-            draw_control_triangle(canvas, 10.92 * scale, 0.0, alpha, 0.055, scale, text_color);
-        }
-        canvas.restore();
+        draw_skip_button(
+            canvas,
+            btn_cx + skip_gap,
+            btn_cy,
+            false,
+            next_t,
+            alpha,
+            scale,
+            use_blur,
+            text_color,
+        );
     }
 
     let viz_x_offset = 17.0 + (37.0 - 17.0) * expansion_progress;
@@ -769,6 +704,66 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
     });
 
     false
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_skip_button(
+    canvas: &Canvas,
+    cx: f32,
+    cy: f32,
+    mirror: bool,
+    anim_t: Option<f32>,
+    alpha: u8,
+    scale: f32,
+    use_blur: bool,
+    text_color: Color,
+) {
+    canvas.save();
+    canvas.translate((cx, cy));
+    if mirror {
+        canvas.scale((-1.0, 1.0));
+    }
+    if let Some(t) = anim_t {
+        let skip_blur = (1.0 - t / 0.3).max(0.0) * 6.0 * scale;
+        if skip_blur > 0.1 && use_blur {
+            let mut blur_paint = Paint::default();
+            blur_paint.set_image_filter(image_filters::blur(
+                (skip_blur, skip_blur * 0.3),
+                None,
+                None,
+                None,
+            ));
+            canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&blur_paint));
+        }
+
+        let shoot_t = (t / 0.25).min(1.0);
+        let shoot_x = 10.92 * scale + 22.0 * scale * shoot_t;
+        let shoot_alpha = ((alpha as f32) * (1.0 - shoot_t)) as u8;
+        if shoot_alpha > 0 {
+            draw_control_triangle(canvas, shoot_x, 0.0, shoot_alpha, 0.055, scale, text_color);
+        }
+
+        let move_t = (t / 0.55).min(1.0);
+        let mid_x = -10.92 * scale + (10.92 * 2.0) * scale * move_t;
+        let mid_s = 0.050 + (0.055 - 0.050) * move_t;
+        draw_control_triangle(canvas, mid_x, 0.0, alpha, mid_s, scale, text_color);
+
+        let fade_raw = ((t - 0.15) / 0.85).clamp(0.0, 1.0);
+        let fade_eased = ease_out_back(fade_raw);
+        let new_x = -25.0 * scale + (25.0 - 10.92) * scale * fade_eased;
+        let new_alpha = ((alpha as f32) * fade_raw) as u8;
+        if new_alpha > 0 {
+            draw_control_triangle(canvas, new_x, 0.0, new_alpha, 0.050, scale, text_color);
+        }
+
+        if skip_blur > 0.1 && use_blur {
+            canvas.restore();
+        }
+    } else {
+        draw_control_triangle(canvas, -10.92 * scale, 0.0, alpha, 0.050, scale, text_color);
+        draw_control_triangle(canvas, 10.92 * scale, 0.0, alpha, 0.055, scale, text_color);
+    }
+    canvas.restore();
 }
 
 fn draw_placeholder(
