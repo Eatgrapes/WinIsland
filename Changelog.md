@@ -1,5 +1,11 @@
 # Changelog
 
+### v1.2.8
+- Fixed the Dynamic Island still auto-hiding in full-screen mode while a live activity (e.g. music) is playing (#125)
+- Fixed the Dynamic Island position drifting when using MyDockFinder and other dock tools (#126)
+- Fixed the progress bar stuttering back when seeking on the system media player (#127)
+- Refactored the codebase for better maintainability
+
 ### v1.2.7
 - Migrated from software rendering to D3D12 hardware rendering
 - Fixed an issue where the application would still auto-hide in full-screen mode even when the auto-hide option was disabled 
