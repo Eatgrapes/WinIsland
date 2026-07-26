@@ -300,6 +300,9 @@ impl App {
                 self.manually_hidden = false;
                 self.auto_hidden = false;
                 self.fullscreen_hidden = false;
+                if self.is_fullscreen_suppressed {
+                    self.fullscreen_reveal_override = true;
+                }
             }
         }
     }

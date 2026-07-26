@@ -74,6 +74,7 @@ pub struct App {
     spring_hide: Spring,
     auto_hidden: bool,
     fullscreen_hidden: bool,
+    fullscreen_reveal_override: bool,
     hide_origin: Option<(i32, i32)>,
     hide_edge: HideEdge,
     is_dragging: bool,
@@ -160,6 +161,7 @@ impl Default for App {
             spring_hide: Spring::new(0.0),
             auto_hidden: false,
             fullscreen_hidden: false,
+            fullscreen_reveal_override: false,
             hide_origin: None,
             hide_edge: HideEdge::Top,
             is_dragging: false,
@@ -227,6 +229,9 @@ impl App {
         self.auto_hidden = false;
         self.fullscreen_hidden = false;
         self.manually_hidden = false;
+        if self.is_fullscreen_suppressed {
+            self.fullscreen_reveal_override = true;
+        }
         self.spring_hide.velocity = -0.65;
         self.idle_timer = Instant::now();
     }

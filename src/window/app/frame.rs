@@ -137,7 +137,13 @@ impl App {
                 self.last_mon_size.1,
             );
             self.is_cursor_suppressed = is_cursor_hidden();
-            let should_hide_for_fullscreen = self.config.auto_hide && self.is_fullscreen_suppressed;
+            let has_live_activity = self.config.smtc_enabled
+                && self.smtc_media_info.is_playing
+                && !self.smtc_media_info.title.is_empty();
+            let should_hide_for_fullscreen = self.config.auto_hide
+                && self.is_fullscreen_suppressed
+                && !has_live_activity
+                && !self.fullscreen_reveal_override;
             if should_hide_for_fullscreen != self.fullscreen_hidden {
                 if should_hide_for_fullscreen {
                     let hide_started = if self.is_hidden() {
@@ -162,6 +168,9 @@ impl App {
                 window.request_redraw();
             }
             if self.is_fullscreen_suppressed != prev_fullscreen {
+                if !self.is_fullscreen_suppressed {
+                    self.fullscreen_reveal_override = false;
+                }
                 log::info!(
                     "Fullscreen state: {}",
                     if self.is_fullscreen_suppressed {
