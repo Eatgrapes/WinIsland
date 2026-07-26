@@ -145,6 +145,327 @@ fn draw_row_stepper(
     advance_group_row(ctx, y + ROW_HEIGHT, groups, visible);
 }
 
+fn draw_row_switch(
+    ctx: &ItemCtx,
+    y: f32,
+    label: &str,
+    enabled: bool,
+    switch_pos: f32,
+    groups: &mut GroupRows,
+) {
+    let canvas = ctx.canvas;
+    let theme = ctx.theme;
+    let content_w = ctx.content_w;
+    let fm = FontManager::global();
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
+    let cy = y + ROW_HEIGHT / 2.0;
+    let visible = ctx.row_visible(y, ROW_HEIGHT);
+
+    if visible {
+        paint.set_color(if enabled {
+            theme.text_pri
+        } else {
+            theme.text_sec
+        });
+        fm.draw_text_cached(DrawTextCachedParams {
+            canvas,
+            text: label,
+            x: row_x,
+            y: cy + 5.0,
+            size: 13.0,
+            bold: false,
+            paint: &paint,
+        });
+    }
+
+    let toggle_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - TOGGLE_W;
+    let toggle_y = cy - TOGGLE_H / 2.0;
+    if visible {
+        draw_switch(canvas, toggle_x, toggle_y, switch_pos, enabled, theme);
+    }
+
+    advance_group_row(ctx, y + ROW_HEIGHT, groups, visible);
+}
+
+fn draw_row_font_picker(
+    ctx: &ItemCtx,
+    y: f32,
+    label: &str,
+    btn_label: &str,
+    reset_label: &Option<String>,
+    groups: &mut GroupRows,
+) {
+    let canvas = ctx.canvas;
+    let theme = ctx.theme;
+    let content_w = ctx.content_w;
+    let fm = FontManager::global();
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
+    let cy = y + ROW_HEIGHT / 2.0;
+    let visible = ctx.row_visible(y, ROW_HEIGHT);
+
+    if visible {
+        paint.set_color(theme.text_pri);
+        fm.draw_text_cached(DrawTextCachedParams {
+            canvas,
+            text: label,
+            x: row_x,
+            y: cy + 5.0,
+            size: 13.0,
+            bold: false,
+            paint: &paint,
+        });
+
+        let sel_w: f32 = 60.0;
+        let sel_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - sel_w;
+        draw_pill_btn(PillBtnParams {
+            canvas,
+            x: sel_x,
+            y: cy - 13.0,
+            w: sel_w,
+            h: 26.0,
+            label: btn_label,
+            text_color: theme.text_pri,
+            bg_color: theme.card_highlight,
+        });
+
+        if let Some(rl) = reset_label {
+            let rst_w: f32 = 60.0;
+            let rst_x = sel_x - rst_w - 6.0;
+            draw_pill_btn(PillBtnParams {
+                canvas,
+                x: rst_x,
+                y: cy - 13.0,
+                w: rst_w,
+                h: 26.0,
+                label: rl,
+                text_color: theme.danger,
+                bg_color: theme.card_highlight,
+            });
+        }
+    }
+
+    advance_group_row(ctx, y + ROW_HEIGHT, groups, visible);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_row_folder_picker(
+    ctx: &ItemCtx,
+    y: f32,
+    label: &str,
+    btn_label: &str,
+    clear_label: &Option<String>,
+    current_path: &Option<String>,
+    enabled: bool,
+    groups: &mut GroupRows,
+) {
+    let canvas = ctx.canvas;
+    let theme = ctx.theme;
+    let content_w = ctx.content_w;
+    let fm = FontManager::global();
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    let has_path = current_path.as_ref().is_some_and(|p| !p.is_empty());
+    let row_h = if has_path { 64.0 } else { ROW_HEIGHT };
+    let visible = ctx.row_visible(y, row_h);
+    let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
+    let cy = y + row_h / 2.0;
+
+    if visible {
+        paint.set_color(if enabled {
+            theme.text_pri
+        } else {
+            theme.text_sec
+        });
+        fm.draw_text_cached(DrawTextCachedParams {
+            canvas,
+            text: label,
+            x: row_x,
+            y: cy + 5.0,
+            size: 13.0,
+            bold: false,
+            paint: &paint,
+        });
+
+        // Show current path as secondary text on the left
+        if let Some(path) = current_path
+            && !path.is_empty()
+        {
+            paint.set_color(theme.text_sec);
+            let max_w = content_w - GROUP_INNER_PAD * 2.0 - 140.0;
+            let display = truncate_text(fm, path, 11.0, max_w);
+            fm.draw_text_cached(DrawTextCachedParams {
+                canvas,
+                text: &display,
+                x: row_x,
+                y: cy + 17.0,
+                size: 11.0,
+                bold: false,
+                paint: &paint,
+            });
+        }
+
+        let label_color = if enabled {
+            theme.text_pri
+        } else {
+            theme.text_sec
+        };
+        let bg_color = if enabled {
+            theme.card_highlight
+        } else {
+            theme.disabled
+        };
+
+        let sel_w: f32 = 60.0;
+        let sel_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - sel_w;
+        draw_pill_btn(PillBtnParams {
+            canvas,
+            x: sel_x,
+            y: cy - 13.0,
+            w: sel_w,
+            h: 26.0,
+            label: btn_label,
+            text_color: label_color,
+            bg_color,
+        });
+
+        if let Some(cl) = clear_label {
+            let clr_w: f32 = 60.0;
+            let clr_x = sel_x - clr_w - 6.0;
+            draw_pill_btn(PillBtnParams {
+                canvas,
+                x: clr_x,
+                y: cy - 13.0,
+                w: clr_w,
+                h: 26.0,
+                label: cl,
+                text_color: if enabled {
+                    theme.danger
+                } else {
+                    theme.text_sec
+                },
+                bg_color,
+            });
+        }
+    }
+
+    advance_group_row(ctx, y + row_h, groups, visible);
+}
+
+fn draw_row_source_select(
+    ctx: &ItemCtx,
+    y: f32,
+    label: &str,
+    options: &[(String, bool)],
+    enabled: bool,
+    active_source_button: Option<Rect>,
+    groups: &mut GroupRows,
+) {
+    let canvas = ctx.canvas;
+    let theme = ctx.theme;
+    let content_w = ctx.content_w;
+    let fm = FontManager::global();
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
+    let cy = y + ROW_HEIGHT / 2.0;
+    let visible = ctx.row_visible(y, ROW_HEIGHT);
+
+    if visible {
+        paint.set_color(if enabled {
+            theme.text_pri
+        } else {
+            theme.text_sec
+        });
+        fm.draw_text_cached(DrawTextCachedParams {
+            canvas,
+            text: label,
+            x: row_x,
+            y: cy + 5.0,
+            size: 13.0,
+            bold: false,
+            paint: &paint,
+        });
+    }
+
+    let selected_label = options
+        .iter()
+        .find(|(_, active)| *active)
+        .map(|(l, _)| l.as_str())
+        .unwrap_or("");
+
+    let btn_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - POPUP_BTN_W;
+    let btn_y = cy - POPUP_BTN_H / 2.0;
+    let is_open = active_source_button.is_some_and(|button| {
+        (button.left - btn_x).abs() < 0.5 && (button.top - btn_y).abs() < 0.5
+    });
+
+    if visible {
+        let mut p = Paint::default();
+        p.set_anti_alias(true);
+        p.set_color(if enabled {
+            theme.card_highlight
+        } else {
+            theme.disabled
+        });
+        canvas.draw_round_rect(
+            Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
+            POPUP_BTN_R,
+            POPUP_BTN_R,
+            &p,
+        );
+
+        p.set_color(if enabled {
+            theme.text_pri
+        } else {
+            theme.text_sec
+        });
+        let text_w = POPUP_BTN_W - 22.0;
+        fm.draw_text_in_rect(DrawTextInRectParams {
+            canvas,
+            text: selected_label,
+            x: btn_x + 4.0,
+            y: btn_y + 17.0,
+            w: text_w,
+            size: 13.0,
+            bold: false,
+            paint: &p,
+        });
+
+        let chev_cx = btn_x + POPUP_BTN_W - 12.0;
+        let chev_cy = cy;
+        let (top_y, bottom_y) = if is_open {
+            (chev_cy - 1.5, chev_cy + 1.5)
+        } else {
+            (chev_cy + 1.5, chev_cy - 1.5)
+        };
+        let chev_svg = format!(
+            "M {} {} L {} {} L {} {}",
+            chev_cx - 3.0,
+            bottom_y,
+            chev_cx,
+            top_y,
+            chev_cx + 3.0,
+            bottom_y,
+        );
+        p.set_color(if enabled {
+            theme.text_sec
+        } else {
+            theme.disabled
+        });
+        p.set_style(skia_safe::paint::Style::Stroke);
+        p.set_stroke_width(1.5);
+        if let Some(chev_path) = skia_safe::Path::from_svg(&chev_svg) {
+            canvas.draw_path(&chev_path, &p);
+        }
+    }
+
+    advance_group_row(ctx, y + ROW_HEIGHT, groups, visible);
+}
+
 fn advance_group_row(ctx: &ItemCtx, sep_y: f32, groups: &mut GroupRows, visible: bool) {
     if !groups.in_group {
         return;
@@ -263,98 +584,15 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 on: _,
                 enabled,
             } => {
-                let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
-                let cy = y + ROW_HEIGHT / 2.0;
-
-                if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
-                    paint.set_color(if *enabled {
-                        theme.text_pri
-                    } else {
-                        theme.text_sec
-                    });
-                    fm.draw_text_cached(DrawTextCachedParams {
-                        canvas,
-                        text: label,
-                        x: row_x,
-                        y: cy + 5.0,
-                        size: 13.0,
-                        bold: false,
-                        paint: &paint,
-                    });
-                }
-
-                let toggle_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - TOGGLE_W;
-                let toggle_y = cy - TOGGLE_H / 2.0;
-                if y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y {
-                    draw_switch(
-                        canvas,
-                        toggle_x,
-                        toggle_y,
-                        anims.get(switch_idx),
-                        *enabled,
-                        theme,
-                    );
-                }
+                draw_row_switch(&ctx, y, label, *enabled, anims.get(switch_idx), &mut groups);
                 switch_idx += 1;
-
-                advance_group_row(
-                    &ctx,
-                    y + ROW_HEIGHT,
-                    &mut groups,
-                    y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y,
-                );
             }
             SettingsItem::RowFontPicker {
                 label,
                 btn_label,
                 reset_label,
             } => {
-                let visible = y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y;
-                let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
-                let cy = y + ROW_HEIGHT / 2.0;
-
-                if visible {
-                    paint.set_color(theme.text_pri);
-                    fm.draw_text_cached(DrawTextCachedParams {
-                        canvas,
-                        text: label,
-                        x: row_x,
-                        y: cy + 5.0,
-                        size: 13.0,
-                        bold: false,
-                        paint: &paint,
-                    });
-
-                    let sel_w: f32 = 60.0;
-                    let sel_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - sel_w;
-                    draw_pill_btn(PillBtnParams {
-                        canvas,
-                        x: sel_x,
-                        y: cy - 13.0,
-                        w: sel_w,
-                        h: 26.0,
-                        label: btn_label,
-                        text_color: theme.text_pri,
-                        bg_color: theme.card_highlight,
-                    });
-
-                    if let Some(rl) = reset_label {
-                        let rst_w: f32 = 60.0;
-                        let rst_x = sel_x - rst_w - 6.0;
-                        draw_pill_btn(PillBtnParams {
-                            canvas,
-                            x: rst_x,
-                            y: cy - 13.0,
-                            w: rst_w,
-                            h: 26.0,
-                            label: rl,
-                            text_color: theme.danger,
-                            bg_color: theme.card_highlight,
-                        });
-                    }
-                }
-
-                advance_group_row(&ctx, y + ROW_HEIGHT, &mut groups, visible);
+                draw_row_font_picker(&ctx, y, label, btn_label, reset_label, &mut groups);
             }
             SettingsItem::RowFolderPicker {
                 label,
@@ -363,191 +601,31 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 current_path,
                 enabled,
             } => {
-                let has_path = current_path.as_ref().is_some_and(|p| !p.is_empty());
-                let row_h = if has_path { 64.0 } else { ROW_HEIGHT };
-                let visible = y + row_h >= visible_min_y && y <= visible_max_y;
-                let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
-                let cy = y + row_h / 2.0;
-
-                if visible {
-                    paint.set_color(if *enabled {
-                        theme.text_pri
-                    } else {
-                        theme.text_sec
-                    });
-                    fm.draw_text_cached(DrawTextCachedParams {
-                        canvas,
-                        text: label,
-                        x: row_x,
-                        y: cy + 5.0,
-                        size: 13.0,
-                        bold: false,
-                        paint: &paint,
-                    });
-
-                    // Show current path as secondary text on the left
-                    if let Some(path) = current_path
-                        && !path.is_empty()
-                    {
-                        paint.set_color(theme.text_sec);
-                        let max_w = content_w - GROUP_INNER_PAD * 2.0 - 140.0;
-                        let display = truncate_text(fm, path, 11.0, max_w);
-                        fm.draw_text_cached(DrawTextCachedParams {
-                            canvas,
-                            text: &display,
-                            x: row_x,
-                            y: cy + 17.0,
-                            size: 11.0,
-                            bold: false,
-                            paint: &paint,
-                        });
-                    }
-
-                    let label_color = if *enabled {
-                        theme.text_pri
-                    } else {
-                        theme.text_sec
-                    };
-                    let bg_color = if *enabled {
-                        theme.card_highlight
-                    } else {
-                        theme.disabled
-                    };
-
-                    let sel_w: f32 = 60.0;
-                    let sel_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - sel_w;
-                    draw_pill_btn(PillBtnParams {
-                        canvas,
-                        x: sel_x,
-                        y: cy - 13.0,
-                        w: sel_w,
-                        h: 26.0,
-                        label: btn_label,
-                        text_color: label_color,
-                        bg_color,
-                    });
-
-                    if let Some(cl) = clear_label {
-                        let clr_w: f32 = 60.0;
-                        let clr_x = sel_x - clr_w - 6.0;
-                        draw_pill_btn(PillBtnParams {
-                            canvas,
-                            x: clr_x,
-                            y: cy - 13.0,
-                            w: clr_w,
-                            h: 26.0,
-                            label: cl,
-                            text_color: if *enabled {
-                                theme.danger
-                            } else {
-                                theme.text_sec
-                            },
-                            bg_color,
-                        });
-                    }
-                }
-
-                advance_group_row(&ctx, y + row_h, &mut groups, visible);
+                draw_row_folder_picker(
+                    &ctx,
+                    y,
+                    label,
+                    btn_label,
+                    clear_label,
+                    current_path,
+                    *enabled,
+                    &mut groups,
+                );
             }
             SettingsItem::RowSourceSelect {
                 label,
                 options,
                 enabled,
             } => {
-                let visible = y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y;
-                let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
-                let cy = y + ROW_HEIGHT / 2.0;
-
-                if visible {
-                    paint.set_color(if *enabled {
-                        theme.text_pri
-                    } else {
-                        theme.text_sec
-                    });
-                    fm.draw_text_cached(DrawTextCachedParams {
-                        canvas,
-                        text: label,
-                        x: row_x,
-                        y: cy + 5.0,
-                        size: 13.0,
-                        bold: false,
-                        paint: &paint,
-                    });
-                }
-
-                let selected_label = options
-                    .iter()
-                    .find(|(_, active)| *active)
-                    .map(|(l, _)| l.as_str())
-                    .unwrap_or("");
-
-                let btn_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - POPUP_BTN_W;
-                let btn_y = cy - POPUP_BTN_H / 2.0;
-                let is_open = active_source_button.is_some_and(|button| {
-                    (button.left - btn_x).abs() < 0.5 && (button.top - btn_y).abs() < 0.5
-                });
-
-                if visible {
-                    let mut p = Paint::default();
-                    p.set_anti_alias(true);
-                    p.set_color(if *enabled {
-                        theme.card_highlight
-                    } else {
-                        theme.disabled
-                    });
-                    canvas.draw_round_rect(
-                        Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
-                        POPUP_BTN_R,
-                        POPUP_BTN_R,
-                        &p,
-                    );
-
-                    p.set_color(if *enabled {
-                        theme.text_pri
-                    } else {
-                        theme.text_sec
-                    });
-                    let text_w = POPUP_BTN_W - 22.0;
-                    fm.draw_text_in_rect(DrawTextInRectParams {
-                        canvas,
-                        text: selected_label,
-                        x: btn_x + 4.0,
-                        y: btn_y + 17.0,
-                        w: text_w,
-                        size: 13.0,
-                        bold: false,
-                        paint: &p,
-                    });
-
-                    let chev_cx = btn_x + POPUP_BTN_W - 12.0;
-                    let chev_cy = cy;
-                    let (top_y, bottom_y) = if is_open {
-                        (chev_cy - 1.5, chev_cy + 1.5)
-                    } else {
-                        (chev_cy + 1.5, chev_cy - 1.5)
-                    };
-                    let chev_svg = format!(
-                        "M {} {} L {} {} L {} {}",
-                        chev_cx - 3.0,
-                        bottom_y,
-                        chev_cx,
-                        top_y,
-                        chev_cx + 3.0,
-                        bottom_y,
-                    );
-                    p.set_color(if *enabled {
-                        theme.text_sec
-                    } else {
-                        theme.disabled
-                    });
-                    p.set_style(skia_safe::paint::Style::Stroke);
-                    p.set_stroke_width(1.5);
-                    if let Some(chev_path) = skia_safe::Path::from_svg(&chev_svg) {
-                        canvas.draw_path(&chev_path, &p);
-                    }
-                }
-
-                advance_group_row(&ctx, y + ROW_HEIGHT, &mut groups, visible);
+                draw_row_source_select(
+                    &ctx,
+                    y,
+                    label,
+                    options,
+                    *enabled,
+                    active_source_button,
+                    &mut groups,
+                );
             }
             SettingsItem::RowButton {
                 label,
