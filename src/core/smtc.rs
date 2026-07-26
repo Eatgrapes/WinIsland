@@ -27,6 +27,8 @@ pub struct MediaInfo {
     pub last_smtc_pos: u64,
     pub duration_secs: u64,
     pub duration_ms: u64,
+    pub seek_target_ms: u64,
+    pub seek_guard_until: Option<Instant>,
 }
 
 impl Default for MediaInfo {
@@ -47,6 +49,8 @@ impl Default for MediaInfo {
             last_smtc_pos: 0,
             duration_secs: 0,
             duration_ms: 0,
+            seek_target_ms: 0,
+            seek_guard_until: None,
         }
     }
 }

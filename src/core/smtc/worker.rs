@@ -221,6 +221,8 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
             let mut info = info_tx.borrow().clone();
             info.position_ms = seek_pos;
             info.last_update = Instant::now();
+            info.seek_target_ms = seek_pos;
+            info.seek_guard_until = Some(Instant::now() + Duration::from_secs(4));
             // Do not update last_smtc_pos here: SMTC timeline can lag after seek, and treating
             // seek_pos as authoritative would make the next poll think SMTC changed and sync back.
             let _ = info_tx.send(info);

@@ -143,12 +143,24 @@ pub(super) fn fetch_properties(
         let smtc_changed = smtc_pos != info.last_smtc_pos;
         let diff_with_extrapolated = (smtc_pos as i64 - current_extrapolated as i64).abs();
 
+        let mut seek_guard_active = !song_changed
+            && info
+                .seek_guard_until
+                .is_some_and(|until| Instant::now() < until);
+        if seek_guard_active
+            && smtc_pos > 0
+            && (smtc_pos as i64 - info.seek_target_ms as i64).abs() < 1500
+        {
+            info.seek_guard_until = None;
+            seek_guard_active = false;
+        }
+
         let should_sync = song_changed
             || (info.is_playing != is_playing)
             || (smtc_pos > 0 && info.position_ms == 0)
             || (smtc_changed && (diff_with_extrapolated > 2000 || !is_playing));
 
-        if should_sync {
+        if should_sync && !seek_guard_active {
             if smtc_pos > 0 || !song_changed {
                 info.position_ms = smtc_pos;
             }
