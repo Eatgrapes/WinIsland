@@ -16,6 +16,25 @@ pub(super) struct PillBtnParams<'a> {
     pub(super) bg_color: Color,
 }
 
+pub(super) fn draw_row_separator(
+    canvas: &Canvas,
+    theme: &SettingsTheme,
+    content_w: f32,
+    sep_y: f32,
+) {
+    let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
+    let mut sep = Paint::default();
+    sep.set_anti_alias(true);
+    sep.set_color(theme.separator);
+    sep.set_stroke_width(0.5);
+    sep.set_style(skia_safe::paint::Style::Stroke);
+    canvas.draw_line(
+        (row_x, sep_y),
+        (CONTENT_PADDING + content_w - GROUP_INNER_PAD, sep_y),
+        &sep,
+    );
+}
+
 pub(super) fn draw_switch(
     canvas: &Canvas,
     x: f32,

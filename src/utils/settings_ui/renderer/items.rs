@@ -199,19 +199,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         && y + ROW_HEIGHT >= visible_min_y
                         && y <= visible_max_y
                     {
-                        let mut sep = Paint::default();
-                        sep.set_anti_alias(true);
-                        sep.set_color(theme.separator);
-                        sep.set_stroke_width(0.5);
-                        sep.set_style(skia_safe::paint::Style::Stroke);
-                        canvas.draw_line(
-                            (row_x, y + ROW_HEIGHT),
-                            (
-                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                y + ROW_HEIGHT,
-                            ),
-                            &sep,
-                        );
+                        draw_row_separator(canvas, theme, content_w, y + ROW_HEIGHT);
                     }
                 }
             }
@@ -260,19 +248,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                         && y + ROW_HEIGHT >= visible_min_y
                         && y <= visible_max_y
                     {
-                        let mut sep = Paint::default();
-                        sep.set_anti_alias(true);
-                        sep.set_color(theme.separator);
-                        sep.set_stroke_width(0.5);
-                        sep.set_style(skia_safe::paint::Style::Stroke);
-                        canvas.draw_line(
-                            (row_x, y + ROW_HEIGHT),
-                            (
-                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                y + ROW_HEIGHT,
-                            ),
-                            &sep,
-                        );
+                        draw_row_separator(canvas, theme, content_w, y + ROW_HEIGHT);
                     }
                 }
             }
@@ -329,19 +305,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 if in_group {
                     group_current_row += 1;
                     if group_current_row < group_row_count && visible {
-                        let mut sep = Paint::default();
-                        sep.set_anti_alias(true);
-                        sep.set_color(theme.separator);
-                        sep.set_stroke_width(0.5);
-                        sep.set_style(skia_safe::paint::Style::Stroke);
-                        canvas.draw_line(
-                            (row_x, y + ROW_HEIGHT),
-                            (
-                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                y + ROW_HEIGHT,
-                            ),
-                            &sep,
-                        );
+                        draw_row_separator(canvas, theme, content_w, y + ROW_HEIGHT);
                     }
                 }
             }
@@ -439,16 +403,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 if in_group {
                     group_current_row += 1;
                     if group_current_row < group_row_count && visible {
-                        let mut sep = Paint::default();
-                        sep.set_anti_alias(true);
-                        sep.set_color(theme.separator);
-                        sep.set_stroke_width(0.5);
-                        sep.set_style(skia_safe::paint::Style::Stroke);
-                        canvas.draw_line(
-                            (row_x, y + row_h),
-                            (CONTENT_PADDING + content_w - GROUP_INNER_PAD, y + row_h),
-                            &sep,
-                        );
+                        draw_row_separator(canvas, theme, content_w, y + row_h);
                     }
                 }
             }
@@ -553,19 +508,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 if in_group {
                     group_current_row += 1;
                     if group_current_row < group_row_count && visible {
-                        let mut sep = Paint::default();
-                        sep.set_anti_alias(true);
-                        sep.set_color(theme.separator);
-                        sep.set_stroke_width(0.5);
-                        sep.set_style(skia_safe::paint::Style::Stroke);
-                        canvas.draw_line(
-                            (row_x, y + ROW_HEIGHT),
-                            (
-                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                y + ROW_HEIGHT,
-                            ),
-                            &sep,
-                        );
+                        draw_row_separator(canvas, theme, content_w, y + ROW_HEIGHT);
                     }
                 }
             }
@@ -621,19 +564,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 if in_group {
                     group_current_row += 1;
                     if group_current_row < group_row_count && visible {
-                        let mut sep = Paint::default();
-                        sep.set_anti_alias(true);
-                        sep.set_color(theme.separator);
-                        sep.set_stroke_width(0.5);
-                        sep.set_style(skia_safe::paint::Style::Stroke);
-                        canvas.draw_line(
-                            (row_x, y + ROW_HEIGHT),
-                            (
-                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                y + ROW_HEIGHT,
-                            ),
-                            &sep,
-                        );
+                        draw_row_separator(canvas, theme, content_w, y + ROW_HEIGHT);
                     }
                 }
             }
@@ -713,19 +644,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 if in_group {
                     group_current_row += 1;
                     if group_current_row < group_row_count && visible {
-                        let mut sep = Paint::default();
-                        sep.set_anti_alias(true);
-                        sep.set_color(theme.separator);
-                        sep.set_stroke_width(0.5);
-                        sep.set_style(skia_safe::paint::Style::Stroke);
-                        canvas.draw_line(
-                            (row_x, y + ROW_HEIGHT),
-                            (
-                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                y + ROW_HEIGHT,
-                            ),
-                            &sep,
-                        );
+                        draw_row_separator(canvas, theme, content_w, y + ROW_HEIGHT);
                     }
                 }
             }
@@ -749,19 +668,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 if in_group {
                     group_current_row += 1;
                     if group_current_row < group_row_count && visible {
-                        let mut sep = Paint::default();
-                        sep.set_anti_alias(true);
-                        sep.set_color(theme.separator);
-                        sep.set_stroke_width(0.5);
-                        sep.set_style(skia_safe::paint::Style::Stroke);
-                        canvas.draw_line(
-                            (row_x, y + ROW_HEIGHT),
-                            (
-                                CONTENT_PADDING + content_w - GROUP_INNER_PAD,
-                                y + ROW_HEIGHT,
-                            ),
-                            &sep,
-                        );
+                        draw_row_separator(canvas, theme, content_w, y + ROW_HEIGHT);
                     }
                 }
             }
