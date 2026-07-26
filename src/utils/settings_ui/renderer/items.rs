@@ -13,6 +13,7 @@ struct ItemCtx<'a> {
     canvas: &'a Canvas,
     theme: &'a SettingsTheme,
     content_w: f32,
+    width: f32,
     visible_min_y: f32,
     visible_max_y: f32,
 }
@@ -466,6 +467,301 @@ fn draw_row_source_select(
     advance_group_row(ctx, y + ROW_HEIGHT, groups, visible);
 }
 
+fn draw_row_button(
+    ctx: &ItemCtx,
+    y: f32,
+    label: &str,
+    btn_label: &str,
+    enabled: bool,
+    groups: &mut GroupRows,
+) {
+    let canvas = ctx.canvas;
+    let theme = ctx.theme;
+    let content_w = ctx.content_w;
+    let fm = FontManager::global();
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
+    let cy = y + ROW_HEIGHT / 2.0;
+    let visible = ctx.row_visible(y, ROW_HEIGHT);
+
+    if visible {
+        paint.set_color(if enabled {
+            theme.text_pri
+        } else {
+            theme.text_sec
+        });
+        fm.draw_text_cached(DrawTextCachedParams {
+            canvas,
+            text: label,
+            x: row_x,
+            y: cy + 5.0,
+            size: 13.0,
+            bold: false,
+            paint: &paint,
+        });
+
+        let label_color = if enabled {
+            theme.text_pri
+        } else {
+            theme.text_sec
+        };
+        let bg_color = if enabled {
+            theme.card_highlight
+        } else {
+            theme.disabled
+        };
+
+        let btn_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - POPUP_BTN_W;
+        draw_pill_btn(PillBtnParams {
+            canvas,
+            x: btn_x,
+            y: cy - POPUP_BTN_H / 2.0,
+            w: POPUP_BTN_W,
+            h: POPUP_BTN_H,
+            label: btn_label,
+            text_color: label_color,
+            bg_color,
+        });
+    }
+
+    advance_group_row(ctx, y + ROW_HEIGHT, groups, visible);
+}
+
+fn draw_row_app_item(
+    ctx: &ItemCtx,
+    y: f32,
+    label: &str,
+    active: bool,
+    enabled: bool,
+    groups: &mut GroupRows,
+) {
+    let canvas = ctx.canvas;
+    let theme = ctx.theme;
+    let content_w = ctx.content_w;
+    let fm = FontManager::global();
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
+    let cy = y + ROW_HEIGHT / 2.0;
+    let visible = ctx.row_visible(y, ROW_HEIGHT);
+
+    let check_size = 20.0;
+    let check_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - check_size;
+    let check_y = cy - check_size / 2.0;
+
+    let mut p = Paint::default();
+    p.set_anti_alias(true);
+    if visible && active && enabled {
+        p.set_color(theme.accent);
+        canvas.draw_round_rect(
+            Rect::from_xywh(check_x, check_y, check_size, check_size),
+            5.0,
+            5.0,
+            &p,
+        );
+        p.set_color(Color::WHITE);
+        p.set_stroke_width(2.0);
+        p.set_style(skia_safe::paint::Style::Stroke);
+        let svg = format!(
+            "M {} {} L {} {} L {} {}",
+            check_x + 5.0,
+            check_y + 10.0,
+            check_x + 9.0,
+            check_y + 14.0,
+            check_x + 15.0,
+            check_y + 6.0,
+        );
+        if let Some(path) = skia_safe::Path::from_svg(&svg) {
+            canvas.draw_path(&path, &p);
+        }
+    } else if visible {
+        p.set_color(if enabled {
+            theme.card_highlight
+        } else {
+            theme.disabled
+        });
+        p.set_style(skia_safe::paint::Style::Stroke);
+        p.set_stroke_width(1.5);
+        canvas.draw_round_rect(
+            Rect::from_xywh(check_x, check_y, check_size, check_size),
+            5.0,
+            5.0,
+            &p,
+        );
+    }
+
+    if visible {
+        paint.set_color(if enabled {
+            theme.text_pri
+        } else {
+            theme.text_sec
+        });
+        let max_label_w = check_x - row_x - 8.0;
+        let display = truncate_text(fm, label, 13.0, max_label_w);
+        fm.draw_text_cached(DrawTextCachedParams {
+            canvas,
+            text: &display,
+            x: row_x,
+            y: cy + 5.0,
+            size: 13.0,
+            bold: false,
+            paint: &paint,
+        });
+    }
+
+    advance_group_row(ctx, y + ROW_HEIGHT, groups, visible);
+}
+
+fn draw_row_label(ctx: &ItemCtx, y: f32, label: &str, groups: &mut GroupRows) {
+    let canvas = ctx.canvas;
+    let theme = ctx.theme;
+    let fm = FontManager::global();
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
+    let cy = y + ROW_HEIGHT / 2.0;
+    let visible = ctx.row_visible(y, ROW_HEIGHT);
+    if visible {
+        paint.set_color(theme.text_sec);
+        fm.draw_text_cached(DrawTextCachedParams {
+            canvas,
+            text: label,
+            x: row_x,
+            y: cy + 5.0,
+            size: 13.0,
+            bold: false,
+            paint: &paint,
+        });
+    }
+
+    advance_group_row(ctx, y + ROW_HEIGHT, groups, visible);
+}
+
+fn draw_center_link(ctx: &ItemCtx, y: f32, height: f32, label: &str, color: Color) {
+    if !ctx.row_visible(y, height) {
+        return;
+    }
+    let fm = FontManager::global();
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    paint.set_color(color);
+    let link_w = fm.measure_text_cached(label, 13.0, FontStyle::normal());
+    fm.draw_text_cached(DrawTextCachedParams {
+        canvas: ctx.canvas,
+        text: label,
+        x: ctx.width / 2.0 - link_w / 2.0,
+        y: y + 24.0,
+        size: 13.0,
+        bold: false,
+        paint: &paint,
+    });
+}
+
+fn draw_center_text(ctx: &ItemCtx, y: f32, height: f32, text: &str, size: f32, color: Color) {
+    if !ctx.row_visible(y, height) {
+        return;
+    }
+    let fm = FontManager::global();
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    paint.set_color(color);
+    let ct_w = fm.measure_text_cached(text, size, FontStyle::normal());
+    fm.draw_text_cached(DrawTextCachedParams {
+        canvas: ctx.canvas,
+        text,
+        x: ctx.width / 2.0 - ct_w / 2.0,
+        y: y + 22.0,
+        size,
+        bold: false,
+        paint: &paint,
+    });
+}
+
+fn draw_font_preview(ctx: &ItemCtx, y: f32, has_custom_font: bool) {
+    let canvas = ctx.canvas;
+    let theme = ctx.theme;
+    let content_w = ctx.content_w;
+    let fm = FontManager::global();
+    let preview_h = 50.0;
+    let top_pad = (70.0 - preview_h) / 2.0;
+    let py = y + top_pad;
+    if !ctx.row_visible(py, preview_h) {
+        return;
+    }
+    let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
+    let preview_w = content_w - GROUP_INNER_PAD * 2.0;
+
+    let mut bg_p = Paint::default();
+    bg_p.set_anti_alias(true);
+    bg_p.set_color(theme.card_highlight);
+    canvas.draw_round_rect(
+        Rect::from_xywh(row_x, py, preview_w, preview_h),
+        8.0,
+        8.0,
+        &bg_p,
+    );
+
+    let mut label_p = Paint::default();
+    label_p.set_anti_alias(true);
+    label_p.set_color(theme.text_sec);
+    fm.draw_text_with_default_font(
+        canvas,
+        &tr("font_preview_default"),
+        (row_x + 8.0, py + 14.0),
+        11.0,
+        false,
+        &label_p,
+    );
+
+    label_p.set_color(theme.text_pri);
+    let default_samples = [tr("font_preview_sample")];
+    for (si, sample) in default_samples.iter().enumerate() {
+        fm.draw_text_with_default_font(
+            canvas,
+            sample,
+            (row_x + 8.0, py + 34.0 + si as f32 * 18.0),
+            14.0,
+            false,
+            &label_p,
+        );
+    }
+
+    if has_custom_font {
+        let div_x = row_x + preview_w / 2.0;
+        let mut div_p = Paint::default();
+        div_p.set_anti_alias(true);
+        div_p.set_color(theme.separator);
+        div_p.set_stroke_width(1.0);
+        div_p.set_style(skia_safe::paint::Style::Stroke);
+        canvas.draw_line((div_x, py + 6.0), (div_x, py + preview_h - 6.0), &div_p);
+
+        label_p.set_color(theme.text_sec);
+        fm.draw_text_cached(DrawTextCachedParams {
+            canvas,
+            text: &tr("font_preview_custom"),
+            x: div_x + 8.0,
+            y: py + 14.0,
+            size: 11.0,
+            bold: false,
+            paint: &label_p,
+        });
+
+        label_p.set_color(theme.accent);
+        let custom_samples = [tr("font_preview_sample")];
+        for (si, sample) in custom_samples.iter().enumerate() {
+            fm.draw_text_with_custom_font(
+                canvas,
+                sample,
+                (div_x + 8.0, py + 34.0 + si as f32 * 18.0),
+                14.0,
+                false,
+                &label_p,
+            );
+        }
+    }
+}
+
 fn advance_group_row(ctx: &ItemCtx, sep_y: f32, groups: &mut GroupRows, visible: bool) {
     if !groups.in_group {
         return;
@@ -514,6 +810,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
         canvas,
         theme,
         content_w,
+        width,
         visible_min_y,
         visible_max_y,
     };
@@ -632,257 +929,27 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 btn_label,
                 enabled,
             } => {
-                let visible = y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y;
-                let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
-                let cy = y + ROW_HEIGHT / 2.0;
-
-                if visible {
-                    paint.set_color(if *enabled {
-                        theme.text_pri
-                    } else {
-                        theme.text_sec
-                    });
-                    fm.draw_text_cached(DrawTextCachedParams {
-                        canvas,
-                        text: label,
-                        x: row_x,
-                        y: cy + 5.0,
-                        size: 13.0,
-                        bold: false,
-                        paint: &paint,
-                    });
-
-                    let label_color = if *enabled {
-                        theme.text_pri
-                    } else {
-                        theme.text_sec
-                    };
-                    let bg_color = if *enabled {
-                        theme.card_highlight
-                    } else {
-                        theme.disabled
-                    };
-
-                    let btn_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - POPUP_BTN_W;
-                    draw_pill_btn(PillBtnParams {
-                        canvas,
-                        x: btn_x,
-                        y: cy - POPUP_BTN_H / 2.0,
-                        w: POPUP_BTN_W,
-                        h: POPUP_BTN_H,
-                        label: btn_label,
-                        text_color: label_color,
-                        bg_color,
-                    });
-                }
-
-                advance_group_row(&ctx, y + ROW_HEIGHT, &mut groups, visible);
+                draw_row_button(&ctx, y, label, btn_label, *enabled, &mut groups);
             }
             SettingsItem::RowAppItem {
                 label,
                 active,
                 enabled,
             } => {
-                let visible = y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y;
-                let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
-                let cy = y + ROW_HEIGHT / 2.0;
-
-                let check_size = 20.0;
-                let check_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - check_size;
-                let check_y = cy - check_size / 2.0;
-
-                let mut p = Paint::default();
-                p.set_anti_alias(true);
-                if visible && *active && *enabled {
-                    p.set_color(theme.accent);
-                    canvas.draw_round_rect(
-                        Rect::from_xywh(check_x, check_y, check_size, check_size),
-                        5.0,
-                        5.0,
-                        &p,
-                    );
-                    p.set_color(Color::WHITE);
-                    p.set_stroke_width(2.0);
-                    p.set_style(skia_safe::paint::Style::Stroke);
-                    let svg = format!(
-                        "M {} {} L {} {} L {} {}",
-                        check_x + 5.0,
-                        check_y + 10.0,
-                        check_x + 9.0,
-                        check_y + 14.0,
-                        check_x + 15.0,
-                        check_y + 6.0,
-                    );
-                    if let Some(path) = skia_safe::Path::from_svg(&svg) {
-                        canvas.draw_path(&path, &p);
-                    }
-                } else if visible {
-                    p.set_color(if *enabled {
-                        theme.card_highlight
-                    } else {
-                        theme.disabled
-                    });
-                    p.set_style(skia_safe::paint::Style::Stroke);
-                    p.set_stroke_width(1.5);
-                    canvas.draw_round_rect(
-                        Rect::from_xywh(check_x, check_y, check_size, check_size),
-                        5.0,
-                        5.0,
-                        &p,
-                    );
-                }
-
-                if visible {
-                    paint.set_color(if *enabled {
-                        theme.text_pri
-                    } else {
-                        theme.text_sec
-                    });
-                    let max_label_w = check_x - row_x - 8.0;
-                    let display = truncate_text(fm, label, 13.0, max_label_w);
-                    fm.draw_text_cached(DrawTextCachedParams {
-                        canvas,
-                        text: &display,
-                        x: row_x,
-                        y: cy + 5.0,
-                        size: 13.0,
-                        bold: false,
-                        paint: &paint,
-                    });
-                }
-
-                advance_group_row(&ctx, y + ROW_HEIGHT, &mut groups, visible);
+                draw_row_app_item(&ctx, y, label, *active, *enabled, &mut groups);
             }
             SettingsItem::RowLabel { label } => {
-                let visible = y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y;
-                let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
-                let cy = y + ROW_HEIGHT / 2.0;
-                if visible {
-                    paint.set_color(theme.text_sec);
-                    fm.draw_text_cached(DrawTextCachedParams {
-                        canvas,
-                        text: label,
-                        x: row_x,
-                        y: cy + 5.0,
-                        size: 13.0,
-                        bold: false,
-                        paint: &paint,
-                    });
-                }
-
-                advance_group_row(&ctx, y + ROW_HEIGHT, &mut groups, visible);
+                draw_row_label(&ctx, y, label, &mut groups);
             }
             SettingsItem::CenterLink { label, color } => {
-                let h = item.height();
-                if y + h >= visible_min_y && y <= visible_max_y {
-                    paint.set_color(*color);
-                    let link_w = fm.measure_text_cached(label, 13.0, FontStyle::normal());
-                    fm.draw_text_cached(DrawTextCachedParams {
-                        canvas,
-                        text: label,
-                        x: width / 2.0 - link_w / 2.0,
-                        y: y + 24.0,
-                        size: 13.0,
-                        bold: false,
-                        paint: &paint,
-                    });
-                }
+                draw_center_link(&ctx, y, item.height(), label, *color);
             }
             SettingsItem::CenterText { text, size, color } => {
-                let h = item.height();
-                if y + h >= visible_min_y && y <= visible_max_y {
-                    paint.set_color(*color);
-                    let ct_w = fm.measure_text_cached(text, *size, FontStyle::normal());
-                    fm.draw_text_cached(DrawTextCachedParams {
-                        canvas,
-                        text,
-                        x: width / 2.0 - ct_w / 2.0,
-                        y: y + 22.0,
-                        size: *size,
-                        bold: false,
-                        paint: &paint,
-                    });
-                }
+                draw_center_text(&ctx, y, item.height(), text, *size, *color);
             }
             SettingsItem::Spacer { .. } => {}
             SettingsItem::FontPreview { has_custom_font } => {
-                let preview_h = 50.0;
-                let top_pad = (70.0 - preview_h) / 2.0;
-                let py = y + top_pad;
-                let visible = py + preview_h >= visible_min_y && py <= visible_max_y;
-                if visible {
-                    let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
-                    let preview_w = content_w - GROUP_INNER_PAD * 2.0;
-
-                    let mut bg_p = Paint::default();
-                    bg_p.set_anti_alias(true);
-                    bg_p.set_color(theme.card_highlight);
-                    canvas.draw_round_rect(
-                        Rect::from_xywh(row_x, py, preview_w, preview_h),
-                        8.0,
-                        8.0,
-                        &bg_p,
-                    );
-
-                    let mut label_p = Paint::default();
-                    label_p.set_anti_alias(true);
-                    label_p.set_color(theme.text_sec);
-                    fm.draw_text_with_default_font(
-                        canvas,
-                        &tr("font_preview_default"),
-                        (row_x + 8.0, py + 14.0),
-                        11.0,
-                        false,
-                        &label_p,
-                    );
-
-                    label_p.set_color(theme.text_pri);
-                    let default_samples = [tr("font_preview_sample")];
-                    for (si, sample) in default_samples.iter().enumerate() {
-                        fm.draw_text_with_default_font(
-                            canvas,
-                            sample,
-                            (row_x + 8.0, py + 34.0 + si as f32 * 18.0),
-                            14.0,
-                            false,
-                            &label_p,
-                        );
-                    }
-
-                    if *has_custom_font {
-                        let div_x = row_x + preview_w / 2.0;
-                        let mut div_p = Paint::default();
-                        div_p.set_anti_alias(true);
-                        div_p.set_color(theme.separator);
-                        div_p.set_stroke_width(1.0);
-                        div_p.set_style(skia_safe::paint::Style::Stroke);
-                        canvas.draw_line((div_x, py + 6.0), (div_x, py + preview_h - 6.0), &div_p);
-
-                        label_p.set_color(theme.text_sec);
-                        fm.draw_text_cached(DrawTextCachedParams {
-                            canvas,
-                            text: &tr("font_preview_custom"),
-                            x: div_x + 8.0,
-                            y: py + 14.0,
-                            size: 11.0,
-                            bold: false,
-                            paint: &label_p,
-                        });
-
-                        label_p.set_color(theme.accent);
-                        let custom_samples = [tr("font_preview_sample")];
-                        for (si, sample) in custom_samples.iter().enumerate() {
-                            fm.draw_text_with_custom_font(
-                                canvas,
-                                sample,
-                                (div_x + 8.0, py + 34.0 + si as f32 * 18.0),
-                                14.0,
-                                false,
-                                &label_p,
-                            );
-                        }
-                    }
-                }
+                draw_font_preview(&ctx, y, *has_custom_font);
             }
             SettingsItem::WidgetPreview => {
                 draw_widget_preview(WidgetPreviewParams {
