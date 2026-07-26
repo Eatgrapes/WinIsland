@@ -354,74 +354,18 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
     let text_x = img_x + img_size + 16.0 * scale;
     let max_text_w = w - (text_x - ox) - 70.0 * scale;
     let title_y = img_y + 26.0 * scale;
-    let mut text_paint = Paint::default();
-    text_paint.set_anti_alias(true);
-    let title = if !music_active || media.title.is_empty() {
-        "No Music playing"
-    } else {
-        &media.title
-    };
-    let artist = if !music_active || media.artist.is_empty() {
-        "Unknown Artist"
-    } else {
-        &media.artist
-    };
-
-    text_paint.set_color(Color::from_argb(
+    draw_track_text(TrackTextParams {
+        canvas,
+        media,
+        music_active,
+        text_x,
+        max_text_w,
+        title_y,
         alpha,
-        text_color.r(),
-        text_color.g(),
-        text_color.b(),
-    ));
-    let title_font_size = if font_size > 0.0 {
-        font_size * scale
-    } else {
-        15.0 * scale
-    };
-    let title_style = FontStyle::bold();
-
-    TITLE_SCROLL.with(|cell| {
-        let mut scroll = cell.borrow_mut();
-        scroll.draw(ScrollDrawParams {
-            canvas,
-            text: title,
-            x: text_x,
-            y: title_y,
-            max_w: max_text_w,
-            size: title_font_size,
-            style: title_style,
-            paint: &text_paint,
-            scale,
-        });
-    });
-
-    text_paint.set_color(Color::from_argb(
-        (alpha as f32 * 0.6) as u8,
-        text_color_sec.r(),
-        text_color_sec.g(),
-        text_color_sec.b(),
-    ));
-    let artist_y = title_y + 22.0 * scale;
-    let artist_font_size = if font_size > 0.0 {
-        font_size * scale
-    } else {
-        15.0 * scale
-    };
-    let artist_style = FontStyle::normal();
-
-    ARTIST_SCROLL.with(|cell| {
-        let mut scroll = cell.borrow_mut();
-        scroll.draw(ScrollDrawParams {
-            canvas,
-            text: artist,
-            x: text_x,
-            y: artist_y,
-            max_w: max_text_w,
-            size: artist_font_size,
-            style: artist_style,
-            paint: &text_paint,
-            scale,
-        });
+        font_size,
+        scale,
+        text_color,
+        text_color_sec,
     });
 
     if music_active {
@@ -704,6 +648,106 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
     });
 
     false
+}
+
+struct TrackTextParams<'a> {
+    canvas: &'a Canvas,
+    media: &'a MediaInfo,
+    music_active: bool,
+    text_x: f32,
+    max_text_w: f32,
+    title_y: f32,
+    alpha: u8,
+    font_size: f32,
+    scale: f32,
+    text_color: Color,
+    text_color_sec: Color,
+}
+
+fn draw_track_text(params: TrackTextParams) {
+    let TrackTextParams {
+        canvas,
+        media,
+        music_active,
+        text_x,
+        max_text_w,
+        title_y,
+        alpha,
+        font_size,
+        scale,
+        text_color,
+        text_color_sec,
+    } = params;
+
+    let mut text_paint = Paint::default();
+    text_paint.set_anti_alias(true);
+    let title = if !music_active || media.title.is_empty() {
+        "No Music playing"
+    } else {
+        &media.title
+    };
+    let artist = if !music_active || media.artist.is_empty() {
+        "Unknown Artist"
+    } else {
+        &media.artist
+    };
+
+    text_paint.set_color(Color::from_argb(
+        alpha,
+        text_color.r(),
+        text_color.g(),
+        text_color.b(),
+    ));
+    let title_font_size = if font_size > 0.0 {
+        font_size * scale
+    } else {
+        15.0 * scale
+    };
+    let title_style = FontStyle::bold();
+
+    TITLE_SCROLL.with(|cell| {
+        let mut scroll = cell.borrow_mut();
+        scroll.draw(ScrollDrawParams {
+            canvas,
+            text: title,
+            x: text_x,
+            y: title_y,
+            max_w: max_text_w,
+            size: title_font_size,
+            style: title_style,
+            paint: &text_paint,
+            scale,
+        });
+    });
+
+    text_paint.set_color(Color::from_argb(
+        (alpha as f32 * 0.6) as u8,
+        text_color_sec.r(),
+        text_color_sec.g(),
+        text_color_sec.b(),
+    ));
+    let artist_y = title_y + 22.0 * scale;
+    let artist_font_size = if font_size > 0.0 {
+        font_size * scale
+    } else {
+        15.0 * scale
+    };
+    let artist_style = FontStyle::normal();
+
+    ARTIST_SCROLL.with(|cell| {
+        let mut scroll = cell.borrow_mut();
+        scroll.draw(ScrollDrawParams {
+            canvas,
+            text: artist,
+            x: text_x,
+            y: artist_y,
+            max_w: max_text_w,
+            size: artist_font_size,
+            style: artist_style,
+            paint: &text_paint,
+            scale,
+        });
+    });
 }
 
 #[allow(clippy::too_many_arguments)]
