@@ -158,15 +158,14 @@ impl App {
                         } else {
                             &default_media_info
                         };
-                        let seeking_media_info =
-                            if self.seeking_progress && self.seeking_duration_ms > 0 {
-                                let mut preview = media_info.clone();
-                                preview.position_ms = self.seeking_preview_ms;
-                                preview.last_update = Instant::now();
-                                Some(preview)
-                            } else {
-                                None
-                            };
+                        let seeking_media_info = if self.seek.active && self.seek.duration_ms > 0 {
+                            let mut preview = media_info.clone();
+                            preview.position_ms = self.seek.preview_ms;
+                            preview.last_update = Instant::now();
+                            Some(preview)
+                        } else {
+                            None
+                        };
                         let media_info = seeking_media_info.as_ref().unwrap_or(media_info);
                         let music_active = self.config.smtc_enabled && !media_info.title.is_empty();
                         self.audio.set_gate_override(music_active && !is_hidden);

@@ -362,22 +362,15 @@ impl App {
     }
 
     fn update_seeking_input(&mut self, window: &Window, rel_x: i32) {
-        if self.seeking_progress && (is_left_button_pressed() || self.touch_id.is_some()) {
+        if self.seek.active && (is_left_button_pressed() || self.touch_id.is_some()) {
             let page_shift = self.springs.view.value * self.springs.w.value;
             let click_x = rel_x as f32 - page_shift;
-            let bar_width = self.seeking_bar_right - self.seeking_bar_left;
-            let ratio = if bar_width > 0.0 {
-                ((click_x - self.seeking_bar_left) / bar_width).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            let seek_ms = (ratio as f64 * self.seeking_duration_ms as f64) as u64;
-            self.seeking_preview_ms = seek_ms;
+            self.seek.preview_at(click_x);
             window.request_redraw();
-        } else if self.seeking_progress {
-            self.seeking_progress = false;
-            if self.seeking_duration_ms > 0 {
-                self.smtc.request_seek(self.seeking_preview_ms);
+        } else if self.seek.active {
+            self.seek.active = false;
+            if self.seek.duration_ms > 0 {
+                self.smtc.request_seek(self.seek.preview_ms);
                 window.request_redraw();
             }
         }
@@ -391,7 +384,7 @@ impl App {
         island_y: f64,
         music_active: bool,
     ) {
-        let progress_hover_active = if self.seeking_progress {
+        let progress_hover_active = if self.seek.active {
             true
         } else if self.expanded && (self.springs.view.value as f64) < 0.5 {
             if let Some((bar_left, bar_right, bar_top, bar_hit_h)) = get_progress_bar_rect(
@@ -418,7 +411,7 @@ impl App {
             false
         };
         set_progress_hover(progress_hover_active);
-        set_progress_dragging(self.seeking_progress);
+        set_progress_dragging(self.seek.active);
     }
 
     fn update_hide_drag(&mut self, window: &Window, px: i32, py: i32, dt: f32) {
@@ -561,7 +554,7 @@ impl App {
         let animation_active = self.springs.any_animating()
             || self.lyrics.transition < 1.0
             || self.is_dragging
-            || self.seeking_progress
+            || self.seek.active
             || self.is_right_dragging;
         let playback_active = !self.is_hidden() && pacing.media_is_playing;
         let interactive_active = pacing.is_hovering_visible

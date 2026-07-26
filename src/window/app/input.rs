@@ -189,11 +189,7 @@ impl App {
                     let ratio = ((cx - bar_left) / (bar_right - bar_left)).clamp(0.0, 1.0);
                     let duration_ms = media.effective_duration_ms();
                     let seek_ms = (ratio as f64 * duration_ms as f64) as u64;
-                    self.seeking_progress = true;
-                    self.seeking_bar_left = bar_left;
-                    self.seeking_bar_right = bar_right;
-                    self.seeking_duration_ms = duration_ms;
-                    self.seeking_preview_ms = seek_ms;
+                    self.seek.begin(bar_left, bar_right, duration_ms, seek_ms);
                     return;
                 }
             }
@@ -267,10 +263,10 @@ impl App {
     }
 
     pub(super) fn handle_release(&mut self, py: i32) {
-        if self.seeking_progress {
-            self.seeking_progress = false;
-            if self.seeking_duration_ms > 0 {
-                self.smtc.request_seek(self.seeking_preview_ms);
+        if self.seek.active {
+            self.seek.active = false;
+            if self.seek.duration_ms > 0 {
+                self.smtc.request_seek(self.seek.preview_ms);
             }
             return;
         }

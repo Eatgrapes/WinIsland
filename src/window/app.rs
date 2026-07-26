@@ -86,11 +86,7 @@ pub struct App {
     animation_frame_interval: Duration,
     last_mon_size: (u32, u32),
     last_mon_pos: (i32, i32),
-    seeking_progress: bool,
-    seeking_bar_left: f32,
-    seeking_bar_right: f32,
-    seeking_duration_ms: u64,
-    seeking_preview_ms: u64,
+    seek: SeekDrag,
     is_fullscreen_suppressed: bool,
     is_cursor_suppressed: bool,
     touch_id: Option<u64>,
@@ -160,11 +156,7 @@ impl Default for App {
             animation_frame_interval: DEFAULT_ANIMATION_FRAME_INTERVAL,
             last_mon_size: (0, 0),
             last_mon_pos: (0, 0),
-            seeking_progress: false,
-            seeking_bar_left: 0.0,
-            seeking_bar_right: 0.0,
-            seeking_duration_ms: 0,
-            seeking_preview_ms: 0,
+            seek: SeekDrag::default(),
             is_fullscreen_suppressed: false,
             is_cursor_suppressed: false,
             touch_id: None,
@@ -177,6 +169,35 @@ impl Default for App {
             is_right_dragging: false,
             right_drag_start_offset: None,
         }
+    }
+}
+
+#[derive(Default)]
+struct SeekDrag {
+    active: bool,
+    bar_left: f32,
+    bar_right: f32,
+    duration_ms: u64,
+    preview_ms: u64,
+}
+
+impl SeekDrag {
+    fn begin(&mut self, bar_left: f32, bar_right: f32, duration_ms: u64, preview_ms: u64) {
+        self.active = true;
+        self.bar_left = bar_left;
+        self.bar_right = bar_right;
+        self.duration_ms = duration_ms;
+        self.preview_ms = preview_ms;
+    }
+
+    fn preview_at(&mut self, click_x: f32) {
+        let bar_width = self.bar_right - self.bar_left;
+        let ratio = if bar_width > 0.0 {
+            ((click_x - self.bar_left) / bar_width).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        self.preview_ms = (ratio as f64 * self.duration_ms as f64) as u64;
     }
 }
 
