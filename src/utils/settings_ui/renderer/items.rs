@@ -1,12 +1,32 @@
-use skia_safe::{Color, FontStyle, Paint, Rect};
+use skia_safe::{Canvas, Color, FontStyle, Paint, Rect};
 
 use crate::core::i18n::tr;
+use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, DrawTextInRectParams, FontManager};
 
 use super::super::items::*;
 use super::DrawItemsParams;
 use super::controls::*;
 use super::widget_preview::{WidgetPreviewParams, draw_widget_preview};
+
+fn advance_group_row(
+    canvas: &Canvas,
+    theme: &SettingsTheme,
+    content_w: f32,
+    sep_y: f32,
+    in_group: bool,
+    group_current_row: &mut usize,
+    group_row_count: usize,
+    visible: bool,
+) {
+    if !in_group {
+        return;
+    }
+    *group_current_row += 1;
+    if *group_current_row < group_row_count && visible {
+        draw_row_separator(canvas, theme, content_w, sep_y);
+    }
+}
 
 pub fn content_height(items: &[SettingsItem], start_y: f32) -> f32 {
     let mut h = start_y;
@@ -193,15 +213,16 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     }
                 }
 
-                if in_group {
-                    group_current_row += 1;
-                    if group_current_row < group_row_count
-                        && y + ROW_HEIGHT >= visible_min_y
-                        && y <= visible_max_y
-                    {
-                        draw_row_separator(canvas, theme, content_w, y + ROW_HEIGHT);
-                    }
-                }
+                advance_group_row(
+                    canvas,
+                    theme,
+                    content_w,
+                    y + ROW_HEIGHT,
+                    in_group,
+                    &mut group_current_row,
+                    group_row_count,
+                    y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y,
+                );
             }
             SettingsItem::RowSwitch {
                 label,
@@ -242,15 +263,16 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 }
                 switch_idx += 1;
 
-                if in_group {
-                    group_current_row += 1;
-                    if group_current_row < group_row_count
-                        && y + ROW_HEIGHT >= visible_min_y
-                        && y <= visible_max_y
-                    {
-                        draw_row_separator(canvas, theme, content_w, y + ROW_HEIGHT);
-                    }
-                }
+                advance_group_row(
+                    canvas,
+                    theme,
+                    content_w,
+                    y + ROW_HEIGHT,
+                    in_group,
+                    &mut group_current_row,
+                    group_row_count,
+                    y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y,
+                );
             }
             SettingsItem::RowFontPicker {
                 label,
@@ -302,12 +324,16 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     }
                 }
 
-                if in_group {
-                    group_current_row += 1;
-                    if group_current_row < group_row_count && visible {
-                        draw_row_separator(canvas, theme, content_w, y + ROW_HEIGHT);
-                    }
-                }
+                advance_group_row(
+                    canvas,
+                    theme,
+                    content_w,
+                    y + ROW_HEIGHT,
+                    in_group,
+                    &mut group_current_row,
+                    group_row_count,
+                    visible,
+                );
             }
             SettingsItem::RowFolderPicker {
                 label,
@@ -400,12 +426,16 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     }
                 }
 
-                if in_group {
-                    group_current_row += 1;
-                    if group_current_row < group_row_count && visible {
-                        draw_row_separator(canvas, theme, content_w, y + row_h);
-                    }
-                }
+                advance_group_row(
+                    canvas,
+                    theme,
+                    content_w,
+                    y + row_h,
+                    in_group,
+                    &mut group_current_row,
+                    group_row_count,
+                    visible,
+                );
             }
             SettingsItem::RowSourceSelect {
                 label,
@@ -505,12 +535,16 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     }
                 }
 
-                if in_group {
-                    group_current_row += 1;
-                    if group_current_row < group_row_count && visible {
-                        draw_row_separator(canvas, theme, content_w, y + ROW_HEIGHT);
-                    }
-                }
+                advance_group_row(
+                    canvas,
+                    theme,
+                    content_w,
+                    y + ROW_HEIGHT,
+                    in_group,
+                    &mut group_current_row,
+                    group_row_count,
+                    visible,
+                );
             }
             SettingsItem::RowButton {
                 label,
@@ -561,12 +595,16 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     });
                 }
 
-                if in_group {
-                    group_current_row += 1;
-                    if group_current_row < group_row_count && visible {
-                        draw_row_separator(canvas, theme, content_w, y + ROW_HEIGHT);
-                    }
-                }
+                advance_group_row(
+                    canvas,
+                    theme,
+                    content_w,
+                    y + ROW_HEIGHT,
+                    in_group,
+                    &mut group_current_row,
+                    group_row_count,
+                    visible,
+                );
             }
             SettingsItem::RowAppItem {
                 label,
@@ -641,12 +679,16 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     });
                 }
 
-                if in_group {
-                    group_current_row += 1;
-                    if group_current_row < group_row_count && visible {
-                        draw_row_separator(canvas, theme, content_w, y + ROW_HEIGHT);
-                    }
-                }
+                advance_group_row(
+                    canvas,
+                    theme,
+                    content_w,
+                    y + ROW_HEIGHT,
+                    in_group,
+                    &mut group_current_row,
+                    group_row_count,
+                    visible,
+                );
             }
             SettingsItem::RowLabel { label } => {
                 let visible = y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y;
@@ -665,12 +707,16 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     });
                 }
 
-                if in_group {
-                    group_current_row += 1;
-                    if group_current_row < group_row_count && visible {
-                        draw_row_separator(canvas, theme, content_w, y + ROW_HEIGHT);
-                    }
-                }
+                advance_group_row(
+                    canvas,
+                    theme,
+                    content_w,
+                    y + ROW_HEIGHT,
+                    in_group,
+                    &mut group_current_row,
+                    group_row_count,
+                    visible,
+                );
             }
             SettingsItem::CenterLink { label, color } => {
                 let h = item.height();
