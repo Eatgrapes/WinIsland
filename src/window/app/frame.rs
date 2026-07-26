@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use winit::dpi::PhysicalPosition;
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
+use winit::window::Window;
 
 use crate::core::config::MIN_HIDDEN_WIDTH;
 use crate::ui::compact::CompactOverlayState;
@@ -52,31 +53,7 @@ impl App {
             self.reveal_island();
         }
 
-        if let Some(rx) = self.pending_install.take() {
-            match rx.try_recv() {
-                Ok(Ok((manifest, _dest, dll_paths))) => {
-                    for dll in &dll_paths {
-                        self.plugin_mgr.load_dll(Path::new(dll));
-                    }
-                    Self::show_toast(
-                        "Plugin Installed",
-                        &format!("{} loaded successfully!", manifest.name),
-                    );
-                    log::info!("Plugin '{}' installed via drop", manifest.name);
-                }
-                Ok(Err(e)) => {
-                    Self::show_toast("Plugin Error", &e);
-                    log::error!("Failed to install plugin from drop: {}", e);
-                }
-                Err(mpsc::TryRecvError::Empty) => {
-                    self.pending_install = Some(rx);
-                }
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    Self::show_toast("Plugin Error", "Installation thread crashed");
-                    log::error!("Plugin installation thread disconnected unexpectedly");
-                }
-            }
-        }
+        self.poll_pending_plugin_install();
 
         let dt = (self.last_update_time.elapsed().as_secs_f32() * 60.0).clamp(0.1, 6.0);
         self.last_update_time = now;
@@ -95,91 +72,10 @@ impl App {
         } else {
             get_global_cursor_pos()
         };
-        if let Some((start_cx, start_cy)) = self.right_press_cursor
-            && let Some((start_ox, start_oy)) = self.right_drag_start_offset
-        {
-            let dx = px - start_cx;
-            let dy = py - start_cy;
-            if !self.is_right_dragging
-                && (dx.abs() >= RIGHT_DRAG_THRESHOLD || dy.abs() >= RIGHT_DRAG_THRESHOLD)
-            {
-                self.is_right_dragging = true;
-                log::info!(
-                    "Right click drag started at offsets: ({}, {})",
-                    start_ox,
-                    start_oy
-                );
-            }
-            if self.is_right_dragging {
-                self.config.position_x_offset = start_ox + dx;
-                self.config.position_y_offset = start_oy + dy;
-
-                if let Some(monitor) = Self::get_target_monitor(&window, self.config.monitor_index)
-                {
-                    let mon_size = monitor.size();
-                    let mon_pos = monitor.position();
-                    let (new_x, new_y) = self.compute_window_position(mon_pos, mon_size);
-                    if new_x != self.configured_win_x || new_y != self.configured_win_y {
-                        self.set_configured_window_position(&window, new_x, new_y);
-                    }
-                }
-                window.request_redraw();
-            }
-        }
+        self.update_right_drag(&window, px, py);
 
         if now.duration_since(self.last_fullscreen_check) >= Duration::from_millis(100) {
-            self.last_fullscreen_check = now;
-            let prev_fullscreen = self.is_fullscreen_suppressed;
-            self.is_fullscreen_suppressed = is_foreground_fullscreen(
-                self.last_mon_pos.0,
-                self.last_mon_pos.1,
-                self.last_mon_size.0,
-                self.last_mon_size.1,
-            );
-            self.is_cursor_suppressed = is_cursor_hidden();
-            let has_live_activity = self.config.smtc_enabled
-                && self.smtc_media_info.is_playing
-                && !self.smtc_media_info.title.is_empty();
-            let should_hide_for_fullscreen = self.config.auto_hide
-                && self.is_fullscreen_suppressed
-                && !has_live_activity
-                && !self.fullscreen_reveal_override;
-            if should_hide_for_fullscreen != self.fullscreen_hidden {
-                if should_hide_for_fullscreen {
-                    let hide_started = if self.is_hidden() {
-                        true
-                    } else {
-                        let hide_edge = self.nearest_hide_edge();
-                        self.prepare_hide(&window, hide_edge)
-                    };
-                    if hide_started {
-                        self.expanded = false;
-                        self.widget_view = false;
-                        self.fullscreen_hidden = true;
-                    }
-                } else {
-                    let was_fullscreen_hidden = self.fullscreen_hidden;
-                    self.fullscreen_hidden = false;
-                    self.idle_timer = Instant::now();
-                    if was_fullscreen_hidden && !self.is_hidden() {
-                        self.spring_hide.velocity = -0.65;
-                    }
-                }
-                window.request_redraw();
-            }
-            if self.is_fullscreen_suppressed != prev_fullscreen {
-                if !self.is_fullscreen_suppressed {
-                    self.fullscreen_reveal_override = false;
-                }
-                log::info!(
-                    "Fullscreen state: {}",
-                    if self.is_fullscreen_suppressed {
-                        "active"
-                    } else {
-                        "normal"
-                    }
-                );
-            }
+            self.update_fullscreen_suppression(&window, now);
         }
 
         let rel_x = px - self.win_x;
@@ -216,6 +112,155 @@ impl App {
             let _ = window.set_cursor_hittest(is_hovering_visible || is_on_hidden_reveal);
         }
 
+        let (music_active, media_is_playing) = self.poll_media_info(&window);
+
+        let compact_overlay_visible = self.update_compact_and_auto_hide(
+            &window,
+            is_hovering_visible,
+            music_active,
+            media_is_playing,
+        );
+
+        self.update_seeking_input(&window, rel_x);
+        self.update_progress_hover(rel_x, rel_y, offset_x, island_y, music_active);
+        self.update_hide_drag(&window, px, py, dt);
+        self.update_expand_collapse_click(&window, is_hovering_visible);
+
+        let is_paused = music_active && !media_is_playing;
+        self.update_lyrics(&window, is_paused, dt);
+        self.update_spring_targets(&window, music_active, is_paused, dt);
+
+        self.schedule_next_frame(
+            event_loop,
+            &window,
+            now,
+            FramePacing {
+                media_is_playing,
+                is_hovering_visible,
+                compact_overlay_visible,
+            },
+        );
+    }
+
+    fn poll_pending_plugin_install(&mut self) {
+        let Some(rx) = self.pending_install.take() else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(Ok((manifest, _dest, dll_paths))) => {
+                for dll in &dll_paths {
+                    self.plugin_mgr.load_dll(Path::new(dll));
+                }
+                Self::show_toast(
+                    "Plugin Installed",
+                    &format!("{} loaded successfully!", manifest.name),
+                );
+                log::info!("Plugin '{}' installed via drop", manifest.name);
+            }
+            Ok(Err(e)) => {
+                Self::show_toast("Plugin Error", &e);
+                log::error!("Failed to install plugin from drop: {}", e);
+            }
+            Err(mpsc::TryRecvError::Empty) => {
+                self.pending_install = Some(rx);
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                Self::show_toast("Plugin Error", "Installation thread crashed");
+                log::error!("Plugin installation thread disconnected unexpectedly");
+            }
+        }
+    }
+
+    fn update_right_drag(&mut self, window: &Window, px: i32, py: i32) {
+        let (Some((start_cx, start_cy)), Some((start_ox, start_oy))) =
+            (self.right_press_cursor, self.right_drag_start_offset)
+        else {
+            return;
+        };
+        let dx = px - start_cx;
+        let dy = py - start_cy;
+        if !self.is_right_dragging
+            && (dx.abs() >= RIGHT_DRAG_THRESHOLD || dy.abs() >= RIGHT_DRAG_THRESHOLD)
+        {
+            self.is_right_dragging = true;
+            log::info!(
+                "Right click drag started at offsets: ({}, {})",
+                start_ox,
+                start_oy
+            );
+        }
+        if !self.is_right_dragging {
+            return;
+        }
+        self.config.position_x_offset = start_ox + dx;
+        self.config.position_y_offset = start_oy + dy;
+        if let Some(monitor) = Self::get_target_monitor(window, self.config.monitor_index) {
+            let mon_size = monitor.size();
+            let mon_pos = monitor.position();
+            let (new_x, new_y) = self.compute_window_position(mon_pos, mon_size);
+            if new_x != self.configured_win_x || new_y != self.configured_win_y {
+                self.set_configured_window_position(window, new_x, new_y);
+            }
+        }
+        window.request_redraw();
+    }
+
+    fn update_fullscreen_suppression(&mut self, window: &Window, now: Instant) {
+        self.last_fullscreen_check = now;
+        let prev_fullscreen = self.is_fullscreen_suppressed;
+        self.is_fullscreen_suppressed = is_foreground_fullscreen(
+            self.last_mon_pos.0,
+            self.last_mon_pos.1,
+            self.last_mon_size.0,
+            self.last_mon_size.1,
+        );
+        self.is_cursor_suppressed = is_cursor_hidden();
+        let has_live_activity = self.config.smtc_enabled
+            && self.smtc_media_info.is_playing
+            && !self.smtc_media_info.title.is_empty();
+        let should_hide_for_fullscreen = self.config.auto_hide
+            && self.is_fullscreen_suppressed
+            && !has_live_activity
+            && !self.fullscreen_reveal_override;
+        if should_hide_for_fullscreen != self.fullscreen_hidden {
+            if should_hide_for_fullscreen {
+                let hide_started = if self.is_hidden() {
+                    true
+                } else {
+                    let hide_edge = self.nearest_hide_edge();
+                    self.prepare_hide(window, hide_edge)
+                };
+                if hide_started {
+                    self.expanded = false;
+                    self.widget_view = false;
+                    self.fullscreen_hidden = true;
+                }
+            } else {
+                let was_fullscreen_hidden = self.fullscreen_hidden;
+                self.fullscreen_hidden = false;
+                self.idle_timer = Instant::now();
+                if was_fullscreen_hidden && !self.is_hidden() {
+                    self.spring_hide.velocity = -0.65;
+                }
+            }
+            window.request_redraw();
+        }
+        if self.is_fullscreen_suppressed != prev_fullscreen {
+            if !self.is_fullscreen_suppressed {
+                self.fullscreen_reveal_override = false;
+            }
+            log::info!(
+                "Fullscreen state: {}",
+                if self.is_fullscreen_suppressed {
+                    "active"
+                } else {
+                    "normal"
+                }
+            );
+        }
+    }
+
+    fn poll_media_info(&mut self, window: &Window) -> (bool, bool) {
         if let Some(media) = self.smtc.take_info_if_changed() {
             let media_ended = !self.smtc_media_info.title.is_empty() && media.title.is_empty();
             self.audio
@@ -248,7 +293,16 @@ impl App {
             crate::utils::backdrop::clear_blurred_cover_cache();
             window.request_redraw();
         }
+        (music_active, media_is_playing)
+    }
 
+    fn update_compact_and_auto_hide(
+        &mut self,
+        window: &Window,
+        is_hovering_visible: bool,
+        music_active: bool,
+        media_is_playing: bool,
+    ) -> bool {
         let is_paused_idle = music_active && !media_is_playing;
         let compact_state = if !self.expanded && !self.is_hidden() {
             CompactOverlayState::Present
@@ -293,7 +347,7 @@ impl App {
         } else if !self.is_hidden() && is_idle {
             if self.idle_timer.elapsed().as_secs_f32() > self.config.auto_hide_delay {
                 let hide_edge = self.nearest_hide_edge();
-                if self.prepare_hide(&window, hide_edge) {
+                if self.prepare_hide(window, hide_edge) {
                     self.auto_hidden = true;
                     log::info!(
                         "Island auto-hidden (idle {:.1}s)",
@@ -304,7 +358,10 @@ impl App {
         } else if !self.is_hidden() && !is_idle {
             self.idle_timer = Instant::now();
         }
+        compact_overlay_visible
+    }
 
+    fn update_seeking_input(&mut self, window: &Window, rel_x: i32) {
         if self.seeking_progress && (is_left_button_pressed() || self.touch_id.is_some()) {
             let page_shift = self.spring_view.value * self.spring_w.value;
             let click_x = rel_x as f32 - page_shift;
@@ -324,7 +381,16 @@ impl App {
                 window.request_redraw();
             }
         }
+    }
 
+    fn update_progress_hover(
+        &self,
+        rel_x: i32,
+        rel_y: i32,
+        offset_x: f64,
+        island_y: f64,
+        music_active: bool,
+    ) {
         let progress_hover_active = if self.seeking_progress {
             true
         } else if self.expanded && (self.spring_view.value as f64) < 0.5 {
@@ -353,7 +419,9 @@ impl App {
         };
         set_progress_hover(progress_hover_active);
         set_progress_dragging(self.seeking_progress);
+    }
 
+    fn update_hide_drag(&mut self, window: &Window, px: i32, py: i32, dt: f32) {
         if self.is_dragging && !self.dismissing_notification && !self.is_hidden() {
             let upward_distance = self.drag_start_py - py;
             let horizontal_distance = px - self.drag_start_px;
@@ -361,7 +429,7 @@ impl App {
                 self.drag_has_moved = true;
             }
             if upward_distance > 3 && self.hide_origin.is_none() {
-                self.prepare_hide(&window, HideEdge::Top);
+                self.prepare_hide(window, HideEdge::Top);
             }
             if self.hide_origin.is_some() {
                 let drag_layout = self.compute_island_layout();
@@ -385,32 +453,28 @@ impl App {
                 .update_dt(hide_target, stiffness, damping, dt);
         }
         if !self.is_hidden() {
-            self.restore_hide_origin(&window);
+            self.restore_hide_origin(window);
         }
-
         if self.spring_hide.velocity.abs() > 0.001
             || (self.spring_hide.value > 0.0 && self.spring_hide.value < 1.0)
         {
             window.request_redraw();
         }
+    }
 
-        if self.expanded
-            && !is_hovering_visible
-            && (is_left_button_pressed() || self.touch_id.is_some())
-        {
+    fn update_expand_collapse_click(&mut self, window: &Window, is_hovering_visible: bool) {
+        let pressing = is_left_button_pressed() || self.touch_id.is_some();
+        if self.expanded && !is_hovering_visible && pressing {
             self.expanded = false;
             self.widget_view = false;
             window.request_redraw();
         }
-
-        if !self.expanded
-            && is_hovering_visible
-            && (is_left_button_pressed() || self.touch_id.is_some())
-        {
+        if !self.expanded && is_hovering_visible && pressing {
             self.idle_timer = Instant::now();
         }
+    }
 
-        let is_paused = music_active && !media_is_playing;
+    fn update_lyrics(&mut self, window: &Window, is_paused: bool, dt: f32) {
         let current_lyric = if self.config.show_lyrics && !is_paused {
             self.smtc_media_info
                 .current_lyric((self.config.lyrics_delay * 1000.0) as i64)
@@ -443,7 +507,16 @@ impl App {
         if self.lyric_transition >= 1.0 && !self.old_lyric_text.is_empty() {
             self.old_lyric_text = String::new();
         }
-        let lyric_target_w = self.compute_lyric_target_width(&window, music_active, is_paused, dt);
+    }
+
+    fn update_spring_targets(
+        &mut self,
+        window: &Window,
+        music_active: bool,
+        is_paused: bool,
+        dt: f32,
+    ) {
+        let lyric_target_w = self.compute_lyric_target_width(window, music_active, is_paused, dt);
         let default_target_h = (if self.expanded {
             self.config.expanded_height
         } else {
@@ -468,18 +541,29 @@ impl App {
         self.spring_h.update_dt(target_h, 0.10, 0.68, dt);
         self.spring_r.update_dt(target_r, 0.10, 0.68, dt);
         self.spring_view.update_dt(target_view, 0.12, 0.68, dt);
+    }
 
+    fn periodic_glass_redraw_due(&mut self) -> bool {
         let is_glass_or_mica = self.config.island_style == "glass"
             || self.config.island_style == "dynamic"
             || self.config.island_style == "mica";
-        let should_periodic_redraw = !self.is_hidden()
+        let due = !self.is_hidden()
             && self.last_glass_refresh.elapsed().as_millis() >= 1000
             && (is_glass_or_mica || self.expanded);
-
-        if should_periodic_redraw {
+        if due {
             self.last_glass_refresh = Instant::now();
         }
+        due
+    }
 
+    fn schedule_next_frame(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window: &Window,
+        now: Instant,
+        pacing: FramePacing,
+    ) {
+        let should_periodic_redraw = self.periodic_glass_redraw_due();
         let spring_animating = self.spring_w.velocity.abs() > 0.001
             || self.spring_h.velocity.abs() > 0.001
             || self.spring_r.velocity.abs() > 0.001
@@ -490,9 +574,10 @@ impl App {
             || self.is_dragging
             || self.seeking_progress
             || self.is_right_dragging;
-        let playback_active = !self.is_hidden() && media_is_playing;
-        let interactive_active =
-            is_hovering_visible || compact_overlay_visible || self.right_press_cursor.is_some();
+        let playback_active = !self.is_hidden() && pacing.media_is_playing;
+        let interactive_active = pacing.is_hovering_visible
+            || pacing.compact_overlay_visible
+            || self.right_press_cursor.is_some();
 
         if !animation_active
             && !playback_active
@@ -519,4 +604,10 @@ impl App {
         }
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_deadline));
     }
+}
+
+struct FramePacing {
+    media_is_playing: bool,
+    is_hovering_visible: bool,
+    compact_overlay_visible: bool,
 }
