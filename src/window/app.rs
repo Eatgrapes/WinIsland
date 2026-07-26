@@ -54,10 +54,7 @@ pub struct App {
     expanded: bool,
     widget_view: bool,
     visible: bool,
-    spring_w: Spring,
-    spring_h: Spring,
-    spring_r: Spring,
-    spring_view: Spring,
+    springs: IslandSprings,
     os_w: u32,
     os_h: u32,
     win_x: i32,
@@ -71,7 +68,6 @@ pub struct App {
     lyric_transition: f32,
     idle_timer: Instant,
     last_glass_refresh: Instant,
-    spring_hide: Spring,
     auto_hidden: bool,
     fullscreen_hidden: bool,
     fullscreen_reveal_override: bool,
@@ -134,10 +130,7 @@ impl Default for App {
             expanded: false,
             widget_view: false,
             visible: true,
-            spring_w: Spring::new(config.base_width * config.global_scale),
-            spring_h: Spring::new(config.base_height * config.global_scale),
-            spring_r: Spring::new((config.base_height * config.global_scale) / 2.0),
-            spring_view: Spring::new(0.0),
+            springs: IslandSprings::new(&config),
             smtc: SmtcListener::new(
                 config.lyrics_source.clone(),
                 config.lyrics_fallback,
@@ -158,7 +151,6 @@ impl Default for App {
             lyric_transition: 1.0,
             idle_timer: Instant::now(),
             last_glass_refresh: Instant::now(),
-            spring_hide: Spring::new(0.0),
             auto_hidden: false,
             fullscreen_hidden: false,
             fullscreen_reveal_override: false,
@@ -206,6 +198,34 @@ impl Default for App {
     }
 }
 
+struct IslandSprings {
+    w: Spring,
+    h: Spring,
+    r: Spring,
+    view: Spring,
+    hide: Spring,
+}
+
+impl IslandSprings {
+    fn new(config: &AppConfig) -> Self {
+        Self {
+            w: Spring::new(config.base_width * config.global_scale),
+            h: Spring::new(config.base_height * config.global_scale),
+            r: Spring::new((config.base_height * config.global_scale) / 2.0),
+            view: Spring::new(0.0),
+            hide: Spring::new(0.0),
+        }
+    }
+
+    fn any_animating(&self) -> bool {
+        self.w.velocity.abs() > 0.001
+            || self.h.velocity.abs() > 0.001
+            || self.r.velocity.abs() > 0.001
+            || self.view.velocity.abs() > 0.001
+            || self.hide.velocity.abs() > 0.001
+    }
+}
+
 struct IslandLayout {
     offset_x: f64,
     island_y: f64,
@@ -232,7 +252,7 @@ impl App {
         if self.is_fullscreen_suppressed {
             self.fullscreen_reveal_override = true;
         }
-        self.spring_hide.velocity = -0.65;
+        self.springs.hide.velocity = -0.65;
         self.idle_timer = Instant::now();
     }
 }

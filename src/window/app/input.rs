@@ -47,9 +47,9 @@ impl App {
                     rel_y as f64,
                     layout.current_island_x,
                     layout.current_island_y,
-                    self.spring_w.value as f64,
-                    self.spring_h.value as f64,
-                    self.spring_r.value as f64,
+                    self.springs.w.value as f64,
+                    self.springs.h.value as f64,
+                    self.springs.r.value as f64,
                 );
                 if is_hovering {
                     self.right_press_cursor = Some((px, py));
@@ -91,13 +91,13 @@ impl App {
             rel_y as f64,
             current_island_x,
             current_island_y,
-            self.spring_w.value as f64,
-            self.spring_h.value as f64,
-            self.spring_r.value as f64,
+            self.springs.w.value as f64,
+            self.springs.h.value as f64,
+            self.springs.r.value as f64,
         );
         let is_on_hidden_reveal = self.is_hidden()
             && self.config.hidden_width <= MIN_HIDDEN_WIDTH
-            && self.spring_hide.value >= 0.999
+            && self.springs.hide.value >= 0.999
             && is_point_in_rect(
                 rel_x as f64,
                 rel_y as f64,
@@ -117,9 +117,9 @@ impl App {
         }
 
         if self.expanded {
-            let view_val = self.spring_view.value as f64;
-            let w = self.spring_w.value as f64;
-            let h = self.spring_h.value as f64;
+            let view_val = self.springs.view.value as f64;
+            let w = self.springs.w.value as f64;
+            let h = self.springs.h.value as f64;
             let page_shift = view_val * w;
             let scale = self.config.global_scale as f64;
 
@@ -261,7 +261,7 @@ impl App {
             self.is_dragging = true;
             self.drag_start_px = rel_x + self.win_x;
             self.drag_start_py = rel_y + self.win_y;
-            self.drag_start_hide_val = self.spring_hide.value;
+            self.drag_start_hide_val = self.springs.hide.value;
             self.drag_has_moved = false;
         }
     }
@@ -292,7 +292,7 @@ impl App {
                 } else {
                     self.expand();
                 }
-            } else if self.spring_hide.value > 0.3 {
+            } else if self.springs.hide.value > 0.3 {
                 self.manually_hidden = true;
                 self.auto_hidden = false;
                 self.fullscreen_hidden = false;
@@ -312,8 +312,8 @@ impl App {
         let widget_view =
             should_show_widget_view(self.config.smtc_enabled, !media.title.is_empty());
         self.widget_view = widget_view;
-        self.spring_view.value = f32::from(widget_view);
-        self.spring_view.velocity = 0.0;
+        self.springs.view.value = f32::from(widget_view);
+        self.springs.view.velocity = 0.0;
         self.expanded = true;
     }
 }

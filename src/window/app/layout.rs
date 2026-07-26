@@ -229,8 +229,8 @@ impl App {
         let layout = self.compute_island_layout();
         let island_x = self.win_x + layout.current_island_x.round() as i32;
         let island_y = self.win_y + layout.current_island_y.round() as i32;
-        let island_w = self.spring_w.value.round().max(1.0) as i32;
-        let island_h = self.spring_h.value.round().max(1.0) as i32;
+        let island_w = self.springs.w.value.round().max(1.0) as i32;
+        let island_h = self.springs.h.value.round().max(1.0) as i32;
         let mon_right = self.last_mon_pos.0 + self.last_mon_size.0 as i32;
         let mon_bottom = self.last_mon_pos.1 + self.last_mon_size.1 as i32;
         [
@@ -254,8 +254,8 @@ impl App {
         let mon_size = monitor.size();
         let mon_right = mon_pos.x + mon_size.width as i32;
         let mon_bottom = mon_pos.y + mon_size.height as i32;
-        let island_w = self.spring_w.value.round() as i32;
-        let island_h = self.spring_h.value.round() as i32;
+        let island_w = self.springs.w.value.round() as i32;
+        let island_h = self.springs.h.value.round() as i32;
 
         match self.hide_edge {
             HideEdge::Top => self.win_y = mon_pos.y + TOP_OFFSET - layout.island_y.round() as i32,
@@ -271,7 +271,7 @@ impl App {
     }
 
     pub(super) fn restore_hide_origin(&mut self, window: &Window) {
-        if self.spring_hide.value > 0.001 {
+        if self.springs.hide.value > 0.001 {
             return;
         }
         if let Some((win_x, win_y)) = self.hide_origin.take() {
@@ -283,8 +283,8 @@ impl App {
 
     fn hidden_visible_width(&self, hide_edge: HideEdge) -> f64 {
         let edge_size = match hide_edge {
-            HideEdge::Top | HideEdge::Bottom => self.spring_h.value as f64,
-            HideEdge::Left | HideEdge::Right => self.spring_w.value as f64,
+            HideEdge::Top | HideEdge::Bottom => self.springs.h.value as f64,
+            HideEdge::Left | HideEdge::Right => self.springs.w.value as f64,
         };
         if self.config.hidden_width >= MAX_HIDDEN_WIDTH {
             edge_size
@@ -295,8 +295,8 @@ impl App {
 
     pub(super) fn can_hide_to_edge(&self, hide_edge: HideEdge) -> bool {
         let edge_size = match hide_edge {
-            HideEdge::Top | HideEdge::Bottom => self.spring_h.value as f64,
-            HideEdge::Left | HideEdge::Right => self.spring_w.value as f64,
+            HideEdge::Top | HideEdge::Bottom => self.springs.h.value as f64,
+            HideEdge::Left | HideEdge::Right => self.springs.w.value as f64,
         };
         edge_size - self.hidden_visible_width(hide_edge) > f64::EPSILON
     }
@@ -324,7 +324,7 @@ impl App {
         };
         let dock_bottom = dock_position.is_bottom();
         let island_y = if dock_bottom {
-            self.os_h as f64 - PADDING as f64 / 2.0 - self.spring_h.value as f64
+            self.os_h as f64 - PADDING as f64 / 2.0 - self.springs.h.value as f64
         } else {
             PADDING as f64 / 2.0
         };
@@ -332,16 +332,16 @@ impl App {
         let offset_x = if dock_position.is_left() {
             PADDING as f64 / 2.0
         } else if dock_position.is_right() {
-            (self.os_w as f64 - PADDING as f64 / 2.0 - self.spring_w.value as f64).max(0.0)
+            (self.os_w as f64 - PADDING as f64 / 2.0 - self.springs.w.value as f64).max(0.0)
         } else {
-            (self.os_w as f64 - self.spring_w.value as f64) / 2.0
+            (self.os_w as f64 - self.springs.w.value as f64) / 2.0
         };
 
         let hide_edge = self.hide_edge;
         let scale = self.config.global_scale as f64;
         let edge_size = match hide_edge {
-            HideEdge::Top | HideEdge::Bottom => self.spring_h.value as f64,
-            HideEdge::Left | HideEdge::Right => self.spring_w.value as f64,
+            HideEdge::Top | HideEdge::Bottom => self.springs.h.value as f64,
+            HideEdge::Left | HideEdge::Right => self.springs.w.value as f64,
         };
         let hidden_visible_width = self.hidden_visible_width(hide_edge);
         let concealed_width = (edge_size - hidden_visible_width).max(0.0);
@@ -355,7 +355,7 @@ impl App {
         } else {
             0.0
         };
-        let hide_offset = self.spring_hide.value as f64 * hide_distance;
+        let hide_offset = self.springs.hide.value as f64 * hide_distance;
         let (current_island_x, current_island_y) = match hide_edge {
             HideEdge::Top => (offset_x, island_y - hide_offset),
             HideEdge::Bottom => (offset_x, island_y + hide_offset),
@@ -375,27 +375,27 @@ impl App {
         let (hidden_reveal_x, hidden_reveal_y, hidden_reveal_w, hidden_reveal_h) = match hide_edge {
             HideEdge::Top => (
                 current_island_x,
-                current_island_y + self.spring_h.value as f64 - 1.0,
-                self.spring_w.value as f64,
+                current_island_y + self.springs.h.value as f64 - 1.0,
+                self.springs.w.value as f64,
                 1.0,
             ),
             HideEdge::Bottom => (
                 current_island_x,
                 current_island_y - 1.0,
-                self.spring_w.value as f64,
+                self.springs.w.value as f64,
                 1.0,
             ),
             HideEdge::Left => (
-                current_island_x + self.spring_w.value as f64 - 1.0,
+                current_island_x + self.springs.w.value as f64 - 1.0,
                 current_island_y,
                 1.0,
-                self.spring_h.value as f64,
+                self.springs.h.value as f64,
             ),
             HideEdge::Right => (
                 current_island_x - 1.0,
                 current_island_y,
                 1.0,
-                self.spring_h.value as f64,
+                self.springs.h.value as f64,
             ),
         };
 
@@ -433,7 +433,7 @@ impl App {
         is_paused: bool,
         dt: f32,
     ) -> f32 {
-        let is_currently_hidden = self.is_hidden() || self.spring_hide.value > 0.1;
+        let is_currently_hidden = self.is_hidden() || self.springs.hide.value > 0.1;
         let target_base_w = if music_active && !self.expanded && !is_currently_hidden {
             let has_visible_lyrics = self.config.show_lyrics
                 && (!self.current_lyric_text.is_empty()

@@ -97,10 +97,10 @@ impl App {
                         self.last_render_time = Instant::now();
                         let sigmas = if self.config.motion_blur {
                             calculate_blur_sigmas(
-                                self.spring_w.velocity,
-                                self.spring_h.velocity,
-                                self.spring_view.velocity,
-                                self.spring_w.value,
+                                self.springs.w.velocity,
+                                self.springs.h.velocity,
+                                self.springs.view.velocity,
+                                self.springs.w.value,
                             )
                         } else {
                             (0.0, 0.0)
@@ -109,7 +109,7 @@ impl App {
                             .abs()
                             .max(1.0)
                             * self.config.global_scale;
-                        let dist_h = (self.spring_h.value
+                        let dist_h = (self.springs.h.value
                             - self.config.base_height * self.config.global_scale)
                             .abs();
                         let progress = (dist_h / total_h).clamp(0.0, 1.0);
@@ -182,14 +182,14 @@ impl App {
                                     surface,
                                     crate::core::render::DrawIslandParams {
                                         layout: crate::core::render::LayoutParams {
-                                            current_w: self.spring_w.value,
-                                            current_h: self.spring_h.value,
-                                            current_r: self.spring_r.value,
+                                            current_w: self.springs.w.value,
+                                            current_h: self.springs.h.value,
+                                            current_r: self.springs.r.value,
                                             sigmas,
                                             expansion_progress: progress,
-                                            view_offset: self.spring_view.value,
+                                            view_offset: self.springs.view.value,
                                             global_scale: self.config.global_scale,
-                                            hide_progress: self.spring_hide.value
+                                            hide_progress: self.springs.hide.value
                                                 * island_layout.content_hide_ratio,
                                             island_x: island_layout.current_island_x as f32,
                                             island_y: island_layout.current_island_y as f32,

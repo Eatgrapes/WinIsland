@@ -90,13 +90,13 @@ impl App {
             rel_y as f64,
             current_island_x,
             current_island_y,
-            self.spring_w.value as f64,
-            self.spring_h.value as f64,
-            self.spring_r.value as f64,
+            self.springs.w.value as f64,
+            self.springs.h.value as f64,
+            self.springs.r.value as f64,
         );
         let is_on_hidden_reveal = self.is_hidden()
             && self.config.hidden_width <= MIN_HIDDEN_WIDTH
-            && self.spring_hide.value >= 0.999
+            && self.springs.hide.value >= 0.999
             && is_point_in_rect(
                 rel_x as f64,
                 rel_y as f64,
@@ -240,7 +240,7 @@ impl App {
                 self.fullscreen_hidden = false;
                 self.idle_timer = Instant::now();
                 if was_fullscreen_hidden && !self.is_hidden() {
-                    self.spring_hide.velocity = -0.65;
+                    self.springs.hide.velocity = -0.65;
                 }
             }
             window.request_redraw();
@@ -317,7 +317,7 @@ impl App {
         if compact_event && self.auto_hidden && !self.manually_hidden {
             self.auto_hidden = false;
             self.idle_timer = Instant::now();
-            self.spring_hide.velocity = -0.65;
+            self.springs.hide.velocity = -0.65;
             self.compact_overlay.update(
                 CompactOverlayState::Present,
                 self.config.notification_display,
@@ -335,13 +335,13 @@ impl App {
             self.auto_hidden = false;
             self.idle_timer = Instant::now();
             if was_auto_hidden && !self.is_hidden() {
-                self.spring_hide.velocity = -0.65;
+                self.springs.hide.velocity = -0.65;
             }
         } else if media_is_playing && self.auto_hidden && !self.manually_hidden {
             self.auto_hidden = false;
             self.idle_timer = Instant::now();
             if !self.is_hidden() {
-                self.spring_hide.velocity = -0.65;
+                self.springs.hide.velocity = -0.65;
             }
             log::info!("Island un-hidden (media playing)");
         } else if !self.is_hidden() && is_idle {
@@ -363,7 +363,7 @@ impl App {
 
     fn update_seeking_input(&mut self, window: &Window, rel_x: i32) {
         if self.seeking_progress && (is_left_button_pressed() || self.touch_id.is_some()) {
-            let page_shift = self.spring_view.value * self.spring_w.value;
+            let page_shift = self.springs.view.value * self.springs.w.value;
             let click_x = rel_x as f32 - page_shift;
             let bar_width = self.seeking_bar_right - self.seeking_bar_left;
             let ratio = if bar_width > 0.0 {
@@ -393,17 +393,17 @@ impl App {
     ) {
         let progress_hover_active = if self.seeking_progress {
             true
-        } else if self.expanded && (self.spring_view.value as f64) < 0.5 {
+        } else if self.expanded && (self.springs.view.value as f64) < 0.5 {
             if let Some((bar_left, bar_right, bar_top, bar_hit_h)) = get_progress_bar_rect(
                 offset_x as f32,
                 island_y as f32,
-                self.spring_w.value,
+                self.springs.w.value,
                 &self.smtc_media_info,
                 music_active,
                 self.config.global_scale,
                 &self.config.expanded_cover_shape,
             ) {
-                let page_shift = self.spring_view.value * self.spring_w.value;
+                let page_shift = self.springs.view.value * self.springs.w.value;
                 let cx = rel_x as f32 - page_shift;
                 let cy = rel_y as f32;
                 let margin = 4.0 * self.config.global_scale;
@@ -437,8 +437,8 @@ impl App {
                     let mut new_val = self.drag_start_hide_val
                         + (upward_distance as f32 / drag_layout.hide_distance as f32);
                     new_val = new_val.clamp(0.0, 1.0);
-                    self.spring_hide.value = new_val;
-                    self.spring_hide.velocity = 0.0;
+                    self.springs.hide.value = new_val;
+                    self.springs.hide.velocity = 0.0;
                     window.request_redraw();
                 }
             }
@@ -449,14 +449,15 @@ impl App {
             } else {
                 (0.08, 0.78)
             };
-            self.spring_hide
+            self.springs
+                .hide
                 .update_dt(hide_target, stiffness, damping, dt);
         }
         if !self.is_hidden() {
             self.restore_hide_origin(window);
         }
-        if self.spring_hide.velocity.abs() > 0.001
-            || (self.spring_hide.value > 0.0 && self.spring_hide.value < 1.0)
+        if self.springs.hide.velocity.abs() > 0.001
+            || (self.springs.hide.value > 0.0 && self.springs.hide.value < 1.0)
         {
             window.request_redraw();
         }
@@ -537,10 +538,10 @@ impl App {
             (lyric_target_w, default_target_h, default_target_r)
         };
         let target_view = if self.widget_view { 1.0 } else { 0.0 };
-        self.spring_w.update_dt(target_w, 0.10, 0.68, dt);
-        self.spring_h.update_dt(target_h, 0.10, 0.68, dt);
-        self.spring_r.update_dt(target_r, 0.10, 0.68, dt);
-        self.spring_view.update_dt(target_view, 0.12, 0.68, dt);
+        self.springs.w.update_dt(target_w, 0.10, 0.68, dt);
+        self.springs.h.update_dt(target_h, 0.10, 0.68, dt);
+        self.springs.r.update_dt(target_r, 0.10, 0.68, dt);
+        self.springs.view.update_dt(target_view, 0.12, 0.68, dt);
     }
 
     fn periodic_glass_redraw_due(&mut self) -> bool {
@@ -564,12 +565,7 @@ impl App {
         pacing: FramePacing,
     ) {
         let should_periodic_redraw = self.periodic_glass_redraw_due();
-        let spring_animating = self.spring_w.velocity.abs() > 0.001
-            || self.spring_h.velocity.abs() > 0.001
-            || self.spring_r.velocity.abs() > 0.001
-            || self.spring_view.velocity.abs() > 0.001
-            || self.spring_hide.velocity.abs() > 0.001;
-        let animation_active = spring_animating
+        let animation_active = self.springs.any_animating()
             || self.lyric_transition < 1.0
             || self.is_dragging
             || self.seeking_progress
