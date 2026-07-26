@@ -23,7 +23,13 @@ impl ItemCtx<'_> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[derive(Default)]
+struct GroupRows {
+    in_group: bool,
+    row_count: usize,
+    current_row: usize,
+}
+
 fn draw_row_stepper(
     ctx: &ItemCtx,
     y: f32,
@@ -31,9 +37,7 @@ fn draw_row_stepper(
     value: &str,
     enabled: bool,
     active_stepper_value: &Option<ActiveStepperValue>,
-    in_group: bool,
-    group_row_count: usize,
-    group_current_row: &mut usize,
+    groups: &mut GroupRows,
 ) {
     let canvas = ctx.canvas;
     let theme = ctx.theme;
@@ -138,29 +142,15 @@ fn draw_row_stepper(
         }
     }
 
-    advance_group_row(
-        ctx,
-        y + ROW_HEIGHT,
-        in_group,
-        group_current_row,
-        group_row_count,
-        visible,
-    );
+    advance_group_row(ctx, y + ROW_HEIGHT, groups, visible);
 }
 
-fn advance_group_row(
-    ctx: &ItemCtx,
-    sep_y: f32,
-    in_group: bool,
-    group_current_row: &mut usize,
-    group_row_count: usize,
-    visible: bool,
-) {
-    if !in_group {
+fn advance_group_row(ctx: &ItemCtx, sep_y: f32, groups: &mut GroupRows, visible: bool) {
+    if !groups.in_group {
         return;
     }
-    *group_current_row += 1;
-    if *group_current_row < group_row_count && visible {
+    groups.current_row += 1;
+    if groups.current_row < groups.row_count && visible {
         draw_row_separator(ctx.canvas, ctx.theme, ctx.content_w, sep_y);
     }
 }
@@ -197,9 +187,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
     let mut switch_idx = 0;
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
-    let mut in_group = false;
-    let mut group_row_count = 0;
-    let mut group_current_row = 0;
+    let mut groups = GroupRows::default();
     let content_w = width - CONTENT_PADDING * 2.0;
     let ctx = ItemCtx {
         canvas,
@@ -232,10 +220,10 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 }
             }
             SettingsItem::GroupStart => {
-                in_group = true;
-                group_current_row = 0;
+                groups.in_group = true;
+                groups.current_row = 0;
                 let total_h = group_height_from(items, i + 1);
-                group_row_count = items[i + 1..]
+                groups.row_count = items[i + 1..]
                     .iter()
                     .take_while(|item| !matches!(item, SettingsItem::GroupEnd))
                     .filter(|item| item.is_row())
@@ -253,7 +241,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 }
             }
             SettingsItem::GroupEnd => {
-                in_group = false;
+                groups.in_group = false;
             }
             SettingsItem::RowStepper {
                 label,
@@ -267,9 +255,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     value,
                     *enabled,
                     &active_stepper_value,
-                    in_group,
-                    group_row_count,
-                    &mut group_current_row,
+                    &mut groups,
                 );
             }
             SettingsItem::RowSwitch {
@@ -314,9 +300,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 advance_group_row(
                     &ctx,
                     y + ROW_HEIGHT,
-                    in_group,
-                    &mut group_current_row,
-                    group_row_count,
+                    &mut groups,
                     y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y,
                 );
             }
@@ -370,14 +354,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     }
                 }
 
-                advance_group_row(
-                    &ctx,
-                    y + ROW_HEIGHT,
-                    in_group,
-                    &mut group_current_row,
-                    group_row_count,
-                    visible,
-                );
+                advance_group_row(&ctx, y + ROW_HEIGHT, &mut groups, visible);
             }
             SettingsItem::RowFolderPicker {
                 label,
@@ -470,14 +447,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     }
                 }
 
-                advance_group_row(
-                    &ctx,
-                    y + row_h,
-                    in_group,
-                    &mut group_current_row,
-                    group_row_count,
-                    visible,
-                );
+                advance_group_row(&ctx, y + row_h, &mut groups, visible);
             }
             SettingsItem::RowSourceSelect {
                 label,
@@ -577,14 +547,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     }
                 }
 
-                advance_group_row(
-                    &ctx,
-                    y + ROW_HEIGHT,
-                    in_group,
-                    &mut group_current_row,
-                    group_row_count,
-                    visible,
-                );
+                advance_group_row(&ctx, y + ROW_HEIGHT, &mut groups, visible);
             }
             SettingsItem::RowButton {
                 label,
@@ -635,14 +598,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     });
                 }
 
-                advance_group_row(
-                    &ctx,
-                    y + ROW_HEIGHT,
-                    in_group,
-                    &mut group_current_row,
-                    group_row_count,
-                    visible,
-                );
+                advance_group_row(&ctx, y + ROW_HEIGHT, &mut groups, visible);
             }
             SettingsItem::RowAppItem {
                 label,
@@ -717,14 +673,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     });
                 }
 
-                advance_group_row(
-                    &ctx,
-                    y + ROW_HEIGHT,
-                    in_group,
-                    &mut group_current_row,
-                    group_row_count,
-                    visible,
-                );
+                advance_group_row(&ctx, y + ROW_HEIGHT, &mut groups, visible);
             }
             SettingsItem::RowLabel { label } => {
                 let visible = y + ROW_HEIGHT >= visible_min_y && y <= visible_max_y;
@@ -743,14 +692,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     });
                 }
 
-                advance_group_row(
-                    &ctx,
-                    y + ROW_HEIGHT,
-                    in_group,
-                    &mut group_current_row,
-                    group_row_count,
-                    visible,
-                );
+                advance_group_row(&ctx, y + ROW_HEIGHT, &mut groups, visible);
             }
             SettingsItem::CenterLink { label, color } => {
                 let h = item.height();
