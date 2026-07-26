@@ -167,31 +167,27 @@ pub fn clear_glass_cache() {
     });
 }
 
+fn render_surface(direct_context: &mut DirectContext, info: &ImageInfo) -> Option<Surface> {
+    gpu::surfaces::render_target(
+        direct_context,
+        Budgeted::Yes,
+        info,
+        None,
+        Some(SurfaceOrigin::TopLeft),
+        None,
+        Some(false),
+        Some(false),
+    )
+}
+
 fn create_surfaces(
     direct_context: &mut DirectContext,
     info: &ImageInfo,
 ) -> Option<(Surface, Surface)> {
-    let source_surface = gpu::surfaces::render_target(
-        direct_context,
-        Budgeted::Yes,
-        info,
-        None,
-        Some(SurfaceOrigin::TopLeft),
-        None,
-        Some(false),
-        Some(false),
-    )?;
-    let blur_surface = gpu::surfaces::render_target(
-        direct_context,
-        Budgeted::Yes,
-        info,
-        None,
-        Some(SurfaceOrigin::TopLeft),
-        None,
-        Some(false),
-        Some(false),
-    )?;
-    Some((source_surface, blur_surface))
+    Some((
+        render_surface(direct_context, info)?,
+        render_surface(direct_context, info)?,
+    ))
 }
 
 fn update_cache(
