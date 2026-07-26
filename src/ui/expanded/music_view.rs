@@ -215,142 +215,20 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         ox + CONTENT_PADDING * scale,
         oy + CONTENT_PADDING * scale,
     );
-    let image_to_draw = if music_active {
-        get_cached_media_image(media)
-    } else {
-        None
-    };
-
-    let mut effective_is_playing = media.is_playing;
-    LOCAL_PLAY_STATE.with(|cell| {
-        let mut opt = cell.borrow_mut();
-        if let Some((opt_val, time)) = *opt {
-            if media.is_playing == opt_val || time.elapsed().as_millis() > 2000 {
-                *opt = None;
-            } else {
-                effective_is_playing = opt_val;
-            }
-        }
+    let pause_t = draw_cover(CoverParams {
+        canvas,
+        media,
+        music_active,
+        img_x,
+        img_y,
+        img_size,
+        alpha,
+        scale,
+        use_blur,
+        dt,
+        text_color,
     });
 
-    let pause_t = PAUSE_ANIM.with(|cell| {
-        let mut v = cell.borrow_mut();
-        let target = if effective_is_playing { 1.0_f32 } else { 0.0 };
-        let factor = (0.11 * dt).min(1.0);
-        *v += (target - *v) * factor;
-        if (*v - target).abs() < 0.003 {
-            *v = target;
-        }
-        *v
-    });
-
-    let cover_scale = 0.85 + 0.15 * pause_t;
-    let cover_brightness = 0.75 + 0.25 * pause_t;
-
-    let (flip_scale_x, flip_blur_sigma, flip_use_old) = COVER_FLIP_ANIM.with(|cell| {
-        let start = *cell.borrow();
-        match start {
-            Some(s) => {
-                let t = (s.elapsed().as_secs_f32() / 0.6).min(1.0);
-                if t >= 1.0 {
-                    *cell.borrow_mut() = None;
-                    (1.0_f32, 0.0_f32, false)
-                } else {
-                    let eased = if t < 0.5 {
-                        let t2 = t * 2.0;
-                        t2 * t2 * 0.5
-                    } else {
-                        let t2 = (t - 0.5) * 2.0;
-                        let c1 = 1.2_f32;
-                        0.5 + (1.0 + c1 * (t2 - 1.0).powi(2) + (t2 - 1.0).powi(3) * (c1 + 1.0))
-                            * 0.5
-                    };
-                    let cos_val = (eased * std::f32::consts::PI).cos();
-                    let sx = cos_val.abs().max(0.02);
-                    let blur = (1.0 - cos_val.abs()).powf(0.6) * 8.0 * scale;
-                    (sx, blur, cos_val > 0.0)
-                }
-            }
-            None => (1.0, 0.0, false),
-        }
-    });
-
-    let flip_old_img = if flip_use_old {
-        COVER_FLIP_OLD_IMG.with(|cell| cell.borrow().clone())
-    } else {
-        None
-    };
-
-    let cover_img = if flip_use_old {
-        flip_old_img.or(image_to_draw.clone())
-    } else {
-        image_to_draw.clone()
-    };
-
-    canvas.save();
-    let img_cx = img_x + img_size / 2.0;
-    let img_cy = img_y + img_size / 2.0;
-    canvas.translate((img_cx, img_cy));
-
-    canvas.scale((cover_scale * flip_scale_x, cover_scale));
-    canvas.translate((-img_cx, -img_cy));
-
-    if flip_blur_sigma > 0.1 && use_blur {
-        let mut blur_paint = Paint::default();
-        blur_paint.set_image_filter(image_filters::blur(
-            (flip_blur_sigma, flip_blur_sigma * 0.3),
-            None,
-            None,
-            None,
-        ));
-        canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&blur_paint));
-    }
-
-    canvas.clip_rrect(
-        RRect::new_rect_xy(
-            Rect::from_xywh(img_x, img_y, img_size, img_size),
-            14.0 * scale,
-            14.0 * scale,
-        ),
-        skia_safe::ClipOp::Intersect,
-        true,
-    );
-    if let Some(img) = cover_img {
-        let mut img_paint = Paint::default();
-        img_paint.set_anti_alias(true);
-        let final_alpha = (alpha as f32 * cover_brightness) / 255.0;
-        img_paint.set_alpha_f(final_alpha);
-        let img_w = img.width() as f32;
-        let img_h = img.height() as f32;
-        let src_rect = if img_w > 0.0 && img_h > 0.0 {
-            let aspect = img_w / img_h;
-            let src: Rect = if aspect > 1.0 {
-                let crop_w = img_h;
-                let offset_x = (img_w - crop_w) / 2.0;
-                Rect::from_xywh(offset_x, 0.0, crop_w, img_h)
-            } else {
-                let crop_h = img_w;
-                let offset_y = (img_h - crop_h) / 2.0;
-                Rect::from_xywh(0.0, offset_y, img_w, crop_h)
-            };
-            Some(src)
-        } else {
-            None
-        };
-        canvas.draw_image_rect_with_sampling_options(
-            &img,
-            src_rect.as_ref().map(|r| (r, SrcRectConstraint::Fast)),
-            Rect::from_xywh(img_x, img_y, img_size, img_size),
-            SamplingOptions::new(FilterMode::Linear, MipmapMode::Linear),
-            &img_paint,
-        );
-    } else {
-        draw_placeholder(canvas, img_x, img_y, img_size, alpha, scale, text_color);
-    }
-    if flip_blur_sigma > 0.1 && use_blur {
-        canvas.restore();
-    }
-    canvas.restore();
     let text_x = img_x + img_size + 16.0 * scale;
     let max_text_w = w - (text_x - ox) - 70.0 * scale;
     let title_y = img_y + 26.0 * scale;
@@ -603,6 +481,175 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
     });
 
     false
+}
+
+struct CoverParams<'a> {
+    canvas: &'a Canvas,
+    media: &'a MediaInfo,
+    music_active: bool,
+    img_x: f32,
+    img_y: f32,
+    img_size: f32,
+    alpha: u8,
+    scale: f32,
+    use_blur: bool,
+    dt: f32,
+    text_color: Color,
+}
+
+fn draw_cover(params: CoverParams) -> f32 {
+    let CoverParams {
+        canvas,
+        media,
+        music_active,
+        img_x,
+        img_y,
+        img_size,
+        alpha,
+        scale,
+        use_blur,
+        dt,
+        text_color,
+    } = params;
+
+    let image_to_draw = if music_active {
+        get_cached_media_image(media)
+    } else {
+        None
+    };
+
+    let mut effective_is_playing = media.is_playing;
+    LOCAL_PLAY_STATE.with(|cell| {
+        let mut opt = cell.borrow_mut();
+        if let Some((opt_val, time)) = *opt {
+            if media.is_playing == opt_val || time.elapsed().as_millis() > 2000 {
+                *opt = None;
+            } else {
+                effective_is_playing = opt_val;
+            }
+        }
+    });
+
+    let pause_t = PAUSE_ANIM.with(|cell| {
+        let mut v = cell.borrow_mut();
+        let target = if effective_is_playing { 1.0_f32 } else { 0.0 };
+        let factor = (0.11 * dt).min(1.0);
+        *v += (target - *v) * factor;
+        if (*v - target).abs() < 0.003 {
+            *v = target;
+        }
+        *v
+    });
+
+    let cover_scale = 0.85 + 0.15 * pause_t;
+    let cover_brightness = 0.75 + 0.25 * pause_t;
+
+    let (flip_scale_x, flip_blur_sigma, flip_use_old) = COVER_FLIP_ANIM.with(|cell| {
+        let start = *cell.borrow();
+        match start {
+            Some(s) => {
+                let t = (s.elapsed().as_secs_f32() / 0.6).min(1.0);
+                if t >= 1.0 {
+                    *cell.borrow_mut() = None;
+                    (1.0_f32, 0.0_f32, false)
+                } else {
+                    let eased = if t < 0.5 {
+                        let t2 = t * 2.0;
+                        t2 * t2 * 0.5
+                    } else {
+                        let t2 = (t - 0.5) * 2.0;
+                        let c1 = 1.2_f32;
+                        0.5 + (1.0 + c1 * (t2 - 1.0).powi(2) + (t2 - 1.0).powi(3) * (c1 + 1.0))
+                            * 0.5
+                    };
+                    let cos_val = (eased * std::f32::consts::PI).cos();
+                    let sx = cos_val.abs().max(0.02);
+                    let blur = (1.0 - cos_val.abs()).powf(0.6) * 8.0 * scale;
+                    (sx, blur, cos_val > 0.0)
+                }
+            }
+            None => (1.0, 0.0, false),
+        }
+    });
+
+    let flip_old_img = if flip_use_old {
+        COVER_FLIP_OLD_IMG.with(|cell| cell.borrow().clone())
+    } else {
+        None
+    };
+
+    let cover_img = if flip_use_old {
+        flip_old_img.or(image_to_draw.clone())
+    } else {
+        image_to_draw.clone()
+    };
+
+    canvas.save();
+    let img_cx = img_x + img_size / 2.0;
+    let img_cy = img_y + img_size / 2.0;
+    canvas.translate((img_cx, img_cy));
+
+    canvas.scale((cover_scale * flip_scale_x, cover_scale));
+    canvas.translate((-img_cx, -img_cy));
+
+    if flip_blur_sigma > 0.1 && use_blur {
+        let mut blur_paint = Paint::default();
+        blur_paint.set_image_filter(image_filters::blur(
+            (flip_blur_sigma, flip_blur_sigma * 0.3),
+            None,
+            None,
+            None,
+        ));
+        canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&blur_paint));
+    }
+
+    canvas.clip_rrect(
+        RRect::new_rect_xy(
+            Rect::from_xywh(img_x, img_y, img_size, img_size),
+            14.0 * scale,
+            14.0 * scale,
+        ),
+        skia_safe::ClipOp::Intersect,
+        true,
+    );
+    if let Some(img) = cover_img {
+        let mut img_paint = Paint::default();
+        img_paint.set_anti_alias(true);
+        let final_alpha = (alpha as f32 * cover_brightness) / 255.0;
+        img_paint.set_alpha_f(final_alpha);
+        let img_w = img.width() as f32;
+        let img_h = img.height() as f32;
+        let src_rect = if img_w > 0.0 && img_h > 0.0 {
+            let aspect = img_w / img_h;
+            let src: Rect = if aspect > 1.0 {
+                let crop_w = img_h;
+                let offset_x = (img_w - crop_w) / 2.0;
+                Rect::from_xywh(offset_x, 0.0, crop_w, img_h)
+            } else {
+                let crop_h = img_w;
+                let offset_y = (img_h - crop_h) / 2.0;
+                Rect::from_xywh(0.0, offset_y, img_w, crop_h)
+            };
+            Some(src)
+        } else {
+            None
+        };
+        canvas.draw_image_rect_with_sampling_options(
+            &img,
+            src_rect.as_ref().map(|r| (r, SrcRectConstraint::Fast)),
+            Rect::from_xywh(img_x, img_y, img_size, img_size),
+            SamplingOptions::new(FilterMode::Linear, MipmapMode::Linear),
+            &img_paint,
+        );
+    } else {
+        draw_placeholder(canvas, img_x, img_y, img_size, alpha, scale, text_color);
+    }
+    if flip_blur_sigma > 0.1 && use_blur {
+        canvas.restore();
+    }
+    canvas.restore();
+
+    pause_t
 }
 
 struct TrackTextParams<'a> {
