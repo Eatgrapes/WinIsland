@@ -224,7 +224,7 @@ impl App {
 
     pub(super) fn nearest_hide_edge(&self) -> HideEdge {
         if self.last_mon_size.0 == 0 || self.last_mon_size.1 == 0 {
-            return self.hide_edge;
+            return self.hide.edge;
         }
         let layout = self.compute_island_layout();
         let island_x = self.win_x + layout.current_island_x.round() as i32;
@@ -257,7 +257,7 @@ impl App {
         let island_w = self.springs.w.value.round() as i32;
         let island_h = self.springs.h.value.round() as i32;
 
-        match self.hide_edge {
+        match self.hide.edge {
             HideEdge::Top => self.win_y = mon_pos.y + TOP_OFFSET - layout.island_y.round() as i32,
             HideEdge::Bottom => {
                 self.win_y = mon_bottom - TOP_OFFSET - island_h - layout.island_y.round() as i32
@@ -274,7 +274,7 @@ impl App {
         if self.springs.hide.value > 0.001 {
             return;
         }
-        if let Some((win_x, win_y)) = self.hide_origin.take() {
+        if let Some((win_x, win_y)) = self.hide.origin.take() {
             self.win_x = win_x;
             self.win_y = win_y;
             window.set_outer_position(PhysicalPosition::new(win_x, win_y));
@@ -305,9 +305,9 @@ impl App {
         if !self.can_hide_to_edge(hide_edge) {
             return false;
         }
-        self.hide_edge = hide_edge;
-        if self.hide_origin.is_none() {
-            self.hide_origin = Some((self.win_x, self.win_y));
+        self.hide.edge = hide_edge;
+        if self.hide.origin.is_none() {
+            self.hide.origin = Some((self.win_x, self.win_y));
             self.snap_to_hide_edge(window);
         }
         true
@@ -337,7 +337,7 @@ impl App {
             (self.os_w as f64 - self.springs.w.value as f64) / 2.0
         };
 
-        let hide_edge = self.hide_edge;
+        let hide_edge = self.hide.edge;
         let scale = self.config.global_scale as f64;
         let edge_size = match hide_edge {
             HideEdge::Top | HideEdge::Bottom => self.springs.h.value as f64,

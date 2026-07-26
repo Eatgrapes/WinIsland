@@ -49,7 +49,7 @@ impl App {
         }
         self.handle_tray_events(&window, event_loop);
         self.reload_config_if_changed(&window);
-        if self.is_hidden() && !self.can_hide_to_edge(self.hide_edge) {
+        if self.is_hidden() && !self.can_hide_to_edge(self.hide.edge) {
             self.reveal_island();
         }
 
@@ -221,8 +221,8 @@ impl App {
         let should_hide_for_fullscreen = self.config.auto_hide
             && self.is_fullscreen_suppressed
             && !has_live_activity
-            && !self.fullscreen_reveal_override;
-        if should_hide_for_fullscreen != self.fullscreen_hidden {
+            && !self.hide.fullscreen_reveal_override;
+        if should_hide_for_fullscreen != self.hide.fullscreen {
             if should_hide_for_fullscreen {
                 let hide_started = if self.is_hidden() {
                     true
@@ -233,11 +233,11 @@ impl App {
                 if hide_started {
                     self.expanded = false;
                     self.widget_view = false;
-                    self.fullscreen_hidden = true;
+                    self.hide.fullscreen = true;
                 }
             } else {
-                let was_fullscreen_hidden = self.fullscreen_hidden;
-                self.fullscreen_hidden = false;
+                let was_fullscreen_hidden = self.hide.fullscreen;
+                self.hide.fullscreen = false;
                 self.idle_timer = Instant::now();
                 if was_fullscreen_hidden && !self.is_hidden() {
                     self.springs.hide.velocity = -0.65;
@@ -247,7 +247,7 @@ impl App {
         }
         if self.is_fullscreen_suppressed != prev_fullscreen {
             if !self.is_fullscreen_suppressed {
-                self.fullscreen_reveal_override = false;
+                self.hide.fullscreen_reveal_override = false;
             }
             log::info!(
                 "Fullscreen state: {}",
@@ -306,7 +306,7 @@ impl App {
         let is_paused_idle = music_active && !media_is_playing;
         let compact_state = if !self.expanded && !self.is_hidden() {
             CompactOverlayState::Present
-        } else if self.auto_hidden && !self.manually_hidden && !self.fullscreen_hidden {
+        } else if self.hide.auto && !self.hide.manual && !self.hide.fullscreen {
             CompactOverlayState::Defer
         } else {
             CompactOverlayState::Discard
@@ -314,8 +314,8 @@ impl App {
         let compact_event = self
             .compact_overlay
             .update(compact_state, self.config.notification_display);
-        if compact_event && self.auto_hidden && !self.manually_hidden {
-            self.auto_hidden = false;
+        if compact_event && self.hide.auto && !self.hide.manual {
+            self.hide.auto = false;
             self.idle_timer = Instant::now();
             self.springs.hide.velocity = -0.65;
             self.compact_overlay.update(
@@ -331,14 +331,14 @@ impl App {
             && !compact_overlay_visible
             && (!music_active || is_paused_idle);
         if !self.config.auto_hide {
-            let was_auto_hidden = self.auto_hidden;
-            self.auto_hidden = false;
+            let was_auto_hidden = self.hide.auto;
+            self.hide.auto = false;
             self.idle_timer = Instant::now();
             if was_auto_hidden && !self.is_hidden() {
                 self.springs.hide.velocity = -0.65;
             }
-        } else if media_is_playing && self.auto_hidden && !self.manually_hidden {
-            self.auto_hidden = false;
+        } else if media_is_playing && self.hide.auto && !self.hide.manual {
+            self.hide.auto = false;
             self.idle_timer = Instant::now();
             if !self.is_hidden() {
                 self.springs.hide.velocity = -0.65;
@@ -348,7 +348,7 @@ impl App {
             if self.idle_timer.elapsed().as_secs_f32() > self.config.auto_hide_delay {
                 let hide_edge = self.nearest_hide_edge();
                 if self.prepare_hide(window, hide_edge) {
-                    self.auto_hidden = true;
+                    self.hide.auto = true;
                     log::info!(
                         "Island auto-hidden (idle {:.1}s)",
                         self.config.auto_hide_delay
@@ -428,10 +428,10 @@ impl App {
             if upward_distance.abs() > 3 || horizontal_distance.abs() > 3 {
                 self.drag_has_moved = true;
             }
-            if upward_distance > 3 && self.hide_origin.is_none() {
+            if upward_distance > 3 && self.hide.origin.is_none() {
                 self.prepare_hide(window, HideEdge::Top);
             }
-            if self.hide_origin.is_some() {
+            if self.hide.origin.is_some() {
                 let drag_layout = self.compute_island_layout();
                 if drag_layout.hide_distance > 0.0 {
                     let mut new_val = self.drag_start_hide_val

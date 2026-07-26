@@ -293,15 +293,15 @@ impl App {
                     self.expand();
                 }
             } else if self.springs.hide.value > 0.3 {
-                self.manually_hidden = true;
-                self.auto_hidden = false;
-                self.fullscreen_hidden = false;
+                self.hide.manual = true;
+                self.hide.auto = false;
+                self.hide.fullscreen = false;
             } else {
-                self.manually_hidden = false;
-                self.auto_hidden = false;
-                self.fullscreen_hidden = false;
+                self.hide.manual = false;
+                self.hide.auto = false;
+                self.hide.fullscreen = false;
                 if self.is_fullscreen_suppressed {
-                    self.fullscreen_reveal_override = true;
+                    self.hide.fullscreen_reveal_override = true;
                 }
             }
         }

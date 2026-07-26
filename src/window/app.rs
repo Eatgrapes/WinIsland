@@ -68,17 +68,12 @@ pub struct App {
     lyric_transition: f32,
     idle_timer: Instant,
     last_glass_refresh: Instant,
-    auto_hidden: bool,
-    fullscreen_hidden: bool,
-    fullscreen_reveal_override: bool,
-    hide_origin: Option<(i32, i32)>,
-    hide_edge: HideEdge,
+    hide: HideState,
     is_dragging: bool,
     dismissing_notification: bool,
     drag_start_px: i32,
     drag_start_py: i32,
     drag_start_hide_val: f32,
-    manually_hidden: bool,
     drag_has_moved: bool,
     last_update_time: Instant,
     last_render_time: Instant,
@@ -151,17 +146,12 @@ impl Default for App {
             lyric_transition: 1.0,
             idle_timer: Instant::now(),
             last_glass_refresh: Instant::now(),
-            auto_hidden: false,
-            fullscreen_hidden: false,
-            fullscreen_reveal_override: false,
-            hide_origin: None,
-            hide_edge: HideEdge::Top,
+            hide: HideState::default(),
             is_dragging: false,
             dismissing_notification: false,
             drag_start_px: 0,
             drag_start_py: 0,
             drag_start_hide_val: 0.0,
-            manually_hidden: false,
             drag_has_moved: false,
             last_update_time: Instant::now(),
             last_render_time: Instant::now(),
@@ -195,6 +185,34 @@ impl Default for App {
             is_right_dragging: false,
             right_drag_start_offset: None,
         }
+    }
+}
+
+struct HideState {
+    auto: bool,
+    manual: bool,
+    fullscreen: bool,
+    fullscreen_reveal_override: bool,
+    origin: Option<(i32, i32)>,
+    edge: HideEdge,
+}
+
+impl Default for HideState {
+    fn default() -> Self {
+        Self {
+            auto: false,
+            manual: false,
+            fullscreen: false,
+            fullscreen_reveal_override: false,
+            origin: None,
+            edge: HideEdge::Top,
+        }
+    }
+}
+
+impl HideState {
+    fn is_hidden(&self) -> bool {
+        self.auto || self.fullscreen || self.manual
     }
 }
 
@@ -242,15 +260,15 @@ struct IslandLayout {
 
 impl App {
     fn is_hidden(&self) -> bool {
-        self.auto_hidden || self.fullscreen_hidden || self.manually_hidden
+        self.hide.is_hidden()
     }
 
     fn reveal_island(&mut self) {
-        self.auto_hidden = false;
-        self.fullscreen_hidden = false;
-        self.manually_hidden = false;
+        self.hide.auto = false;
+        self.hide.fullscreen = false;
+        self.hide.manual = false;
         if self.is_fullscreen_suppressed {
-            self.fullscreen_reveal_override = true;
+            self.hide.fullscreen_reveal_override = true;
         }
         self.springs.hide.velocity = -0.65;
         self.idle_timer = Instant::now();
