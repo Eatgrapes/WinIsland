@@ -21,6 +21,22 @@ use windows::core::{Interface, PWSTR};
 
 const FFT_LEN: usize = 1024;
 
+struct AtomicF32(AtomicU32);
+
+impl AtomicF32 {
+    fn new(value: f32) -> Self {
+        Self(AtomicU32::new(value.to_bits()))
+    }
+
+    fn get(&self) -> f32 {
+        f32::from_bits(self.0.load(Ordering::Relaxed))
+    }
+
+    fn set(&self, value: f32) {
+        self.0.store(value.to_bits(), Ordering::Relaxed);
+    }
+}
+
 struct SpectrumAnalyzer {
     fft: Arc<dyn realfft::RealToComplex<f32>>,
     output: Vec<realfft::num_complex::Complex32>,
@@ -47,8 +63,8 @@ impl SpectrumAnalyzer {
         &mut self,
         sample: f32,
         spectrum: &Arc<Mutex<[f32; 6]>>,
-        gate: &Arc<AtomicU32>,
-        gate_override: &Arc<AtomicU32>,
+        gate: &Arc<AtomicF32>,
+        gate_override: &Arc<AtomicF32>,
     ) {
         self.input[self.input_len] = sample;
         self.input_len += 1;
@@ -74,8 +90,8 @@ struct ProcessCaptureContext {
     target_process_id: Arc<AtomicU32>,
     process_capture_active: Arc<AtomicBool>,
     spectrum: Arc<Mutex<[f32; 6]>>,
-    gate: Arc<AtomicU32>,
-    gate_override: Arc<AtomicU32>,
+    gate: Arc<AtomicF32>,
+    gate_override: Arc<AtomicF32>,
 }
 
 impl ProcessCaptureContext {
@@ -93,8 +109,8 @@ impl ProcessCaptureContext {
 #[derive(Clone)]
 struct FallbackCaptureContext {
     spectrum: Arc<Mutex<[f32; 6]>>,
-    gate: Arc<AtomicU32>,
-    gate_override: Arc<AtomicU32>,
+    gate: Arc<AtomicF32>,
+    gate_override: Arc<AtomicF32>,
     process_capture_active: Arc<AtomicBool>,
     worker_generation: Arc<AtomicU32>,
     generation: u32,
@@ -108,8 +124,8 @@ impl FallbackCaptureContext {
 
 pub struct AudioProcessor {
     spectrum: Arc<Mutex<[f32; 6]>>,
-    gate: Arc<AtomicU32>,
-    gate_override: Arc<AtomicU32>,
+    gate: Arc<AtomicF32>,
+    gate_override: Arc<AtomicF32>,
     target_app_id: Arc<RwLock<String>>,
     target_process_id: Arc<AtomicU32>,
     process_capture_active: Arc<AtomicBool>,
@@ -120,10 +136,8 @@ pub struct AudioProcessor {
 impl AudioProcessor {
     pub fn new() -> Self {
         let spectrum = Arc::new(Mutex::new([0.0f32; 6]));
-        let gate = Arc::new(AtomicU32::new(1.0f32.to_bits()));
-        // AtomicU32 stores f32 bit patterns since std::sync::atomic doesn't provide AtomicF32.
-        // Relaxed ordering is sufficient: we only need eventual consistency for the gate value.
-        let gate_override = Arc::new(AtomicU32::new(0.0f32.to_bits()));
+        let gate = Arc::new(AtomicF32::new(1.0));
+        let gate_override = Arc::new(AtomicF32::new(0.0));
         let target_app_id = Arc::new(RwLock::new(String::new()));
         let target_process_id = Arc::new(AtomicU32::new(0));
         let process_capture_active = Arc::new(AtomicBool::new(false));
@@ -147,8 +161,7 @@ impl AudioProcessor {
     }
 
     pub fn set_gate_override(&self, value: bool) {
-        let v = if value { 1.0f32 } else { 0.0f32 };
-        self.gate_override.store(v.to_bits(), Ordering::Relaxed);
+        self.gate_override.set(if value { 1.0 } else { 0.0 });
     }
 
     pub fn set_target_app_id(&self, app_id: &str) {
@@ -209,7 +222,7 @@ impl AudioProcessor {
             cancel.cancel();
             self.target_process_id.store(0, Ordering::Relaxed);
             self.process_capture_active.store(false, Ordering::Release);
-            self.gate.store(0.0f32.to_bits(), Ordering::Relaxed);
+            self.gate.set(0.0);
             *self
                 .spectrum
                 .lock()
@@ -293,7 +306,7 @@ impl AudioProcessor {
                 }
 
                 if current_target_app_id.is_empty() {
-                    gate_clone.store(0.0f32.to_bits(), Ordering::Relaxed);
+                    gate_clone.set(0.0);
                     std::thread::sleep(Duration::from_millis(100));
                     continue;
                 }
@@ -333,7 +346,7 @@ impl AudioProcessor {
                 if worker_generation.load(Ordering::Acquire) != generation {
                     break;
                 }
-                gate_clone.store(gate_val.to_bits(), Ordering::Relaxed);
+                gate_clone.set(gate_val);
                 std::thread::sleep(Duration::from_millis(100));
             }
             // Drop COM objects while COM is still initialized, then clean up.
@@ -755,8 +768,8 @@ fn update_spectrum(
     output: &mut [realfft::num_complex::Complex32],
     adaptive_max: &mut [f32; 6],
     spectrum_arc: &Arc<Mutex<[f32; 6]>>,
-    gate_clone: &Arc<AtomicU32>,
-    gate_override_clone: &Arc<AtomicU32>,
+    gate_clone: &Arc<AtomicF32>,
+    gate_override_clone: &Arc<AtomicF32>,
 ) {
     if !analysis_enabled(gate_clone, gate_override_clone) {
         if let Ok(mut spectrum) = spectrum_arc.try_lock() {
@@ -773,9 +786,7 @@ fn update_spectrum(
         }
         return;
     }
-    let gate = f32::from_bits(gate_clone.load(Ordering::Relaxed));
-    let gate_override = f32::from_bits(gate_override_clone.load(Ordering::Relaxed));
-    let effective_gate = gate * gate_override;
+    let effective_gate = gate_clone.get() * gate_override_clone.get();
     let mut raw_bins = [0.0f32; 6];
     let ranges = [(2, 8), (8, 20), (20, 50), (50, 120), (120, 280), (280, 511)];
     for (j, (start, end)) in ranges.iter().enumerate() {
@@ -797,9 +808,8 @@ fn update_spectrum(
     }
 }
 
-fn analysis_enabled(gate: &AtomicU32, gate_override: &AtomicU32) -> bool {
-    f32::from_bits(gate.load(Ordering::Relaxed)) > 0.0
-        && f32::from_bits(gate_override.load(Ordering::Relaxed)) > 0.0
+fn analysis_enabled(gate: &AtomicF32, gate_override: &AtomicF32) -> bool {
+    gate.get() > 0.0 && gate_override.get() > 0.0
 }
 
 fn reset_spectrum(analyzer: &mut SpectrumAnalyzer, spectrum: &Mutex<[f32; 6]>) {
