@@ -28,6 +28,24 @@ static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         .unwrap()
 });
 
+const MOZILLA_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+
+fn winisland_ua() -> String {
+    format!("WinIsland/{} ({})", APP_VERSION, APP_HOMEPAGE)
+}
+
+async fn get_json(url: &str, user_agent: &str) -> Option<Value> {
+    HTTP_CLIENT
+        .get(url)
+        .header("User-Agent", user_agent)
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()
+}
+
 #[derive(Clone, Default, Debug)]
 pub struct LyricLine {
     pub time_ms: u64,
@@ -161,13 +179,11 @@ async fn fetch_lyrics_163_inner(title: &str, artist: &str) -> Option<Arc<Vec<Lyr
         url_encode(&query)
     );
 
-    let res = HTTP_CLIENT.get(&url)
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-        .send()
-        .await
-        .ok()?;
-
-    let json: Value = res.json().await.ok()?;
+    let json = get_json(
+        &url,
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+    )
+    .await?;
 
     let songs = json.get("result")?.get("songs")?.as_array()?;
     if songs.is_empty() {
@@ -216,17 +232,7 @@ async fn fetch_lyrics_163_inner(title: &str, artist: &str) -> Option<Arc<Vec<Lyr
         id
     );
 
-    let lyric_res = HTTP_CLIENT
-        .get(&lyric_url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        )
-        .send()
-        .await
-        .ok()?;
-
-    let lyric_json: Value = lyric_res.json().await.ok()?;
+    let lyric_json = get_json(&lyric_url, MOZILLA_UA).await?;
 
     let lrc_str = lyric_json.get("lrc")?.get("lyric")?.as_str().unwrap_or("");
     let tlrc_str = lyric_json
@@ -261,17 +267,7 @@ async fn fetch_lyrics_lrclib_inner(
         duration_secs
     );
 
-    let res = HTTP_CLIENT
-        .get(&url)
-        .header(
-            "User-Agent",
-            &format!("WinIsland/{} ({})", APP_VERSION, APP_HOMEPAGE),
-        )
-        .send()
-        .await
-        .ok()?;
-
-    let json: Value = res.json().await.ok()?;
+    let json = get_json(&url, &winisland_ua()).await?;
     let synced = json.get("syncedLyrics")?.as_str()?;
 
     let lines = parse_lyrics(synced, "");
@@ -290,17 +286,7 @@ async fn fetch_lyrics_lrclib_search(title: &str, artist: &str) -> Option<Arc<Vec
     };
     let url = format!("https://lrclib.net/api/search?q={}", url_encode(&query));
 
-    let res = HTTP_CLIENT
-        .get(&url)
-        .header(
-            "User-Agent",
-            &format!("WinIsland/{} ({})", APP_VERSION, APP_HOMEPAGE),
-        )
-        .send()
-        .await
-        .ok()?;
-
-    let json: Value = res.json().await.ok()?;
+    let json = get_json(&url, &winisland_ua()).await?;
     let arr = json.as_array()?;
 
     for item in arr {
@@ -341,16 +327,7 @@ async fn fetch_kugou_lyrics_by_keyword(
         url_encode(title),
         duration_secs.saturating_mul(1000)
     );
-    let search_response = HTTP_CLIENT
-        .get(&search_url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        )
-        .send()
-        .await
-        .ok()?;
-    let search_json: Value = search_response.json().await.ok()?;
+    let search_json = get_json(&search_url, MOZILLA_UA).await?;
     let candidates = search_json.get("candidates")?.as_array()?;
     let candidate = select_kugou_lyric_candidate(candidates, title, artist)?;
     download_kugou_lyrics(candidate).await
@@ -361,32 +338,14 @@ async fn fetch_kugou_lyrics_by_song_hash(title: &str, artist: &str) -> Option<Ar
         "https://songsearch.kugou.com/song_search_v2?keyword={}&page=1&pagesize=20&platform=WebFilter&filter=2&iscorrection=1&privilege_filter=0",
         url_encode(title)
     );
-    let song_search_response = HTTP_CLIENT
-        .get(&song_search_url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        )
-        .send()
-        .await
-        .ok()?;
-    let song_search_json: Value = song_search_response.json().await.ok()?;
+    let song_search_json = get_json(&song_search_url, MOZILLA_UA).await?;
     let songs = song_search_json.get("data")?.get("lists")?.as_array()?;
     let song = select_kugou_song(songs, title, artist)?;
     let hash = song.get("FileHash")?.as_str()?;
 
     let lyrics_search_url =
         format!("https://lyrics.kugou.com/search?ver=1&man=yes&client=pc&hash={hash}");
-    let lyrics_search_response = HTTP_CLIENT
-        .get(&lyrics_search_url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        )
-        .send()
-        .await
-        .ok()?;
-    let lyrics_search_json: Value = lyrics_search_response.json().await.ok()?;
+    let lyrics_search_json = get_json(&lyrics_search_url, MOZILLA_UA).await?;
     let candidates = lyrics_search_json.get("candidates")?.as_array()?;
     let candidate = select_kugou_lyric_candidate(candidates, title, artist)?;
     download_kugou_lyrics(candidate).await
@@ -439,16 +398,7 @@ async fn download_kugou_lyrics(candidate: &Value) -> Option<Arc<Vec<LyricLine>>>
     let download_url = format!(
         "https://lyrics.kugou.com/download?ver=1&client=pc&id={id}&accesskey={access_key}&fmt=lrc&charset=utf8"
     );
-    let download_response = HTTP_CLIENT
-        .get(&download_url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        )
-        .send()
-        .await
-        .ok()?;
-    let download_json: Value = download_response.json().await.ok()?;
+    let download_json = get_json(&download_url, MOZILLA_UA).await?;
     let content = download_json.get("content")?.as_str()?;
     let decoded = STANDARD.decode(content).ok()?;
     let lrc = std::str::from_utf8(&decoded).ok()?;
