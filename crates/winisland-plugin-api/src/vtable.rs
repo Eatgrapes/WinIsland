@@ -2,7 +2,7 @@ use crate::HostApiC;
 use crate::types::metadata::PluginMetadataC;
 use crate::types::shortcut::ShortcutC;
 use crate::types::theme::{AnimationConfigC, ThemeColorsC};
-use crate::types::{PluginHandle, PluginResultC, PluginType};
+use crate::types::{PluginHandle, PluginResultC};
 
 /// Virtual function table that every plugin DLL must expose.
 ///
@@ -44,27 +44,27 @@ pub struct PluginVTable {
 
     /// Return the current theme colours.
     ///
-    /// Required for [`PluginType::Theme`] plugins.
+    /// Required for [`crate::PluginType::Theme`] plugins.
     pub get_colors: Option<unsafe extern "C" fn(PluginHandle) -> ThemeColorsC>,
 
     /// Return animation timing configuration.
     ///
-    /// Required for [`PluginType::Theme`] plugins.
+    /// Required for [`crate::PluginType::Theme`] plugins.
     pub get_animations: Option<unsafe extern "C" fn(PluginHandle) -> AnimationConfigC>,
 
     /// Number of shortcuts exposed by this plugin.
     ///
-    /// Required for [`PluginType::Shortcut`] plugins.
+    /// Required for [`crate::PluginType::Shortcut`] plugins.
     pub get_shortcuts_count: Option<unsafe extern "C" fn(PluginHandle) -> u32>,
 
     /// Write the `i`-th shortcut (0-indexed) into the output buffer.
     ///
-    /// Required for [`PluginType::Shortcut`] plugins.
+    /// Required for [`crate::PluginType::Shortcut`] plugins.
     pub get_shortcut_at: Option<unsafe extern "C" fn(PluginHandle, i: u32, out: *mut ShortcutC)>,
 
     /// Execute the shortcut identified by `id`.
     ///
-    /// Required for [`PluginType::Shortcut`] plugins.
+    /// Required for [`crate::PluginType::Shortcut`] plugins.
     pub execute_shortcut:
         Option<unsafe extern "C" fn(PluginHandle, id: *const std::ffi::c_char) -> PluginResultC>,
 
@@ -108,7 +108,7 @@ pub struct PluginInstanceC {
     ///
     /// The vtable must remain valid for the lifetime of the handle.
     pub vtable: *const PluginVTable,
-    /// Plugin type discriminant ([`PluginType`]).
+    /// Plugin type discriminant ([`crate::PluginType`]).
     pub plugin_type: u32,
 }
 
