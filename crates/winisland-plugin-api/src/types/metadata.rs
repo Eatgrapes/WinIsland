@@ -1,7 +1,7 @@
 /// Fixed-width plugin metadata exchanged over FFI.
 ///
-/// Every field is a fixed-size byte buffer. The host reads them via
-/// [`read_c_str`] and [`read_opt_c_str`] helpers.
+/// Every field is a fixed-size byte buffer. The host reads each field as a
+/// NUL-terminated UTF-8 string.
 #[repr(C)]
 pub struct PluginMetadataC {
     /// Unique identifier (e.g. `"my-awesome-plugin"`). Max 63 bytes + NUL.

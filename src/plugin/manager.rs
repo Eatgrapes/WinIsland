@@ -188,6 +188,9 @@ unsafe extern "C" fn host_close_context(
     handle: crate::plugin::types::PluginHandle,
     id_str: *const std::ffi::c_char,
 ) -> crate::plugin::types::PluginResultC {
+    if id_str.is_null() {
+        return crate::plugin::types::PluginResultC::err("Context ID is null");
+    }
     let raw = unsafe { std::ffi::CStr::from_ptr(id_str) };
     let s = raw.to_string_lossy();
     if let Some(context_id) = crate::core::context::ContextId::from_encoded(&s) {
@@ -234,6 +237,12 @@ unsafe extern "C" fn host_register_translations(
     pairs: *const crate::plugin::types::TranslationPairC,
     count: u32,
 ) -> crate::plugin::types::PluginResultC {
+    if lang.is_null() {
+        return crate::plugin::types::PluginResultC::err("Language is null");
+    }
+    if count > 0 && pairs.is_null() {
+        return crate::plugin::types::PluginResultC::err("Translation pairs are null");
+    }
     let lang = unsafe { std::ffi::CStr::from_ptr(lang) }
         .to_str()
         .unwrap_or("en_us");
@@ -241,6 +250,9 @@ unsafe extern "C" fn host_register_translations(
     let rust_pairs: Vec<(&str, &str)> = slice
         .iter()
         .filter_map(|p| {
+            if p.key.is_null() || p.value.is_null() {
+                return None;
+            }
             let k = unsafe { std::ffi::CStr::from_ptr(p.key) }.to_str().ok()?;
             let v = unsafe { std::ffi::CStr::from_ptr(p.value) }.to_str().ok()?;
             Some((k, v))
@@ -361,11 +373,14 @@ impl PluginManager {
             .position(|p| p.metadata().id == plugin_id)
             .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
         let plugin = entries.remove(idx);
+        let handle = plugin.handle_raw();
         log::info!(
             "Plugin unloaded: {} ({})",
             plugin.metadata().name,
             plugin_id
         );
+        drop(plugin);
+        deregister_plugin_handle(handle);
         Ok(())
     }
 
@@ -414,7 +429,7 @@ impl PluginManager {
             .collect()
     }
 
-    /// Call `set_host_api` on every loaded plugin and register its handle.
+    /// Register each handle before giving the host API to the plugin.
     pub fn init_plugin_host_api(&self, api: *const crate::plugin::types::HostApiC) {
         let entries = match self.entries.read() {
             Ok(g) => g,
@@ -425,8 +440,8 @@ impl PluginManager {
         };
         for plugin in entries.iter() {
             let handle = plugin.handle_raw();
-            plugin.set_host_api(api);
             register_plugin_handle(handle, &plugin.metadata().id);
+            plugin.set_host_api(api);
         }
     }
 

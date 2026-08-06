@@ -172,46 +172,44 @@ pub(super) fn draw_background(params: BackgroundParams<'_>) {
             overlay.set_color(Color::from_argb(120, 20, 20, 24));
             overlay.set_anti_alias(true);
             canvas.draw_rect(rect, &overlay);
-        } else {
-            if let Some(bg_img) = get_glass_background(
-                direct_context,
-                GlassBackgroundParams {
-                    screen_x,
-                    screen_y,
-                    width: current_w as u32,
-                    height: current_h as u32,
-                    blur_sigma: 40.0 * global_scale,
-                    surface_width: surface_info.width() as u32,
-                    surface_height: surface_info.height() as u32,
-                    monitor_x,
-                    monitor_y,
-                    monitor_w,
-                    monitor_h,
-                },
-            ) {
-                let mut paint = Paint::default();
-                paint.set_anti_alias(true);
-                let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
-                let source_rect = Rect::from_wh(bg_img.width as f32, bg_img.height as f32);
-                canvas.draw_image_rect_with_sampling_options(
-                    &bg_img.image,
-                    Some((&source_rect, SrcRectConstraint::Fast)),
-                    rect,
-                    sampling,
-                    &paint,
-                );
+        } else if let Some(bg_img) = get_glass_background(
+            direct_context,
+            GlassBackgroundParams {
+                screen_x,
+                screen_y,
+                width: current_w as u32,
+                height: current_h as u32,
+                blur_sigma: 40.0 * global_scale,
+                surface_width: surface_info.width() as u32,
+                surface_height: surface_info.height() as u32,
+                monitor_x,
+                monitor_y,
+                monitor_w,
+                monitor_h,
+            },
+        ) {
+            let mut paint = Paint::default();
+            paint.set_anti_alias(true);
+            let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
+            let source_rect = Rect::from_wh(bg_img.width as f32, bg_img.height as f32);
+            canvas.draw_image_rect_with_sampling_options(
+                &bg_img.image,
+                Some((&source_rect, SrcRectConstraint::Fast)),
+                rect,
+                sampling,
+                &paint,
+            );
 
-                let mut darken = Paint::default();
-                darken.set_color(Color::from_argb(130, 10, 10, 14));
-                darken.set_anti_alias(true);
-                darken.set_blend_mode(skia_safe::BlendMode::Multiply);
-                canvas.draw_rect(rect, &darken);
-            } else {
-                let mut bg_paint = Paint::default();
-                bg_paint.set_color(Color::from_argb(205, 32, 32, 36));
-                bg_paint.set_anti_alias(true);
-                canvas.draw_rrect(rrect, &bg_paint);
-            }
+            let mut darken = Paint::default();
+            darken.set_color(Color::from_argb(130, 10, 10, 14));
+            darken.set_anti_alias(true);
+            darken.set_blend_mode(skia_safe::BlendMode::Multiply);
+            canvas.draw_rect(rect, &darken);
+        } else {
+            let mut bg_paint = Paint::default();
+            bg_paint.set_color(Color::from_argb(205, 32, 32, 36));
+            bg_paint.set_anti_alias(true);
+            canvas.draw_rrect(rrect, &bg_paint);
         }
     } else {
         canvas.save();

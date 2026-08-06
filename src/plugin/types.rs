@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use serde::{Deserialize, Serialize};
 
 pub use winisland_plugin_api::{
@@ -14,6 +12,7 @@ pub fn read_c_str(buf: &[u8]) -> String {
     String::from_utf8_lossy(&buf[..end]).into_owned()
 }
 
+#[allow(dead_code)]
 pub fn read_opt_c_str(buf: &[u8]) -> Option<String> {
     let s = read_c_str(buf);
     if s.is_empty() { None } else { Some(s) }
@@ -41,6 +40,7 @@ impl From<&PluginMetadataC> for PluginMetadata {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ThemeColors {
     pub primary: (u8, u8, u8, u8),
     pub secondary: (u8, u8, u8, u8),
@@ -72,6 +72,7 @@ impl From<&ThemeColorsC> for ThemeColors {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct AnimationConfig {
     pub expand_duration_ms: u32,
     pub collapse_duration_ms: u32,
@@ -89,6 +90,7 @@ impl From<&AnimationConfigC> for AnimationConfig {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Shortcut {
     pub id: String,
     pub name: String,
@@ -99,6 +101,7 @@ pub struct Shortcut {
 
 #[derive(Debug)]
 pub enum PluginError {
+    #[allow(dead_code)]
     NotFound(String),
     LoadFailed(String),
     InvalidPlugin(String),
@@ -127,17 +130,20 @@ pub trait Plugin: Send + Sync {
     fn plugin_type(&self) -> PluginType;
 }
 
+#[allow(dead_code)]
 pub trait ContentProvider: Plugin {
     fn on_click(&mut self);
     fn on_expanded(&mut self, expanded: bool);
     fn supports_expand(&self) -> bool;
 }
 
+#[allow(dead_code)]
 pub trait ThemeProvider: Plugin {
     fn get_colors(&self) -> ThemeColors;
     fn get_animations(&self) -> AnimationConfig;
 }
 
+#[allow(dead_code)]
 pub trait ShortcutProvider: Plugin {
     fn get_shortcuts(&self) -> Vec<Shortcut>;
     fn execute(&mut self, shortcut_id: &str) -> Result<(), String>;
