@@ -150,14 +150,20 @@ impl NativePlugin {
 
     /// Give this plugin a pointer to the host API table.
     ///
-    /// Calls through the vtable's `set_host_api` field. If the plugin
-    /// does not provide one (old plugin), this is a no-op.
+    /// Looks for a `plugin_set_host_api` symbol exported by the DLL.
+    /// If the plugin doesn't export it (old plugin), this is a no-op.
     /// The pointer must be `'static` (leaked or global).
     pub fn set_host_api(&self, api: *const super::types::HostApiC) {
-        let vtable = self.vtable();
-        if let Some(f) = vtable.set_host_api {
-            // SAFETY: calling through vtable with the opaque handle from the same DLL.
-            unsafe { f(self.handle, api) };
+        // Try to find the `plugin_set_host_api` symbol exported by the DLL.
+        // Old plugins don't export it — this is a no-op for those.
+        let lib: &Library = &self._lib;
+        if let Ok(func) = unsafe {
+            lib.get::<unsafe extern "C" fn(
+                crate::plugin::types::PluginHandle,
+                *const crate::plugin::types::HostApiC,
+            )>(b"plugin_set_host_api\0")
+        } {
+            unsafe { (func)(self.handle, api) };
         }
     }
 
