@@ -4,9 +4,10 @@ use crate::types::i18n::TranslationPairC;
 use crate::types::{PluginHandle, PluginResultC};
 use std::ffi::c_char;
 
-/// Host-side API table passed to plugins via [`PluginVTable::set_host_api`](crate::PluginVTable).
+/// Host-side API table passed to plugins through their exported
+/// `plugin_set_host_api` function.
 ///
-/// Plugins store this pointer during `set_host_api` and call through it
+/// Plugins store this pointer during `plugin_set_host_api` and call through it
 /// whenever they need to interact with the host (push context, close context,
 /// query state, register translations). All functions are safe to call from any thread.
 #[repr(C)]
@@ -26,7 +27,7 @@ pub struct HostApiC {
     /// Replace SMTC with plugin-provided media source.
     ///
     /// The host will use this data for the entire media UI. Returns an
-    /// error if `title` is empty. Call [`clear_media_source`] to restore SMTC.
+    /// error if `title` is empty. Call [`HostApiC::clear_media_source`] to restore SMTC.
     pub set_media_source: unsafe extern "C" fn(PluginHandle, MediaSourceC) -> PluginResultC,
 
     /// Restore SMTC as the active media source and stop using plugin data.

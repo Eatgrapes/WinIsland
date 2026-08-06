@@ -1,33 +1,34 @@
 # 插件开发指南
 
-欢迎！(´｡• ᵕ •｡`)♡ 你将通过插件扩展 WinIsland 的功能。
+欢迎！你将通过插件扩展 WinIsland 的功能。
 
-> ⚠️ **注意：插件系统目前处于基础阶段。** C ABI 类型定义已经就绪，但宿主端的 trait 接口（`ContentProvider`、`ThemeProvider`、`ShortcutProvider`）**尚未接入渲染管线**。请关注 [issue #55](https://github.com/Eatgrapes/WinIsland/issues/55) —— 非常期待听到你的想法！
+> **注意：插件系统目前处于基础阶段。** C ABI 类型定义已经就绪，基于 push 模式的内容系统（`send_context`）已经可以使用。但宿主端的 trait 接口（`ContentProvider`、`ThemeProvider`、`ShortcutProvider`）尚未接入渲染管线。请关注 [issue #55](https://github.com/Eatgrapes/WinIsland/issues/55) 了解详情。
 
 ## 插件工作原理
 
 WinIsland 使用 **C ABI vtable** 模式来安全加载原生 `.dll` 插件：
 
 ```
-WinIsland.exe  ──libloading──▶  your_plugin.dll
-   │                                  │
-   │  PluginManager                   │  导出 plugin_get_instance()
-   │  └─ Vec<NativePlugin>            │  返回 PluginInstanceC {
-   │       ├─ metadata (id, name…)    │    handle: 不透明指针
-   │       ├─ handle (不透明指针)      │    vtable: 函数指针表
-   │       └─ vtable (函数指针表)      │    metadata: PluginMetadataC
-   │                                  │  }
-   └── 调用 trait ──▶  通过 vtable ──▶  你的代码运行！
+WinIsland.exe  ──libloading──>  your_plugin.dll
+   |                                  |
+   |  PluginManager                   |  导出 plugin_get_instance()
+   |  `-- Vec<NativePlugin>           |  返回 PluginInstanceC {
+   |       |-- metadata (id, name...) |    handle: 不透明指针
+   |       |-- handle (不透明指针)     |    vtable: 函数指针表
+   |       `-- vtable (函数指针表)     |    metadata: PluginMetadataC
+   |                                  |  }
+   `-- 调用 trait --> 通过 vtable --> 你的代码运行！
 ```
 
-跨 FFI 边界的所有数据都是 `#[repr(C)]` — 扁平结构体，没有 `Vec`、`String` 或 trait 对象。这意味着你的插件可以用任意 Rust 版本编译都能正常工作 (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧
+跨 FFI 边界的所有数据都是 `#[repr(C)]` -- 扁平结构体，没有 `Vec`、`String` 或 trait 对象。这意味着你的插件可以用任意 Rust 版本编译都能正常工作。
 
-## 插件类型（计划中）
+## 插件类型
 
-| 类型 | 用途 | 状态 |
-|------|------|------|
-| **Theme** (id=2) | 覆盖岛的配色和动画参数 | 🔲 API 待定 |
-| **Shortcut** (id=3) | 注册可执行操作 | 🔲 API 待定 |
+| 类型 | ID | 用途 | 状态 |
+|------|----|------|------|
+| **Content** | 1 | 通过 `send_context` 推送自定义岛内容（通知、状态等）| 可用 |
+| **Theme** | 2 | 覆盖岛的配色和动画参数 | API 已定义，尚未接入 |
+| **Shortcut** | 3 | 注册可执行操作 | API 已定义，尚未接入 |
 
 ## 项目初始化
 
@@ -49,7 +50,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-winisland-plugin-api = "0.1.3"
+winisland-plugin-api = "0.2"
 ```
 
 ## 实现插件
@@ -64,17 +65,17 @@ use winisland_plugin_api::*;
 // 插件实例就是你的插件状态。
 struct MyPlugin;
 
-// 唯一且必需的入口点 —— WinIsland 通过 libloading 调用它。
-#[no_mangle]
-pub extern "C" fn plugin_get_instance() -> PluginInstanceC {
+// 唯一且必需的入口点 -- WinIsland 通过 libloading 调用它。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plugin_get_instance() -> PluginInstanceC {
     let handle = Box::into_raw(Box::new(MyPlugin)) as PluginHandle;
 
-    // vtable 是静态的 —— 只要 DLL 被加载它就存在。
+    // vtable 是静态的 -- 只要 DLL 被加载它就存在。
     static VTABLE: PluginVTable = PluginVTable {
         on_load:    on_load,
         on_unload:  on_unload,
         destroy:    destroy,
-        get_content: None,
+        set_host_api: None,
         on_click:   None,
         on_expanded: None,
         supports_expand: None,
@@ -112,7 +113,42 @@ unsafe extern "C" fn destroy(handle: PluginHandle) {
 }
 ```
 
-## 一行命令打包 (ﾉ◕ヮ◕)ﾉ
+### 向岛推送内容
+
+Content 类型插件可以导出 `plugin_set_host_api` 来接收宿主 API 表，然后调用 `send_context` 向岛推送数据。`PluginVTable::set_host_api` 字段为未来版本保留，当前宿主不会调用该字段。
+
+```rust
+struct MyPlugin {
+    host_api: Option<*const HostApiC>,
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plugin_set_host_api(
+    handle: PluginHandle,
+    api: *const HostApiC,
+) {
+    let plugin = unsafe { &mut *(handle as *mut MyPlugin) };
+    plugin.host_api = Some(api);
+}
+
+fn send_notification(handle: PluginHandle) -> Option<ContextIdC> {
+    let plugin = unsafe { &*(handle as *const MyPlugin) };
+    if let Some(api) = plugin.host_api {
+        let ctx = ContextDataC {
+            priority: PRIORITY_MEDIUM,
+            title: str_to_fixed("Notification"),
+            body: str_to_fixed("Hello from plugin!"),
+            duration_sec: 5,
+            mini_render: true,
+            mini_text: str_to_fixed("New notification"),
+        };
+        return Some(unsafe { ((*api).send_context)(handle, ctx) });
+    }
+    None
+}
+```
+
+## 一行命令打包
 
 `winisland-plugin-api` crate 带有一个可选的 **packager** 模块，可自动完成编译、签名和 ZIP 打包。
 
@@ -122,7 +158,7 @@ unsafe extern "C" fn destroy(handle: PluginHandle) {
 
 ```toml
 [dev-dependencies]
-winisland-plugin-api = { version = "0.1.3", features = ["packager"] }
+winisland-plugin-api = { version = "0.2", features = ["packager"] }
 
 [[bin]]
 name = "pack"
@@ -166,8 +202,8 @@ Packager 会自动：
 
 ```
 my-plugin.zip
-├── plugin.yml    ← 插件清单（必需）
-└── *.dll         ← 插件二进制（必需，可多个 .dll）
+|-- plugin.yml    (插件清单，必需)
+`-- *.dll         (插件二进制，必需，可多个 .dll)
 ```
 
 #### plugin.yml
@@ -180,11 +216,11 @@ description: This is example plugin
 github-link: example/example-plugin
 ```
 
-**所有 5 个字段都是必需的** —— 缺少任何一个都会导致安装失败 o(TヘTo)
+**所有 5 个字段都是必需的** -- 缺少任何一个都会导致安装失败。
 
 ## 数字签名（推荐）
 
-插件可以**选择性地**用 Ed25519 签名以验证真实性。签名后的插件在加载前会被校验——未签名的插件仍然可以工作，但会显示警告。
+Packager 可以选择性地向 `plugin.yml` 写入 Ed25519 签名和 DLL 哈希。当前宿主尚未验证这些字段，因此签名目前只是包元数据，不能作为强制信任边界。
 
 ### 生成签名密钥
 
@@ -193,7 +229,7 @@ openssl genpkey -algorithm ed25519 -out signing_key.pem
 openssl pkey -in signing_key.pem -pubout -out public_key.pem
 ```
 
-`public_key.pem` 由项目维护者嵌入 WinIsland 二进制文件中。如果你是插件开发者，将通过安全渠道从 WinIsland 团队获取签名密钥。
+私钥不得提交到仓库；在 CI 中应通过受保护的 secret 提供。
 
 ### 打包时签名
 
@@ -201,7 +237,7 @@ openssl pkey -in signing_key.pem -pubout -out public_key.pem
 cargo run --bin pack
 ```
 
-如果 `signing_key.pem` 在项目根目录存在，packager 会自动签名插件。签名会嵌入 `plugin.yml`：
+调用 `signing_key_path` 或 `signing_key_env` 后，packager 会把签名写入 `plugin.yml`：
 
 ```yaml
 name: my-plugin
@@ -232,13 +268,13 @@ PluginPackager::from_cargo()
     .unwrap();
 ```
 
-## 安装 ฅ^•ﻌ•^ฅ
+## 安装
 
-直接把 **`.zip` 文件拖到岛（Dynamic Island）上**！插件会在后台线程中解压（保证岛保持流畅响应）并自动加载。
+直接把 **`.zip` 文件拖到岛（Dynamic Island）上**。插件会在后台线程中解压（保证岛保持流畅响应）并自动加载。
 
 安装成功后会弹出 Windows 通知对话框确认。
 
-你也可以手动将 `.dll` 文件放入插件目录的子目录中 —— WinIsland 启动时会扫描它们。
+你也可以手动将 `.dll` 文件放入插件目录的子目录中 -- WinIsland 启动时会扫描它们。
 
 ### 插件存储位置
 
@@ -254,7 +290,7 @@ WinIsland 在加载插件时应用了多重安全措施：
 |---------|------|
 | **插件 ID 校验** | ID 只能包含 `[a-zA-Z0-9_-]` |
 | **ID 冲突检测** | 拒绝加载重复的插件 ID |
-| **签名验证** | 加载前检查 Ed25519 签名（如果存在）|
+| **包哈希** | Packager 可记录 DLL 哈希；宿主验证尚未实现 |
 | **路径穿越防护** | 拒绝包含 `..`、`:` 或绝对路径的 ZIP 条目 |
 | **符号链接拒绝** | 拒绝 ZIP 中的符号链接条目 |
 | **后台解压** | ZIP 解压在后台线程执行 |
@@ -263,7 +299,7 @@ WinIsland 在加载插件时应用了多重安全措施：
 
 ## C ABI 类型参考
 
-这些类型定义在 `winisland-plugin-api` crate 中。在 API 集成完成前，它们仅用于 DLL 加载验证——**插件功能尚未在 UI 中可见**。
+这些类型定义在 `winisland-plugin-api` crate 中。
 
 ### PluginResultC
 
@@ -288,18 +324,58 @@ pub struct PluginMetadataC {
 }
 ```
 
-### IslandContentC
+### HostApiC
+
+宿主 API 表通过插件导出的 `plugin_set_host_api` 函数传递。插件存储此指针并通过它来与宿主交互。
 
 ```rust
-pub struct IslandContentC {
-    pub tag: u32,
+pub struct HostApiC {
+    pub send_context: unsafe extern "C" fn(PluginHandle, ContextDataC) -> ContextIdC,
+    pub close_context: unsafe extern "C" fn(PluginHandle, *const c_char) -> PluginResultC,
+    pub query_host_state: unsafe extern "C" fn(PluginHandle) -> HostStateC,
+    pub set_media_source: unsafe extern "C" fn(PluginHandle, MediaSourceC) -> PluginResultC,
+    pub clear_media_source: unsafe extern "C" fn(PluginHandle) -> PluginResultC,
+    pub register_translations: unsafe extern "C" fn(
+        PluginHandle,
+        *const c_char,
+        *const TranslationPairC,
+        u32,
+    ) -> PluginResultC,
+}
+```
+
+### ContextDataC / ContextIdC / HostStateC / MediaSourceC
+
+```rust
+pub struct ContextDataC {
+    pub priority: u32,       // PRIORITY_LOW, PRIORITY_MEDIUM, 或 PRIORITY_HIGH
+    pub title: [u8; 256],    // 在 mini 和展开视图显示
+    pub body: [u8; 512],     // 展开正文
+    pub duration_sec: u32,   // 自动折叠前的秒数
+    pub mini_render: bool,   // 折叠后是否显示 mini 摘要
+    pub mini_text: [u8; 128],// mini 摘要文本
+}
+
+pub struct ContextIdC {
+    pub id: [u8; 128],       // 编码为 "plugin_id:context_id"
+}
+
+pub struct HostStateC {
+    pub media_title: [u8; 256],
+    pub media_artist: [u8; 256],
+    pub is_playing: bool,
+    pub theme: [u8; 32],     // "light" 或 "dark"
+}
+
+pub struct MediaSourceC {
     pub title: [u8; 256],
     pub artist: [u8; 256],
-    pub cover_url: [u8; 512],
+    pub album: [u8; 256],
+    pub duration_ms: u64,
+    pub position_ms: u64,
     pub is_playing: bool,
-    pub message: [u8; 256],
-    pub label: [u8; 128],
-    pub value: [u8; 128],
+    pub cover_data: *const u8,
+    pub cover_len: u32,
 }
 ```
 
@@ -310,7 +386,7 @@ pub struct PluginVTable {
     pub on_load: unsafe extern "C" fn(PluginHandle) -> PluginResultC,
     pub on_unload: unsafe extern "C" fn(PluginHandle) -> PluginResultC,
     pub destroy: unsafe extern "C" fn(PluginHandle),
-    pub get_content: Option<unsafe extern "C" fn(PluginHandle) -> IslandContentC>,
+    pub set_host_api: Option<unsafe extern "C" fn(PluginHandle, *const HostApiC)>, // 保留字段
     pub on_click: Option<unsafe extern "C" fn(PluginHandle)>,
     pub on_expanded: Option<unsafe extern "C" fn(PluginHandle, bool)>,
     pub supports_expand: Option<unsafe extern "C" fn(PluginHandle) -> bool>,
@@ -359,12 +435,19 @@ pub struct ShortcutC {
 }
 ```
 
-## 加入讨论 (づ｡◕‿‿◕｡)づ
+### TranslationPairC
 
-除了接入岛上下文之外，我们还没有太多具体的方向…… **真的很缺灵感 QWQ**
+```rust
+pub struct TranslationPairC {
+    pub key: *const c_char,
+    pub value: *const c_char,
+}
+```
 
-请来 [#55](https://github.com/Eatgrapes/WinIsland/issues/55) 一起讨论你希望插件系统支持什么功能！
+## 加入讨论
+
+除了接入岛上下文之外，我们还没有太多具体的方向。欢迎来 [#55](https://github.com/Eatgrapes/WinIsland/issues/55) 一起讨论你希望插件系统支持什么功能。
 
 ---
 
-Happy hacking! (づ｡◕‿‿◕｡)づ 如果遇到问题，欢迎在 [GitHub](https://github.com/Eatgrapes/WinIsland) 上开 issue。
+如果遇到问题，欢迎在 [GitHub](https://github.com/Eatgrapes/WinIsland) 上开 issue。

@@ -2,7 +2,7 @@ use crate::HostApiC;
 use crate::types::metadata::PluginMetadataC;
 use crate::types::shortcut::ShortcutC;
 use crate::types::theme::{AnimationConfigC, ThemeColorsC};
-use crate::types::{PluginHandle, PluginResultC};
+use crate::types::{PluginHandle, PluginResultC, PluginType};
 
 /// Virtual function table that every plugin DLL must expose.
 ///
@@ -68,11 +68,10 @@ pub struct PluginVTable {
     pub execute_shortcut:
         Option<unsafe extern "C" fn(PluginHandle, id: *const std::ffi::c_char) -> PluginResultC>,
 
-    /// Give the plugin a pointer to the host API table.
+    /// Reserved slot for receiving the host API table.
     ///
-    /// Called after `on_load`. The plugin should store this pointer
-    /// and use it to call `send_context`, `close_context`, etc.
-    /// May be `None` for plugins that don't need host interaction.
+    /// The current host uses the exported `plugin_set_host_api` function for
+    /// backward compatibility and does not call this slot. Set it to `None`.
     pub set_host_api: Option<unsafe extern "C" fn(PluginHandle, *const HostApiC)>,
 }
 
@@ -83,7 +82,7 @@ pub struct PluginVTable {
 ///
 /// ```rust,no_run
 /// # use winisland_plugin_api::*;
-/// #[no_mangle]
+/// #[unsafe(no_mangle)]
 /// pub unsafe extern "C" fn plugin_get_instance() -> PluginInstanceC {
 ///     PluginInstanceC {
 ///         handle: std::ptr::null_mut(),
@@ -116,7 +115,7 @@ pub struct PluginInstanceC {
 /// Entry-point function signature that every plugin DLL must export.
 ///
 /// ```ignore
-/// #[no_mangle]
+/// #[unsafe(no_mangle)]
 /// pub unsafe extern "C" fn plugin_get_instance() -> PluginInstanceC;
 /// ```
 pub type PluginGetInstanceFn = unsafe extern "C" fn() -> PluginInstanceC;
