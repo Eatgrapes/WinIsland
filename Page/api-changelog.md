@@ -5,6 +5,40 @@ All notable changes to `winisland-plugin-api` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+Changed:
+
+- Plugin development guides now match the current push-based host API and Rust 2024 syntax
+- `PluginVTable::set_host_api` is documented as reserved; the host currently injects
+  `HostApiC` through the exported `plugin_set_host_api` symbol
+- Signing documentation now distinguishes packager-generated metadata from host verification
+
+Fixed:
+
+- Context IDs now use a process-local atomic counter to avoid timestamp collisions
+- Host callbacks reject invalid null pointers before reading FFI data
+- Plugin handle mappings are removed during unload
+- Plugin handles are registered before host API injection, so initialization callbacks resolve
+  to the correct plugin
+- Broken intra-doc links in the plugin vtable documentation
+
+## 0.2.0 - Jun 19, 2026
+
+Added:
+
+- `TranslationPairC` — FFI-safe translation key-value pair for plugin i18n
+- `HostApiC::register_translations` — plugin registers translations during `on_load`;
+  later registrations override earlier ones for the same key
+- i18n overlay layer — `tr()` checks plugin-registered translations before `.lang` files
+
+Changed:
+
+- **Breaking**: `HostApiC` gains a new required field, `register_translations`;
+  all host implementations must provide this callback
+- The crate is split into focused host, vtable, and type modules
+- All public types remain re-exported from the crate root
+
 ## 0.1.3 - Jun 19, 2026
 
 Added:

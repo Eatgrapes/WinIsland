@@ -5,6 +5,39 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/),
 版本管理遵循 [Semantic Versioning](https://semver.org/)。
 
+## 未发布
+
+变更：
+
+- 插件开发指南已与当前基于推送的宿主 API 和 Rust 2024 语法保持一致
+- `PluginVTable::set_host_api` 已明确标记为保留字段；宿主当前通过插件导出的
+  `plugin_set_host_api` 符号注入 `HostApiC`
+- 签名文档现在区分打包器生成的元数据与宿主端签名验证
+
+修复：
+
+- Context ID 改用进程内原子计数器，避免时间戳碰撞
+- 宿主回调在读取 FFI 数据前拒绝无效的空指针
+- 插件卸载时清理 handle 映射
+- 在注入宿主 API 前注册插件 handle，确保初始化回调能关联到正确插件
+- 修复插件 vtable 文档中的无效 rustdoc 链接
+
+## 0.2.0 - 2026-06-19
+
+新增：
+
+- `TranslationPairC` — FFI 安全的插件国际化键值对
+- `HostApiC::register_translations` — 插件可在 `on_load` 期间注册翻译；
+  相同键的后续注册会覆盖先前值
+- 国际化覆盖层 — `tr()` 会先检查插件注册的翻译，再检查 `.lang` 文件
+
+变更：
+
+- **破坏性变更**：`HostApiC` 新增必需字段 `register_translations`；
+  所有宿主实现都必须提供该回调
+- crate 拆分为职责明确的 host、vtable 和类型模块
+- 所有公共类型仍从 crate 根目录重新导出
+
 ## 0.1.3 - 2026-06-19
 
 新增：
