@@ -1,34 +1,34 @@
 # 插件开发指南
 
-欢迎使用插件扩展 WinIsland 的功能。
+欢迎！你将通过插件扩展 WinIsland 的功能。
 
-> **注意：插件系统目前处于基础阶段。** C ABI 类型定义已经就绪，基于 push 模式的内容系统（`send_context`）已经可以使用。但宿主端的 trait 接口（`ContentProvider`、`ThemeProvider`、`ShortcutProvider`）尚未接入渲染管线。请关注 [issue #55](https://github.com/Eatgrapes/WinIsland/issues/55)。
+> **注意：插件系统目前处于基础阶段。** C ABI 类型定义已经就绪，基于 push 模式的内容系统（`send_context`）已经可以使用。但宿主端的 trait 接口（`ContentProvider`、`ThemeProvider`、`ShortcutProvider`）尚未接入渲染管线。请关注 [issue #55](https://github.com/Eatgrapes/WinIsland/issues/55) 了解详情。
 
 ## 插件工作原理
 
 WinIsland 使用 **C ABI vtable** 模式来安全加载原生 `.dll` 插件：
 
 ```
-WinIsland.exe  ──libloading──▶  your_plugin.dll
-   │                                  │
-   │  PluginManager                   │  导出 plugin_get_instance()
-   │  └─ Vec<NativePlugin>            │  返回 PluginInstanceC {
-   │       ├─ metadata (id, name…)    │    handle: 不透明指针
-   │       ├─ handle (不透明指针)      │    vtable: 函数指针表
-   │       └─ vtable (函数指针表)      │    metadata: PluginMetadataC
-   │                                  │  }
-   └── 通过 vtable 调用 ──▶ 你的代码运行
+WinIsland.exe  ──libloading──>  your_plugin.dll
+   |                                  |
+   |  PluginManager                   |  导出 plugin_get_instance()
+   |  `-- Vec<NativePlugin>           |  返回 PluginInstanceC {
+   |       |-- metadata (id, name...) |    handle: 不透明指针
+   |       |-- handle (不透明指针)     |    vtable: 函数指针表
+   |       `-- vtable (函数指针表)     |    metadata: PluginMetadataC
+   |                                  |  }
+   `-- 调用 trait --> 通过 vtable --> 你的代码运行！
 ```
 
-跨 FFI 边界的所有数据都是 `#[repr(C)]` — 扁平结构体，没有 `Vec`、`String` 或 trait 对象。插件可以使用不同的 Rust 版本编译，只要保持 ABI 兼容即可。
+跨 FFI 边界的所有数据都是 `#[repr(C)]` -- 扁平结构体，没有 `Vec`、`String` 或 trait 对象。这意味着你的插件可以用任意 Rust 版本编译都能正常工作。
 
 ## 插件类型
 
-| 类型 | 用途 | 状态 |
-|------|------|------|
-| **Content** (id=1) | 通过 `send_context` 推送自定义岛内容 | 可用 |
-| **Theme** (id=2) | 覆盖岛的配色和动画参数 | API 已定义，尚未接入 |
-| **Shortcut** (id=3) | 注册可执行操作 | API 已定义，尚未接入 |
+| 类型 | ID | 用途 | 状态 |
+|------|----|------|------|
+| **Content** | 1 | 通过 `send_context` 推送自定义岛内容（通知、状态等）| 可用 |
+| **Theme** | 2 | 覆盖岛的配色和动画参数 | API 已定义，尚未接入 |
+| **Shortcut** | 3 | 注册可执行操作 | API 已定义，尚未接入 |
 
 ## 项目初始化
 
@@ -65,12 +65,12 @@ use winisland_plugin_api::*;
 // 插件实例就是你的插件状态。
 struct MyPlugin;
 
-// 唯一且必需的入口点 —— WinIsland 通过 libloading 调用它。
+// 唯一且必需的入口点 -- WinIsland 通过 libloading 调用它。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn plugin_get_instance() -> PluginInstanceC {
     let handle = Box::into_raw(Box::new(MyPlugin)) as PluginHandle;
 
-    // vtable 是静态的 —— 只要 DLL 被加载它就存在。
+    // vtable 是静态的 -- 只要 DLL 被加载它就存在。
     static VTABLE: PluginVTable = PluginVTable {
         on_load:    on_load,
         on_unload:  on_unload,
@@ -110,6 +110,41 @@ unsafe extern "C" fn on_unload(_handle: PluginHandle) -> PluginResultC {
 
 unsafe extern "C" fn destroy(handle: PluginHandle) {
     drop(unsafe { Box::from_raw(handle as *mut MyPlugin) });
+}
+```
+
+### 向岛推送内容
+
+Content 类型插件可以导出 `plugin_set_host_api` 来接收宿主 API 表，然后调用 `send_context` 向岛推送数据。`PluginVTable::set_host_api` 字段为未来版本保留，当前宿主不会调用该字段。
+
+```rust
+struct MyPlugin {
+    host_api: Option<*const HostApiC>,
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plugin_set_host_api(
+    handle: PluginHandle,
+    api: *const HostApiC,
+) {
+    let plugin = unsafe { &mut *(handle as *mut MyPlugin) };
+    plugin.host_api = Some(api);
+}
+
+fn send_notification(handle: PluginHandle) -> Option<ContextIdC> {
+    let plugin = unsafe { &*(handle as *const MyPlugin) };
+    if let Some(api) = plugin.host_api {
+        let ctx = ContextDataC {
+            priority: PRIORITY_MEDIUM,
+            title: str_to_fixed("Notification"),
+            body: str_to_fixed("Hello from plugin!"),
+            duration_sec: 5,
+            mini_render: true,
+            mini_text: str_to_fixed("New notification"),
+        };
+        return Some(unsafe { ((*api).send_context)(handle, ctx) });
+    }
+    None
 }
 ```
 
@@ -167,8 +202,8 @@ Packager 会自动：
 
 ```
 my-plugin.zip
-├── plugin.yml    ← 插件清单（必需）
-└── *.dll         ← 插件二进制（必需，可多个 .dll）
+|-- plugin.yml    (插件清单，必需)
+`-- *.dll         (插件二进制，必需，可多个 .dll)
 ```
 
 #### plugin.yml
@@ -181,7 +216,7 @@ description: This is example plugin
 github-link: example/example-plugin
 ```
 
-**所有 5 个字段都是必需的** —— 缺少任何一个都会导致安装失败。
+**所有 5 个字段都是必需的** -- 缺少任何一个都会导致安装失败。
 
 ## 数字签名（推荐）
 
@@ -235,11 +270,11 @@ PluginPackager::from_cargo()
 
 ## 安装
 
-直接把 **`.zip` 文件拖到岛（Dynamic Island）上**！插件会在后台线程中解压（保证岛保持流畅响应）并自动加载。
+直接把 **`.zip` 文件拖到岛（Dynamic Island）上**。插件会在后台线程中解压（保证岛保持流畅响应）并自动加载。
 
 安装成功后会弹出 Windows 通知对话框确认。
 
-你也可以手动将 `.dll` 文件放入插件目录的子目录中 —— WinIsland 启动时会扫描它们。
+你也可以手动将 `.dll` 文件放入插件目录的子目录中 -- WinIsland 启动时会扫描它们。
 
 ### 插件存储位置
 
@@ -291,7 +326,7 @@ pub struct PluginMetadataC {
 
 ### HostApiC
 
-宿主 API 表通过插件导出的 `plugin_set_host_api` 函数传递。插件可以保存该指针，并通过它向宿主发送上下文、关闭上下文、查询宿主状态、设置媒体源或注册翻译。
+宿主 API 表通过插件导出的 `plugin_set_host_api` 函数传递。插件存储此指针并通过它来与宿主交互。
 
 ```rust
 pub struct HostApiC {
@@ -306,6 +341,41 @@ pub struct HostApiC {
         *const TranslationPairC,
         u32,
     ) -> PluginResultC,
+}
+```
+
+### ContextDataC / ContextIdC / HostStateC / MediaSourceC
+
+```rust
+pub struct ContextDataC {
+    pub priority: u32,       // PRIORITY_LOW, PRIORITY_MEDIUM, 或 PRIORITY_HIGH
+    pub title: [u8; 256],    // 在 mini 和展开视图显示
+    pub body: [u8; 512],     // 展开正文
+    pub duration_sec: u32,   // 自动折叠前的秒数
+    pub mini_render: bool,   // 折叠后是否显示 mini 摘要
+    pub mini_text: [u8; 128],// mini 摘要文本
+}
+
+pub struct ContextIdC {
+    pub id: [u8; 128],       // 编码为 "plugin_id:context_id"
+}
+
+pub struct HostStateC {
+    pub media_title: [u8; 256],
+    pub media_artist: [u8; 256],
+    pub is_playing: bool,
+    pub theme: [u8; 32],     // "light" 或 "dark"
+}
+
+pub struct MediaSourceC {
+    pub title: [u8; 256],
+    pub artist: [u8; 256],
+    pub album: [u8; 256],
+    pub duration_ms: u64,
+    pub position_ms: u64,
+    pub is_playing: bool,
+    pub cover_data: *const u8,
+    pub cover_len: u32,
 }
 ```
 
@@ -365,9 +435,18 @@ pub struct ShortcutC {
 }
 ```
 
+### TranslationPairC
+
+```rust
+pub struct TranslationPairC {
+    pub key: *const c_char,
+    pub value: *const c_char,
+}
+```
+
 ## 加入讨论
 
-除了接入岛上下文之外，我们还没有太多具体的方向。请来 [#55](https://github.com/Eatgrapes/WinIsland/issues/55) 一起讨论你希望插件系统支持什么功能。
+除了接入岛上下文之外，我们还没有太多具体的方向。欢迎来 [#55](https://github.com/Eatgrapes/WinIsland/issues/55) 一起讨论你希望插件系统支持什么功能。
 
 ---
 

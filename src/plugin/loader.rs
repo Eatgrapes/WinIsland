@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use super::types::{
     AnimationConfig, ContentProvider, Plugin, PluginError, PluginGetInstanceFn, PluginHandle,
     PluginInstanceC, PluginMetadata, PluginResultC, PluginType, Shortcut, ShortcutC,
@@ -143,6 +141,7 @@ impl NativePlugin {
         Ok(plugin)
     }
 
+    #[allow(dead_code)]
     fn vtable(&self) -> &super::types::PluginVTable {
         // SAFETY: vtable was validated on construction and is 'static in the DLL.
         unsafe { &*self.vtable }

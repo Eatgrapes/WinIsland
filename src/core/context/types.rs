@@ -1,12 +1,9 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 fn generate_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("{:x}", ts)
+    static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+    format!("{:x}", NEXT_ID.fetch_add(1, Ordering::Relaxed))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

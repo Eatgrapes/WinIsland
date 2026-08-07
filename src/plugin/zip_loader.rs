@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use serde::Deserialize;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -58,6 +56,7 @@ fn read_zip_entry(zip: &mut zip::ZipArchive<std::fs::File>, name: &str) -> Optio
     Some(buf)
 }
 
+#[allow(dead_code)]
 pub fn validate_zip(zip_path: &Path) -> Result<(), String> {
     let file = std::fs::File::open(zip_path).map_err(|e| format!("Cannot open zip: {}", e))?;
     let zip = zip::ZipArchive::new(file).map_err(|e| format!("Invalid zip: {}", e))?;

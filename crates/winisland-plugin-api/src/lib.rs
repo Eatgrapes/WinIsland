@@ -11,7 +11,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! winisland-plugin-api = "0.1"
+//! winisland-plugin-api = "0.2"
 //! ```
 //!
 //! Implement the C ABI by exporting a `plugin_get_instance` function:
@@ -19,7 +19,7 @@
 //! ```rust,no_run
 //! use winisland_plugin_api::*;
 //!
-//! #[no_mangle]
+//! #[unsafe(no_mangle)]
 //! pub unsafe extern "C" fn plugin_get_instance() -> PluginInstanceC {
 //!     // See the crate docs for a full plugin example.
 //!     unimplemented!()
@@ -30,7 +30,7 @@
 //!
 //! ```toml
 //! [dev-dependencies]
-//! winisland-plugin-api = { version = "0.1", features = ["packager"] }
+//! winisland-plugin-api = { version = "0.2", features = ["packager"] }
 //! ```
 //!
 //! Add a `package.rs` binary that builds, signs and zips the plugin:
