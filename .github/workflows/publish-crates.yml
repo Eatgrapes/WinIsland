@@ -1,50 +1,111 @@
-name: Publish to crates.io
+name: Publish plugin API crate
 
 on:
   push:
-    tags:
-      - 'winisland-plugin-api-v*'
+    branches:
+      - master
+    paths:
+      - crates/winisland-plugin-api/Cargo.toml
+      - crates/winisland-plugin-api/src/**
+      - crates/winisland-plugin-api/README.md
+      - crates/winisland-plugin-api/ChangeLog.md
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Optional version to verify before publishing
+        required: false
+        type: string
+
+concurrency:
+  group: publish-winisland-plugin-api
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
+  PACKAGE: winisland-plugin-api
+  MANIFEST: crates/winisland-plugin-api/Cargo.toml
 
 jobs:
   publish:
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Parse crate name and version from tag
-        id: parse
+      - name: Read package version
+        id: package
         shell: bash
-        env:
-          REF_NAME: ${{ github.ref_name }}
         run: |
-          # e.g. winisland-plugin-api-v0.2.0 → package=winisland-plugin-api, version=0.2.0
-          PACKAGE="${REF_NAME%-v*}"
-          VERSION="${REF_NAME##*-v}"
-          echo "package=$PACKAGE" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          VERSION=$(cargo metadata --format-version 1 --no-deps | \
+            python3 -c "import json, os, sys; data=json.load(sys.stdin); print(next(p['version'] for p in data['packages'] if p['name'] == os.environ['PACKAGE']))")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Current $PACKAGE version: $VERSION"
 
-      - name: Verify version matches Cargo.toml
+      - name: Check whether the package version changed
+        id: changed
+        if: github.event_name == 'push'
         shell: bash
         env:
-          PKG: ${{ steps.parse.outputs.package }}
-          EXPECTED: ${{ steps.parse.outputs.version }}
+          BEFORE: ${{ github.event.before }}
         run: |
-          FOUND=$(cargo metadata --format-version 1 --no-deps | \
-            python3 -c "import sys,json,os; data=json.load(sys.stdin); \
-            pkg=[p for p in data['packages'] if p['name']==os.environ['PKG']][0]; print(pkg['version'])")
-          if [ "$FOUND" != "$EXPECTED" ]; then
-            echo "Version mismatch: tag says $EXPECTED, Cargo.toml says $FOUND"
+          if [[ "$BEFORE" =~ ^0+$ ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          PREVIOUS=$(git show "$BEFORE:$MANIFEST" | \
+            sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)"/\1/p' | head -n 1)
+          CURRENT='${{ steps.package.outputs.version }}'
+          if [ "$PREVIOUS" = "$CURRENT" ]; then
+            echo "Package version is unchanged at $CURRENT; skipping publish."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Package version changed from ${PREVIOUS:-unknown} to $CURRENT."
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate requested version
+        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+        shell: bash
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          if [ "$REQUESTED" != "${{ steps.package.outputs.version }}" ]; then
+            echo "Requested version $REQUESTED does not match the Cargo.toml version ${{ steps.package.outputs.version }}."
             exit 1
           fi
-          echo "Version $FOUND verified"
 
-      - name: Publish
-        run: cargo publish -p "${{ steps.parse.outputs.package }}"
+      - name: Check crates.io
+        id: registry
+        if: github.event_name == 'workflow_dispatch' || steps.changed.outputs.changed == 'true'
+        shell: bash
+        run: |
+          STATUS=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            "https://crates.io/api/v1/crates/$PACKAGE/${{ steps.package.outputs.version }}")
+          if [ "$STATUS" = "200" ]; then
+            echo "Version ${{ steps.package.outputs.version }} is already published; skipping publish."
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          elif [ "$STATUS" = "404" ]; then
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Unable to verify crates.io version status (HTTP $STATUS)."
+            exit 1
+          fi
+
+      - name: Validate package
+        if: steps.registry.outputs.published == 'false'
+        run: cargo package -p "$PACKAGE"
+
+      - name: Publish package
+        if: steps.registry.outputs.published == 'false'
+        run: cargo publish -p "$PACKAGE"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
