@@ -5,6 +5,21 @@ All notable changes to `winisland-plugin-api` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+Changed:
+
+- Plugin development examples now match the current push-based host API and Rust 2024 syntax
+- `PluginVTable::set_host_api` is documented as reserved; the host currently injects
+  `HostApiC` through the exported `plugin_set_host_api` symbol
+- Signing documentation now clarifies that the packager records signatures and DLL hashes,
+  but the host does not yet verify them
+
+Fixed:
+
+- Broken intra-doc links in the plugin vtable documentation
+- Host callback documentation now describes the required pointer validity rules
+
 ## 0.2.0 - Jun 19, 2026
 
 Added:
@@ -26,7 +41,7 @@ Changed:
 
 Added:
 
-- `MediaSourceC` — plugin-injectable media source (title, artist, album, duration, position, cover art) #?
+- `MediaSourceC` — plugin-injectable media source (title, artist, album, duration, position, cover art)
 - `HostApiC::set_media_source` — replace SMTC with plugin-provided media data
 - `HostApiC::clear_media_source` — restore SMTC as the active media source
 

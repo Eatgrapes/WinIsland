@@ -1,5 +1,5 @@
-name: Bug 报告 | Bug Report
-description: 创建一个 Bug 报告 | Create a bug report
+name: Bug Report
+description: Create a bug report
 title: "[Bug] "
 labels: ["bug", "pending"]
 assignees: []
@@ -7,60 +7,60 @@ body:
   - type: textarea
     id: description
     attributes:
-      label: 问题描述 | Problem description
-      description: 请详细描述遇到的问题 | Please describe the problem in detail
-      placeholder: 这里写你的问题描述 | Describe the problem here
+      label: Problem description
+      description: Please describe the problem in detail
+      placeholder: Describe the problem here
     validations:
       required: true
 
   - type: textarea
     id: reproduce
     attributes:
-      label: 复现步骤 | Steps to reproduce
-      description: 如何重现这个问题 | How to reproduce the issue
-      placeholder: 这里写你的复现步骤 | Describe the steps to reproduce here
+      label: Steps to reproduce
+      description: Describe how to reproduce the issue
+      placeholder: Describe the steps to reproduce here
     validations:
       required: true
 
   - type: textarea
     id: expected
     attributes:
-      label: 预期行为 | Expected behavior
-      description: 可选 - 你认为预期应该是怎么样的 | Optional - What you expected to happen
-      placeholder: 这里写你认为预期是怎么样的 | Describe the expected behavior here
+      label: Expected behavior
+      description: "Optional: describe what you expected to happen"
+      placeholder: Describe the expected behavior here
     validations:
       required: false
 
   - type: textarea
     id: actual
     attributes:
-      label: 实际行为 | Actual behavior
-      description: 实际操作时是怎么样的 | What actually happens when you perform the steps
-      placeholder: 这里写你的实际操作时是怎么样的 | Describe the actual behavior here
+      label: Actual behavior
+      description: Describe what actually happens
+      placeholder: Describe the actual behavior here
     validations:
       required: true
 
   - type: markdown
     attributes:
       value: |
-        ## 环境
+        ## Environment
 
   - type: dropdown
     id: os
     attributes:
-      label: Windows 版本 | Windows version
-      description: 请选择复现问题时使用的 Windows 版本 | Select the Windows version where the issue occurs
+      label: Windows version
+      description: Select the Windows version where the issue occurs
       options:
         - Windows 11
         - Windows 10
-        - 其他 Windows 版本 | Other Windows version
+        - Other Windows version
     validations:
       required: true
 
   - type: input
     id: version
     attributes:
-      label: 软件版本 请确保是最新版本 | Software version Please make sure it's the latest
+      label: Software version
       description: nightly
       placeholder: nightly
     validations:
@@ -69,26 +69,26 @@ body:
   - type: textarea
     id: other-env
     attributes:
-      label: 其他环境信息 | Other environment info
-      description: 如有其他环境信息请在此填写 | Any other relevant environment info
-      placeholder: 其他环境信息 | Other environment info
+      label: Other environment information
+      description: Provide any other relevant environment information
+      placeholder: Other environment information
     validations:
       required: false
 
   - type: textarea
     id: logs
     attributes:
-      label: 日志或截图 (如果存在) | Logs or screenshots (if any)
-      description: 粘贴日志文件上传地址，或是上传图片 | Paste log file upload link or attach screenshots
-      placeholder: 这里粘贴你的日志文件上传地址，或是上传图片 | Paste log file upload link or attach screenshots here
+      label: Logs or screenshots (if any)
+      description: Paste a log upload link or attach screenshots
+      placeholder: Paste a log upload link or attach screenshots here
     validations:
       required: false
 
   - type: textarea
     id: notes
     attributes:
-      label: 备注 | Notes
-      description: 可选 - 其他信息，如果没有请忽略 | Optional - Any other information, ignore if none
-      placeholder: 其他信息，如果没有请忽略 | Any other information, ignore if none
+      label: Notes
+      description: Optional: provide any other relevant information
+      placeholder: Additional information, if any
     validations:
       required: false
