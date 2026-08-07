@@ -14,7 +14,7 @@ use std::thread::ThreadId;
 ///
 /// # Safety (Send + Sync)
 /// This type holds a raw vtable pointer and a raw plugin handle from a loaded
-/// DLL. All vtable calls (`on_load`, `on_unload`, `get_content`, etc.) go
+/// DLL. All vtable calls (`on_load`, `on_unload`, etc.) go
 /// through these raw pointers — they are only safe in a single-threaded context
 /// because the underlying C plugin code may not be thread-safe.
 ///
@@ -29,6 +29,7 @@ pub struct NativePlugin {
     handle: PluginHandle,
     vtable: *const super::types::PluginVTable,
     _lib: ManuallyDrop<Library>,
+    initialized: bool,
     #[allow(dead_code)]
     owner_thread: ThreadId,
 }
@@ -112,6 +113,7 @@ impl NativePlugin {
             handle: instance.handle,
             vtable: instance.vtable,
             _lib: ManuallyDrop::new(lib),
+            initialized: false,
             owner_thread: std::thread::current().id(),
         };
 
@@ -129,16 +131,24 @@ impl NativePlugin {
             )));
         }
 
-        // SAFETY: calling the plugin's on_load via vtable with its own handle.
-        let result: PluginResultC = unsafe { (vtable.on_load)(plugin.handle) };
+        Ok(plugin)
+    }
+
+    /// Initialise the plugin after the host API has been injected.
+    pub fn initialize(&mut self) -> Result<(), PluginError> {
+        if self.initialized {
+            return Ok(());
+        }
+
+        let result: PluginResultC = unsafe { (self.vtable().on_load)(self.handle) };
         result.into_result().map_err(|e| {
             PluginError::ExecutionError(format!(
                 "Plugin '{}' on_load failed: {}",
-                plugin.metadata.id, e
+                self.metadata.id, e
             ))
         })?;
-
-        Ok(plugin)
+        self.initialized = true;
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -311,7 +321,7 @@ impl Drop for NativePlugin {
         // during drop, which is the correct lifecycle point for cleanup.
         let vtable = unsafe { &*self.vtable };
         unsafe {
-            if vtable.on_unload as usize != 0 {
+            if self.initialized && vtable.on_unload as usize != 0 {
                 let _ = (vtable.on_unload)(self.handle);
             }
             if vtable.destroy as usize != 0 {

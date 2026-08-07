@@ -295,8 +295,9 @@ impl PluginManager {
     }
 
     pub(crate) fn load_dll(&self, dll_path: &Path) {
+        let host_api = init_host_api();
         match NativePlugin::load(dll_path) {
-            Ok(native) => {
+            Ok(mut native) => {
                 let plugin_id = native.metadata().id.clone();
 
                 // C4: reject duplicate plugin IDs
@@ -313,6 +314,20 @@ impl PluginManager {
                 }
                 drop(entries);
 
+                let handle = native.handle_raw();
+                register_plugin_handle(handle, &plugin_id);
+                native.set_host_api(host_api);
+                if let Err(e) = native.initialize() {
+                    deregister_plugin_handle(handle);
+                    log::warn!(
+                        "Failed to initialize plugin '{}' from '{}': {}",
+                        plugin_id,
+                        dll_path.display(),
+                        e
+                    );
+                    return;
+                }
+
                 if let Ok(mut entries) = self.entries.write() {
                     entries.push(native);
                     log::info!(
@@ -321,6 +336,8 @@ impl PluginManager {
                         plugin_id
                     );
                 } else {
+                    drop(native);
+                    deregister_plugin_handle(handle);
                     log::error!("Lock poisoned while adding plugin '{}'", plugin_id);
                 }
             }
@@ -427,22 +444,6 @@ impl PluginManager {
             .filter(|p| p.plugin_type() == PluginType::Shortcut)
             .map(|p| p.metadata().id.clone())
             .collect()
-    }
-
-    /// Register each handle before giving the host API to the plugin.
-    pub fn init_plugin_host_api(&self, api: *const crate::plugin::types::HostApiC) {
-        let entries = match self.entries.read() {
-            Ok(g) => g,
-            Err(e) => {
-                log::error!("Plugin lock poisoned: {}", e);
-                return;
-            }
-        };
-        for plugin in entries.iter() {
-            let handle = plugin.handle_raw();
-            register_plugin_handle(handle, &plugin.metadata().id);
-            plugin.set_host_api(api);
-        }
     }
 
     pub fn with_content<F, R>(&self, plugin_id: &str, f: F) -> Result<R, PluginError>

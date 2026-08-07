@@ -27,8 +27,6 @@ impl App {
                 + self.plugin_mgr.list_theme_providers().len()
                 + self.plugin_mgr.list_shortcut_providers().len();
             log::info!("{} plugin(s) loaded", plugin_count);
-            let host_api = crate::plugin::manager::init_host_api();
-            self.plugin_mgr.init_plugin_host_api(host_api);
             let max_w = self.config.expanded_width.max(450.0);
             self.geom.os_w = (max_w * self.config.global_scale + PADDING) as u32;
             self.geom.os_h =
