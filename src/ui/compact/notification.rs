@@ -34,7 +34,25 @@ pub(super) struct NotificationPayload {
     app_user_model_id: Option<String>,
     title: String,
     detail: String,
-    icon_bytes: Option<Vec<u8>>,
+    icon: Option<NotificationIconData>,
+}
+
+struct NotificationIconData {
+    bytes: Vec<u8>,
+    visible_bounds: Option<IconBounds>,
+}
+
+struct NotificationIcon {
+    image: Image,
+    visible_bounds: Option<IconBounds>,
+}
+
+#[derive(Clone, Copy)]
+struct IconBounds {
+    left: u32,
+    top: u32,
+    width: u32,
+    height: u32,
 }
 
 enum NotificationPollResult {
@@ -285,7 +303,7 @@ fn read_notification(
 ) -> Option<NotificationPayload> {
     let notification = listener.GetNotification(notification_id).ok()?;
     let (mut title, detail) = read_notification_text(&notification);
-    let (app_name, app_user_model_id, icon_bytes) = notification
+    let (app_name, app_user_model_id, icon) = notification
         .AppInfo()
         .ok()
         .and_then(|app| {
@@ -312,7 +330,7 @@ fn read_notification(
         app_user_model_id,
         title,
         detail,
-        icon_bytes,
+        icon,
     })
 }
 
@@ -341,6 +359,7 @@ fn read_notification_text(notification: &UserNotification) -> (String, String) {
         else {
             continue;
         };
+        let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
         if !text.is_empty() {
             lines.push(text);
         }
@@ -351,7 +370,7 @@ fn read_notification_text(notification: &UserNotification) -> (String, String) {
     )
 }
 
-fn read_app_icon(display: &AppDisplayInfo) -> Option<Vec<u8>> {
+fn read_app_icon(display: &AppDisplayInfo) -> Option<NotificationIconData> {
     let logo = display
         .GetLogo(Size {
             Width: 64.0,
@@ -367,7 +386,49 @@ fn read_app_icon(display: &AppDisplayInfo) -> Option<Vec<u8>> {
     reader.LoadAsync(size as u32).ok()?.join().ok()?;
     let mut bytes = vec![0; size as usize];
     reader.ReadBytes(&mut bytes).ok()?;
-    Some(bytes)
+    Some(NotificationIconData {
+        visible_bounds: visible_icon_bounds(&bytes),
+        bytes,
+    })
+}
+
+fn visible_icon_bounds(bytes: &[u8]) -> Option<IconBounds> {
+    const ALPHA_THRESHOLD: u8 = 8;
+
+    let image = image::load_from_memory(bytes).ok()?.into_rgba8();
+    let (image_width, image_height) = image.dimensions();
+    let mut bounds: Option<IconBounds> = None;
+    for (x, y, pixel) in image.enumerate_pixels() {
+        if pixel[3] < ALPHA_THRESHOLD {
+            continue;
+        }
+        bounds = Some(match bounds {
+            Some(bounds) => {
+                let right = bounds.left + bounds.width - 1;
+                let bottom = bounds.top + bounds.height - 1;
+                let left = bounds.left.min(x);
+                let top = bounds.top.min(y);
+                IconBounds {
+                    left,
+                    top,
+                    width: right.max(x) - left + 1,
+                    height: bottom.max(y) - top + 1,
+                }
+            }
+            None => IconBounds {
+                left: x,
+                top: y,
+                width: 1,
+                height: 1,
+            },
+        });
+    }
+    bounds.filter(|bounds| {
+        bounds.width > 0
+            && bounds.height > 0
+            && bounds.left + bounds.width <= image_width
+            && bounds.top + bounds.height <= image_height
+    })
 }
 
 #[derive(Default)]
@@ -377,7 +438,7 @@ pub(super) struct NotificationIndicator {
     app_user_model_id: Option<String>,
     title: String,
     detail: String,
-    icon: Option<Image>,
+    icon: Option<NotificationIcon>,
     pending: Option<NotificationPayload>,
     display_started: Option<Instant>,
     display_until: Option<Instant>,
@@ -416,7 +477,7 @@ impl NotificationIndicator {
             app_user_model_id,
             title,
             detail,
-            icon_bytes,
+            icon,
         } = notification;
         self.app_name = if title.trim().eq_ignore_ascii_case(app_name.trim()) {
             String::new()
@@ -427,7 +488,12 @@ impl NotificationIndicator {
         self.detail = detail;
         self.notification_id = Some(notification_id);
         self.app_user_model_id = app_user_model_id;
-        self.icon = icon_bytes.and_then(|bytes| Image::from_encoded(Data::new_copy(&bytes)));
+        self.icon = icon.and_then(|icon| {
+            Image::from_encoded(Data::new_copy(&icon.bytes)).map(|image| NotificationIcon {
+                image,
+                visible_bounds: icon.visible_bounds,
+            })
+        });
         self.display_started = Some(Instant::now());
         self.display_until = Some(Instant::now() + DISPLAY_DURATION);
         received_notification
@@ -637,7 +703,13 @@ fn truncate_notification_text<'a>(
     Cow::Owned(truncated)
 }
 
-fn draw_notification_icon(canvas: &Canvas, icon: &Image, rect: Rect, scale: f32, alpha: u8) {
+fn draw_notification_icon(
+    canvas: &Canvas,
+    icon: &NotificationIcon,
+    rect: Rect,
+    scale: f32,
+    alpha: u8,
+) {
     let size = 42.0 * scale;
     let icon_rect = Rect::from_xywh(
         rect.left() + 18.0 * scale,
@@ -645,18 +717,35 @@ fn draw_notification_icon(canvas: &Canvas, icon: &Image, rect: Rect, scale: f32,
         size,
         size,
     );
-    let image_width = icon.width() as f32;
-    let image_height = icon.height() as f32;
+    let image_width = icon.image.width() as f32;
+    let image_height = icon.image.height() as f32;
     if image_width <= 0.0 || image_height <= 0.0 {
         return;
     }
-    let source = if image_width > image_height {
-        let width = image_height;
-        Rect::from_xywh((image_width - width) / 2.0, 0.0, width, image_height)
-    } else {
-        let height = image_width;
-        Rect::from_xywh(0.0, (image_height - height) / 2.0, image_width, height)
-    };
+    let source = icon
+        .visible_bounds
+        .filter(|bounds| {
+            bounds.left < icon.image.width() as u32
+                && bounds.top < icon.image.height() as u32
+                && bounds.width > 0
+                && bounds.height > 0
+        })
+        .map(|bounds| {
+            Rect::from_xywh(
+                bounds.left as f32,
+                bounds.top as f32,
+                bounds.width.min(icon.image.width() as u32 - bounds.left) as f32,
+                bounds.height.min(icon.image.height() as u32 - bounds.top) as f32,
+            )
+        })
+        .unwrap_or_else(|| Rect::from_xywh(0.0, 0.0, image_width, image_height));
+    let scale = (icon_rect.width() / source.width()).min(icon_rect.height() / source.height());
+    let destination = Rect::from_xywh(
+        icon_rect.center_x() - source.width() * scale / 2.0,
+        icon_rect.center_y() - source.height() * scale / 2.0,
+        source.width() * scale,
+        source.height() * scale,
+    );
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
     paint.set_alpha_f(alpha as f32 / 255.0);
@@ -667,9 +756,9 @@ fn draw_notification_icon(canvas: &Canvas, icon: &Image, rect: Rect, scale: f32,
         true,
     );
     canvas.draw_image_rect_with_sampling_options(
-        icon,
+        &icon.image,
         Some((&source, SrcRectConstraint::Fast)),
-        icon_rect,
+        destination,
         SamplingOptions::new(FilterMode::Linear, MipmapMode::Linear),
         &paint,
     );

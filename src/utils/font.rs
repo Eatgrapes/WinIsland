@@ -118,6 +118,12 @@ fn measure_group(text: &str, typeface: &Typeface, embolden: bool, size: f32) -> 
     font.measure_str(text, None).0
 }
 
+fn typeface_supports_char(typeface: &Typeface, character: char) -> bool {
+    let mut glyphs = [0u16; 1];
+    typeface.unichars_to_glyphs(&[character as i32], &mut glyphs);
+    glyphs[0] != 0
+}
+
 fn get_typeface_for_char(c: char, style: FontStyle) -> (Typeface, bool) {
     let s_key = style_to_key(style);
     FALLBACK_CACHE.with(|cache| {
@@ -138,15 +144,34 @@ fn get_typeface_for_char(c: char, style: FontStyle) -> (Typeface, bool) {
             }
         }
 
-        let tf = FONT_MGR
-            .with(|mgr| {
-                mgr.match_family_style_character("", style, &["zh-CN", "ja-JP", "en-US"], c as i32)
-            })
-            .unwrap_or_else(|| FONT_MGR.with(|mgr| mgr.legacy_make_typeface(None, style).unwrap()));
+        let tf = FONT_MGR.with(|mgr| {
+            mgr.match_family_style_character("", style, &["zh-CN", "ja-JP", "en-US"], c as i32)
+                .filter(|tf| typeface_supports_char(tf, c))
+                .or_else(|| {
+                    [
+                        "Segoe UI Emoji",
+                        "Microsoft YaHei",
+                        "Segoe UI Symbol",
+                        "Segoe UI",
+                    ]
+                    .into_iter()
+                    .find_map(|family| {
+                        mgr.match_family_style(family, style)
+                            .filter(|tf| typeface_supports_char(tf, c))
+                    })
+                })
+                .unwrap_or_else(|| mgr.legacy_make_typeface(None, style).unwrap())
+        });
         let embolden = needs_synthetic_bold(&tf, style);
         cache.insert((c, s_key), tf.clone());
         (tf, embolden)
     })
+}
+
+fn inherits_previous_typeface(c: char) -> bool {
+    matches!(c, '\u{200C}' | '\u{200D}' | '\u{FE00}'..='\u{FE0F}')
+        || ('\u{E0100}'..='\u{E01EF}').contains(&c)
+        || ('\u{0300}'..='\u{036F}').contains(&c)
 }
 
 fn is_ascii_text(text: &str) -> bool {
@@ -182,7 +207,14 @@ fn compute_text_groups(text: &str, size: f32, style: FontStyle) -> (f32, TextGro
     let mut last_tf: Option<Typeface> = None;
     let mut last_embolden = false;
     for c in text.chars() {
-        let (tf, embolden) = get_typeface_for_char(c, style);
+        let (tf, embolden) = if inherits_previous_typeface(c) {
+            last_tf
+                .as_ref()
+                .map(|tf| (tf.clone(), last_embolden))
+                .unwrap_or_else(|| get_typeface_for_char(c, style))
+        } else {
+            get_typeface_for_char(c, style)
+        };
         if let Some(ref ltf) = last_tf
             && (ltf.unique_id() != tf.unique_id() || last_embolden != embolden)
         {
