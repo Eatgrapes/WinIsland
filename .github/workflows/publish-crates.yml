@@ -9,6 +9,7 @@ on:
       - crates/winisland-plugin-api/src/**
       - crates/winisland-plugin-api/README.md
       - crates/winisland-plugin-api/ChangeLog.md
+      - .github/workflows/publish-crates.yml
   workflow_dispatch:
     inputs:
       version:
@@ -23,7 +24,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   PACKAGE: winisland-plugin-api
-  MANIFEST: crates/winisland-plugin-api/Cargo.toml
 
 jobs:
   publish:
@@ -49,29 +49,6 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Current $PACKAGE version: $VERSION"
 
-      - name: Check whether the package version changed
-        id: changed
-        if: github.event_name == 'push'
-        shell: bash
-        env:
-          BEFORE: ${{ github.event.before }}
-        run: |
-          if [[ "$BEFORE" =~ ^0+$ ]]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          PREVIOUS=$(git show "$BEFORE:$MANIFEST" | \
-            sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)"/\1/p' | head -n 1)
-          CURRENT='${{ steps.package.outputs.version }}'
-          if [ "$PREVIOUS" = "$CURRENT" ]; then
-            echo "Package version is unchanged at $CURRENT; skipping publish."
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "Package version changed from ${PREVIOUS:-unknown} to $CURRENT."
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Validate requested version
         if: github.event_name == 'workflow_dispatch' && inputs.version != ''
         shell: bash
@@ -85,13 +62,17 @@ jobs:
 
       - name: Check crates.io
         id: registry
-        if: github.event_name == 'workflow_dispatch' || steps.changed.outputs.changed == 'true'
         shell: bash
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
         run: |
           STATUS=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-            "https://crates.io/api/v1/crates/$PACKAGE/${{ steps.package.outputs.version }}")
+            --connect-timeout 10 --max-time 30 --retry 3 --retry-delay 2 --retry-all-errors \
+            --user-agent "WinIsland publish workflow ($GITHUB_SERVER_URL/$GITHUB_REPOSITORY)" \
+            --header 'Accept: application/json' \
+            "https://crates.io/api/v1/crates/$PACKAGE/$VERSION")
           if [ "$STATUS" = "200" ]; then
-            echo "Version ${{ steps.package.outputs.version }} is already published; skipping publish."
+            echo "Version $VERSION is already published; skipping publish."
             echo "published=true" >> "$GITHUB_OUTPUT"
           elif [ "$STATUS" = "404" ]; then
             echo "published=false" >> "$GITHUB_OUTPUT"

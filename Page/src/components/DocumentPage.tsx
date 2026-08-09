@@ -42,7 +42,8 @@ export default function DocumentPage({ locale, page }: { locale: Locale; page: D
           {DOC_KEYS.map((key) => (
             <Link
               key={key}
-              className={page === key ? 'is-active' : ''}
+              className={`${page === key ? 'is-active' : ''}${key.startsWith('plugin-dev/') ? ' is-subpage' : ''}`.trim()}
+              aria-current={page === key ? 'page' : undefined}
               to={localePath(locale, `/${key}`)}
             >
               {text.docs.pages[key]}

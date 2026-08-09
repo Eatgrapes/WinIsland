@@ -1,26 +1,40 @@
 # 插件 API 更新日志
 
-记录 `winisland-plugin-api` 的所有重要变更。
+本页只记录已经发布的 `winisland-plugin-api` 版本。版本发布时直接添加对应记录，不再保留“未发布”区段。
 
-格式遵循 [Keep a Changelog](https://keepachangelog.com/),
-版本管理遵循 [Semantic Versioning](https://semver.org/)。
+## 0.3.0 - 2026-08-09
 
-## 未发布
+新增：
+
+- 通过 `winisland_plugin_entry_v1() -> *const PluginDescriptorV1` 提供原生 DLL ABI v1
+- 由宿主签发 `PluginToken` 和 `ResourceId`，用于身份与资源所有权校验
+- Context、Media、国际化和 Host State 能力声明
+- 通过 `HostApiV1::query_interface` 查询版本化服务
+- Context 创建、更新、释放、优先级、紧凑文本和超时功能
+- 支持封面、播放进度、可用控制和可选回调的 Media 资源
+- 可释放的翻译 bundle，以及当前媒体和主题的 Host State 快照
+- 使用 `id`、`abi-version` 和 `entry` 字段的单入口插件包
 
 变更：
 
-- 插件开发指南已与当前基于推送的宿主 API 和 Rust 2024 语法保持一致
-- `PluginVTable::set_host_api` 已明确标记为保留字段；宿主当前通过插件导出的
-  `plugin_set_host_api` 符号注入 `HostApiC`
-- 签名文档现在区分打包器生成的元数据与宿主端签名验证
+- **破坏性变更**：移除 0.2 的 `PluginVTable`、`PluginType`、`PluginInstanceC`、
+  `HostApiC`、`plugin_get_instance` 和 `plugin_set_host_api` 接口
+- **破坏性变更**：移除尚未形成闭环的 Theme 和 Shortcut 接口
+- 生命周期严格调整为 `create -> shutdown -> destroy`；只有 shutdown 成功才卸载 DLL
+- Context 标识改为宿主签发的数字资源，不再使用插件提供的字符串
+- 插件 Media 不受 SMTC 开关影响，界面只显示插件声明的控制按钮
+- 插件工作线程修改资源时会唤醒 WinIsland 事件循环
+- Packager 现在读取 Cargo 的 `repository` 和 `[lib].name` 元数据
 
 修复：
 
-- Context ID 改用进程内原子计数器，避免时间戳碰撞
-- 宿主回调在读取 FFI 数据前拒绝无效的空指针
-- 插件卸载时清理 handle 映射
-- 在注入宿主 API 前注册插件 handle，确保初始化回调能关联到正确插件
-- 修复插件 vtable 文档中的无效 rustdoc 链接
+- Descriptor 大小、ABI 版本、能力、元数据和生命周期回调校验
+- 与 token 绑定的资源所有权、每插件数量限制和内存限制
+- Media 回调重入和插件卸载同步
+- UTF-8 安全的定长缓冲区截断，以及有上限的借用切片复制
+- Context 更新/释放事件合并和 Media seek 来源绑定
+- 翻译 bundle 清理和宿主事件循环唤醒合并
+- 有上限的 ZIP 解压、Windows 路径碰撞检查、staging 激活、备份和回滚
 
 ## 0.2.0 - 2026-06-19
 

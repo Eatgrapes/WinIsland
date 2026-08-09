@@ -192,7 +192,8 @@ function SiteHeader({ locale }: { locale: Locale }) {
   const otherLocale: Locale = locale === 'en' ? 'zh' : 'en'
   const currentPath = location.pathname.replace(/^\/zh(?=\/|$)/, '') || '/'
   const guidePaths = ['/guide', '/getting-started', '/plugin-dev', '/api-changelog']
-  const activeIndex = currentPath === '/' ? 0 : guidePaths.includes(currentPath) ? 1 : currentPath === '/changelog' ? 2 : -1
+  const isGuidePath = guidePaths.includes(currentPath) || currentPath.startsWith('/plugin-dev/')
+  const activeIndex = currentPath === '/' ? 0 : isGuidePath ? 1 : currentPath === '/changelog' ? 2 : -1
 
   const moveIndicator = useCallback((index: number) => {
     const nav = navRef.current

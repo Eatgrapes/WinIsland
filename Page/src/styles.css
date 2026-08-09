@@ -448,6 +448,7 @@ img, svg { display: block; }
     transition: background 160ms ease, color 160ms ease;
     &:hover { background: rgba(0, 0, 0, .045); color: var(--ink); }
     &.is-active { background: rgba(0, 113, 227, .09); color: var(--blue); font-weight: 620; }
+    &.is-subpage { margin-left: 14px; padding-block: 7px; font-size: 12px; }
   }
 }
 .markdown-body {
@@ -546,6 +547,7 @@ img, svg { display: block; }
   .docs-sidebar > span { display: none; }
   .docs-sidebar nav { display: flex; width: max-content; }
   .docs-sidebar a { white-space: nowrap; }
+  .docs-sidebar a.is-subpage { margin-left: 0; }
   .footer-grid { grid-template-columns: 2fr 1fr 1fr; }
   .footer-brand { grid-column: 1 / -1; }
 }

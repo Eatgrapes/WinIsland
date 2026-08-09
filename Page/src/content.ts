@@ -5,6 +5,10 @@ export type DocKey =
   | 'getting-started'
   | 'download'
   | 'plugin-dev'
+  | 'plugin-dev/quickstart'
+  | 'plugin-dev/abi-lifecycle'
+  | 'plugin-dev/services'
+  | 'plugin-dev/packaging'
   | 'api-changelog'
   | 'changelog'
 
@@ -13,6 +17,10 @@ export const DOC_KEYS: DocKey[] = [
   'getting-started',
   'download',
   'plugin-dev',
+  'plugin-dev/quickstart',
+  'plugin-dev/abi-lifecycle',
+  'plugin-dev/services',
+  'plugin-dev/packaging',
   'api-changelog',
   'changelog',
 ]
@@ -114,6 +122,10 @@ export const copy = {
         'getting-started': 'Getting started',
         download: 'Download',
         'plugin-dev': 'Plugin development',
+        'plugin-dev/quickstart': 'Plugin quickstart',
+        'plugin-dev/abi-lifecycle': 'ABI and lifecycle',
+        'plugin-dev/services': 'Host services',
+        'plugin-dev/packaging': 'Packaging and installation',
         'api-changelog': 'API changelog',
         changelog: 'Changelog',
       },
@@ -214,6 +226,10 @@ export const copy = {
         'getting-started': '快速开始',
         download: '下载',
         'plugin-dev': '插件开发',
+        'plugin-dev/quickstart': '插件快速开始',
+        'plugin-dev/abi-lifecycle': 'ABI 与生命周期',
+        'plugin-dev/services': '宿主服务',
+        'plugin-dev/packaging': '打包与安装',
         'api-changelog': 'API 更新日志',
         changelog: '更新日志',
       },
