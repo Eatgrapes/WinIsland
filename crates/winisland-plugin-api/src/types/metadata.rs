@@ -3,6 +3,7 @@
 /// Every field is a fixed-size byte buffer. The host reads each field as a
 /// NUL-terminated UTF-8 string.
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct PluginMetadataC {
     /// Unique identifier (e.g. `"my-awesome-plugin"`). Max 63 bytes + NUL.
     pub id: [u8; 64],
@@ -14,4 +15,16 @@ pub struct PluginMetadataC {
     pub author: [u8; 128],
     /// Description. Max 255 bytes + NUL.
     pub description: [u8; 256],
+}
+
+impl PluginMetadataC {
+    pub const fn new(id: &str, name: &str, version: &str, author: &str, description: &str) -> Self {
+        Self {
+            id: crate::str_to_fixed(id),
+            name: crate::str_to_fixed(name),
+            version: crate::str_to_fixed(version),
+            author: crate::str_to_fixed(author),
+            description: crate::str_to_fixed(description),
+        }
+    }
 }

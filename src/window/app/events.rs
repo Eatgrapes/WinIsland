@@ -24,6 +24,9 @@ impl App {
             match event {
                 WindowEvent::ThemeChanged(theme) => {
                     let is_light = theme == winit::window::Theme::Light;
+                    self.is_light_theme = is_light;
+                    crate::plugin::manager::update_host_theme(is_light);
+                    win.request_redraw();
                     log::info!("Window theme changed to {:?}", theme);
                     if let Some(tray) = self.tray.as_mut() {
                         tray.update_theme(is_light);
@@ -113,47 +116,71 @@ impl App {
                             - self.config.base_height * self.config.global_scale)
                             .abs();
                         let progress = (dist_h / total_h).clamp(0.0, 1.0);
-                        if let Some(ps) = crate::plugin::manager::drain_pending_media_source() {
-                            let (cover, hash) = if !ps.cover_data.is_empty() {
-                                use std::collections::hash_map::DefaultHasher;
-                                use std::hash::{Hash, Hasher};
-                                let mut hasher = DefaultHasher::new();
-                                ps.cover_data.hash(&mut hasher);
-                                (
-                                    Some(skia_safe::Data::new_copy(&ps.cover_data)),
-                                    hasher.finish(),
-                                )
-                            } else {
-                                (None, 0)
-                            };
-                            self.plugin_media_source = Some(crate::core::smtc::MediaInfo {
-                                title: ps.title,
-                                artist: ps.artist,
-                                album: ps.album,
-                                duration_ms: ps.duration_ms,
-                                duration_secs: ps.duration_ms / 1000,
-                                position_ms: ps.position_ms,
-                                is_playing: ps.is_playing,
-                                last_update: Instant::now(),
-                                thumbnail: cover,
-                                thumbnail_hash: hash,
-                                ..Default::default()
-                            });
+                        if let Some(event) = crate::plugin::manager::drain_media_source_event() {
+                            match event {
+                                crate::plugin::manager::MediaSourceEvent::Set(source) => {
+                                    let (cover, hash) = if !source.cover_data.is_empty() {
+                                        use std::collections::hash_map::DefaultHasher;
+                                        use std::hash::{Hash, Hasher};
+                                        let mut hasher = DefaultHasher::new();
+                                        source.cover_data.hash(&mut hasher);
+                                        (
+                                            Some(skia_safe::Data::new_copy(&source.cover_data)),
+                                            hasher.finish(),
+                                        )
+                                    } else {
+                                        (None, 0)
+                                    };
+                                    self.plugin_media_source = Some(super::PluginMediaSource {
+                                        resource_id: source.resource_id,
+                                        available_controls: source.available_controls,
+                                        info: crate::core::smtc::MediaInfo {
+                                            title: source.title,
+                                            artist: source.artist,
+                                            album: source.album,
+                                            duration_ms: source.duration_ms,
+                                            duration_secs: source.duration_ms / 1000,
+                                            position_ms: source.position_ms,
+                                            is_playing: source.is_playing,
+                                            last_update: Instant::now(),
+                                            thumbnail: cover,
+                                            thumbnail_hash: hash,
+                                            ..Default::default()
+                                        },
+                                    });
+                                }
+                                crate::plugin::manager::MediaSourceEvent::Clear => {
+                                    self.plugin_media_source = None;
+                                }
+                            }
                         }
-                        if let Some(ref mut info) = self.plugin_media_source
-                            && info.is_playing
+                        if let Some(source) = self.plugin_media_source.as_mut()
+                            && source.info.is_playing
                         {
-                            let elapsed = info.last_update.elapsed().as_millis() as u64;
-                            info.position_ms = info.position_ms.saturating_add(elapsed);
-                            info.last_update = Instant::now();
+                            let elapsed = source.info.last_update.elapsed().as_millis() as u64;
+                            source.info.position_ms =
+                                source.info.position_ms.saturating_add(elapsed);
+                            source.info.last_update = Instant::now();
                         }
                         let spectrum = self.audio.get_spectrum();
                         let default_media_info = crate::core::smtc::MediaInfo::default();
-                        let media_info = if let Some(info) = self.plugin_media_source.as_mut() {
-                            info.spectrum = spectrum;
-                            &*info
+                        let plugin_media_active = self.plugin_media_source.is_some();
+                        let available_controls =
+                            if let Some(source) = self.plugin_media_source.as_mut() {
+                                source.info.spectrum = spectrum;
+                                source.available_controls
+                            } else if self.config.smtc_enabled {
+                                self.smtc_media_info.spectrum = spectrum;
+                                crate::plugin::types::MEDIA_CONTROL_TOGGLE_PLAY
+                                    | crate::plugin::types::MEDIA_CONTROL_PREVIOUS
+                                    | crate::plugin::types::MEDIA_CONTROL_NEXT
+                                    | crate::plugin::types::MEDIA_CONTROL_SEEK
+                            } else {
+                                0
+                            };
+                        let media_info = if let Some(source) = self.plugin_media_source.as_ref() {
+                            &source.info
                         } else if self.config.smtc_enabled {
-                            self.smtc_media_info.spectrum = spectrum;
                             &self.smtc_media_info
                         } else {
                             &default_media_info
@@ -167,11 +194,24 @@ impl App {
                             None
                         };
                         let media_info = seeking_media_info.as_ref().unwrap_or(media_info);
-                        let music_active = self.config.smtc_enabled && !media_info.title.is_empty();
+                        let music_active = !media_info.title.is_empty()
+                            && (plugin_media_active || self.config.smtc_enabled);
+                        crate::plugin::manager::update_host_state(
+                            crate::plugin::types::HostState {
+                                media_title: media_info.title.clone(),
+                                media_artist: media_info.artist.clone(),
+                                is_playing: media_info.is_playing,
+                                theme: if self.is_light_theme {
+                                    "light".to_string()
+                                } else {
+                                    "dark".to_string()
+                                },
+                            },
+                        );
                         self.audio.set_gate_override(music_active && !is_hidden);
                         self.ctx_mgr.set_smtc_active(music_active);
                         crate::plugin::manager::drain_pending_contexts(&mut self.ctx_mgr);
-                        self.ctx_mgr.tick();
+                        let _ = self.ctx_mgr.tick();
                         let mini_content = self.ctx_mgr.current_mini();
 
                         let render_result =
@@ -199,6 +239,7 @@ impl App {
                                         media: crate::core::render::MediaParams {
                                             media: media_info,
                                             music_active,
+                                            available_controls,
                                         },
                                         lyrics: crate::core::render::LyricsParams {
                                             current_lyric: &self.lyrics.current_text,

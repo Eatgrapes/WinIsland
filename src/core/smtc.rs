@@ -181,10 +181,6 @@ impl SmtcListener {
         let _ = self.lyrics_local_dir_tx.send(dir);
     }
 
-    pub fn get_info(&self) -> MediaInfo {
-        self.info_rx.borrow().clone()
-    }
-
     pub fn take_info_if_changed(&mut self) -> Option<MediaInfo> {
         self.info_rx
             .has_changed()

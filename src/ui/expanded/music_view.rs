@@ -164,6 +164,7 @@ pub struct DrawMusicPageParams<'a> {
     pub alpha: u8,
     pub media: &'a MediaInfo,
     pub music_active: bool,
+    pub available_controls: u32,
     pub view_offset: f32,
     pub scale: f32,
     pub expansion_progress: f32,
@@ -186,6 +187,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         alpha,
         media,
         music_active,
+        available_controls,
         view_offset,
         scale,
         expansion_progress,
@@ -422,21 +424,25 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             }
         });
 
-        draw_skip_button(
-            canvas,
-            btn_cx - skip_gap,
-            btn_cy,
-            true,
-            prev_t,
-            alpha,
-            scale,
-            use_blur,
-            text_color,
-        );
+        if available_controls & crate::plugin::types::MEDIA_CONTROL_PREVIOUS != 0 {
+            draw_skip_button(
+                canvas,
+                btn_cx - skip_gap,
+                btn_cy,
+                true,
+                prev_t,
+                alpha,
+                scale,
+                use_blur,
+                text_color,
+            );
+        }
 
-        draw_pause_control(
-            canvas, btn_cx, btn_cy, pause_t, alpha, scale, use_blur, text_color,
-        );
+        if available_controls & crate::plugin::types::MEDIA_CONTROL_TOGGLE_PLAY != 0 {
+            draw_pause_control(
+                canvas, btn_cx, btn_cy, pause_t, alpha, scale, use_blur, text_color,
+            );
+        }
 
         let next_t = NEXT_SKIP_ANIM.with(|cell| {
             let start = *cell.borrow();
@@ -453,17 +459,19 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             }
         });
 
-        draw_skip_button(
-            canvas,
-            btn_cx + skip_gap,
-            btn_cy,
-            false,
-            next_t,
-            alpha,
-            scale,
-            use_blur,
-            text_color,
-        );
+        if available_controls & crate::plugin::types::MEDIA_CONTROL_NEXT != 0 {
+            draw_skip_button(
+                canvas,
+                btn_cx + skip_gap,
+                btn_cy,
+                false,
+                next_t,
+                alpha,
+                scale,
+                use_blur,
+                text_color,
+            );
+        }
     }
 
     let viz_x_offset = 17.0 + (37.0 - 17.0) * expansion_progress;

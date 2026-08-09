@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::{Arc, LazyLock, RwLock};
 use windows::Win32::Globalization::GetUserDefaultLocaleName;
@@ -14,7 +14,12 @@ pub struct I18n {
     translations: HashMap<String, String>,
     pub available_languages: Vec<Language>,
     lang_files: HashMap<String, String>,
-    plugin_translations: HashMap<String, HashMap<String, String>>,
+    plugin_translation_bundles: BTreeMap<u64, PluginTranslationBundle>,
+}
+
+struct PluginTranslationBundle {
+    language: String,
+    translations: HashMap<String, String>,
 }
 
 type EmbeddedLang = (&'static str, &'static str);
@@ -141,7 +146,7 @@ impl I18n {
             translations: HashMap::new(),
             available_languages: available,
             lang_files: file_map,
-            plugin_translations: HashMap::new(),
+            plugin_translation_bundles: BTreeMap::new(),
         };
         i18n.load(&default_lang);
         i18n
@@ -174,10 +179,14 @@ impl I18n {
     }
 
     pub fn get(&self, key: &str) -> String {
-        if let Some(overlay) = self.plugin_translations.get(&self.current_lang)
-            && let Some(v) = overlay.get(key)
+        if let Some(value) = self
+            .plugin_translation_bundles
+            .values()
+            .rev()
+            .filter(|bundle| bundle.language == self.current_lang)
+            .find_map(|bundle| bundle.translations.get(key))
         {
-            return v.clone();
+            return value.clone();
         }
         self.translations
             .get(key)
@@ -185,14 +194,23 @@ impl I18n {
             .unwrap_or_else(|| key.to_string())
     }
 
-    pub fn register_plugin_translations(&mut self, lang: &str, pairs: &[(&str, &str)]) {
-        let map = self
-            .plugin_translations
-            .entry(lang.to_string())
-            .or_default();
-        for (k, v) in pairs {
-            map.insert(k.to_string(), v.to_string());
-        }
+    pub fn register_plugin_translation_bundle(
+        &mut self,
+        id: u64,
+        language: String,
+        pairs: Vec<(String, String)>,
+    ) {
+        self.plugin_translation_bundles.insert(
+            id,
+            PluginTranslationBundle {
+                language,
+                translations: pairs.into_iter().collect(),
+            },
+        );
+    }
+
+    pub fn release_plugin_translation_bundle(&mut self, id: u64) {
+        self.plugin_translation_bundles.remove(&id);
     }
 }
 
@@ -227,10 +245,20 @@ pub fn available_langs() -> Vec<Language> {
     I18N.read().unwrap().available_languages.clone()
 }
 
-pub fn register_plugin_translations(lang: &str, pairs: &[(&str, &str)]) {
-    I18N.write()
-        .unwrap()
-        .register_plugin_translations(lang, pairs);
+pub fn register_plugin_translation_bundle(
+    id: u64,
+    language: String,
+    pairs: Vec<(String, String)>,
+) -> Result<(), &'static str> {
+    let mut i18n = I18N.write().map_err(|_| "i18n lock is poisoned")?;
+    i18n.register_plugin_translation_bundle(id, language, pairs);
+    Ok(())
+}
+
+pub fn release_plugin_translation_bundle(id: u64) -> Result<(), &'static str> {
+    let mut i18n = I18N.write().map_err(|_| "i18n lock is poisoned")?;
+    i18n.release_plugin_translation_bundle(id);
+    Ok(())
 }
 
 fn get_system_lang() -> String {

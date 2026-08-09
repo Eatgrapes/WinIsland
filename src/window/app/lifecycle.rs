@@ -46,4 +46,11 @@ impl ApplicationHandler for App {
             ));
         }
     }
+
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: ()) {
+        crate::plugin::manager::acknowledge_host_wake();
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
 }

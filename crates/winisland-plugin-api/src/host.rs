@@ -1,47 +1,144 @@
-use crate::types::context::MediaSourceC;
-use crate::types::context::{ContextDataC, ContextIdC, HostStateC};
-use crate::types::i18n::TranslationPairC;
-use crate::types::{PluginHandle, PluginResultC};
-use std::ffi::c_char;
+use std::ffi::c_void;
 
-/// Host-side API table passed to plugins through their exported
-/// `plugin_set_host_api` function.
-///
-/// Plugins store this pointer during `plugin_set_host_api` and call through it
-/// whenever they need to interact with the host (push context, close context,
-/// query state, register translations). All functions are safe to call from any thread.
+use crate::{
+    ContextDataV1, HostStateV1, MediaSourceDataV1, PluginResultC, PluginToken, ResourceId,
+    TranslationPairV1, Utf8SliceV1,
+};
+
+pub const INTERFACE_VERSION_1: u32 = 1;
+pub const INTERFACE_CONTEXT: u32 = 1;
+pub const INTERFACE_MEDIA: u32 = 2;
+pub const INTERFACE_I18N: u32 = 3;
+pub const INTERFACE_HOST_STATE: u32 = 4;
+
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct HostApiC {
-    /// Push a new context to the Dynamic Island.
+pub struct HostApiV1 {
+    pub struct_size: u32,
+    pub abi_version: u32,
+    pub query_interface:
+        Option<unsafe extern "C" fn(interface_id: u32, version: u32) -> *const c_void>,
+}
+
+impl HostApiV1 {
+    /// Query the ABI v1 context service table.
     ///
-    /// Returns a [`ContextIdC`] that can be used later to close or update.
-    pub send_context: unsafe extern "C" fn(PluginHandle, ContextDataC) -> ContextIdC,
+    /// # Safety
+    /// `self` and its function pointers must originate from WinIsland and remain
+    /// valid for the duration of this call.
+    pub unsafe fn context_api(&self) -> Option<ContextApiV1> {
+        // SAFETY: The caller guarantees this host table came from WinIsland.
+        unsafe { self.query(INTERFACE_CONTEXT) }
+    }
 
-    /// Close a previously sent context by its ID.
-    pub close_context: unsafe extern "C" fn(PluginHandle, *const c_char) -> PluginResultC,
-
-    /// Query the current host state.
-    pub query_host_state: unsafe extern "C" fn(PluginHandle) -> HostStateC,
-
-    /// Replace SMTC with plugin-provided media source.
+    /// Query the ABI v1 media service table.
     ///
-    /// The host will use this data for the entire media UI. Returns an
-    /// error if `title` is empty. Call [`HostApiC::clear_media_source`] to restore SMTC.
-    pub set_media_source: unsafe extern "C" fn(PluginHandle, MediaSourceC) -> PluginResultC,
+    /// # Safety
+    /// `self` and its function pointers must originate from WinIsland and remain
+    /// valid for the duration of this call.
+    pub unsafe fn media_api(&self) -> Option<MediaApiV1> {
+        // SAFETY: The caller guarantees this host table came from WinIsland.
+        unsafe { self.query(INTERFACE_MEDIA) }
+    }
 
-    /// Restore SMTC as the active media source and stop using plugin data.
-    pub clear_media_source: unsafe extern "C" fn(PluginHandle) -> PluginResultC,
-
-    /// Register translations for a language.
+    /// Query the ABI v1 translation service table.
     ///
-    /// Called during `on_load` to provide translated strings for the plugin's UI.
-    /// Later registrations override earlier ones for the same key.
-    /// The host copies the strings; the plugin may free them after the call returns.
-    pub register_translations: unsafe extern "C" fn(
-        PluginHandle,
-        *const c_char,
-        *const TranslationPairC,
-        u32,
-    ) -> PluginResultC,
+    /// # Safety
+    /// `self` and its function pointers must originate from WinIsland and remain
+    /// valid for the duration of this call.
+    pub unsafe fn i18n_api(&self) -> Option<I18nApiV1> {
+        // SAFETY: The caller guarantees this host table came from WinIsland.
+        unsafe { self.query(INTERFACE_I18N) }
+    }
+
+    /// Query the ABI v1 host-state service table.
+    ///
+    /// # Safety
+    /// `self` and its function pointers must originate from WinIsland and remain
+    /// valid for the duration of this call.
+    pub unsafe fn host_state_api(&self) -> Option<HostStateApiV1> {
+        // SAFETY: The caller guarantees this host table came from WinIsland.
+        unsafe { self.query(INTERFACE_HOST_STATE) }
+    }
+
+    unsafe fn query<T: Copy>(&self, interface_id: u32) -> Option<T> {
+        if self.abi_version != crate::ABI_VERSION_1
+            || self.struct_size < std::mem::size_of::<Self>() as u32
+        {
+            return None;
+        }
+        let query = self.query_interface?;
+        // SAFETY: The caller guarantees the host function pointer is valid.
+        let pointer = unsafe { query(interface_id, INTERFACE_VERSION_1) };
+        if pointer.is_null() {
+            return None;
+        }
+        let header = pointer.cast::<u32>();
+        // SAFETY: Every service table begins with two readable u32 fields.
+        let struct_size = unsafe { std::ptr::read_unaligned(header) };
+        // SAFETY: The second header field follows the first u32.
+        let version = unsafe { std::ptr::read_unaligned(header.add(1)) };
+        if struct_size < std::mem::size_of::<T>() as u32 || version != INTERFACE_VERSION_1 {
+            return None;
+        }
+        // SAFETY: The validated prefix contains a complete copyable v1 table.
+        Some(unsafe { std::ptr::read_unaligned(pointer.cast::<T>()) })
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ContextApiV1 {
+    pub struct_size: u32,
+    pub version: u32,
+    pub create: Option<
+        unsafe extern "C" fn(PluginToken, *const ContextDataV1, *mut ResourceId) -> PluginResultC,
+    >,
+    pub update: Option<
+        unsafe extern "C" fn(PluginToken, ResourceId, *const ContextDataV1) -> PluginResultC,
+    >,
+    pub release: Option<unsafe extern "C" fn(PluginToken, ResourceId) -> PluginResultC>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MediaApiV1 {
+    pub struct_size: u32,
+    pub version: u32,
+    pub create: Option<
+        unsafe extern "C" fn(
+            PluginToken,
+            *const MediaSourceDataV1,
+            *mut ResourceId,
+        ) -> PluginResultC,
+    >,
+    pub update: Option<
+        unsafe extern "C" fn(PluginToken, ResourceId, *const MediaSourceDataV1) -> PluginResultC,
+    >,
+    pub release: Option<unsafe extern "C" fn(PluginToken, ResourceId) -> PluginResultC>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct I18nApiV1 {
+    pub struct_size: u32,
+    pub version: u32,
+    pub register_bundle: Option<
+        unsafe extern "C" fn(
+            PluginToken,
+            Utf8SliceV1,
+            *const TranslationPairV1,
+            u32,
+            *mut ResourceId,
+        ) -> PluginResultC,
+    >,
+    pub release_bundle: Option<unsafe extern "C" fn(PluginToken, ResourceId) -> PluginResultC>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct HostStateApiV1 {
+    pub struct_size: u32,
+    pub version: u32,
+    pub get: Option<unsafe extern "C" fn(PluginToken, *mut HostStateV1) -> PluginResultC>,
 }

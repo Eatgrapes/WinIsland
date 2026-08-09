@@ -124,8 +124,9 @@ impl App {
             let scale = self.config.global_scale as f64;
 
             if view_val < 0.5 {
-                let media = self.smtc.get_info();
-                let music_on = self.config.smtc_enabled && !media.title.is_empty();
+                let media = self.current_media_info().clone();
+                let music_on = !media.title.is_empty()
+                    && (self.plugin_media_source.is_some() || self.config.smtc_enabled);
 
                 let (bx, by, bw, bh) = get_pause_btn_rect(
                     offset_x as f32,
@@ -137,9 +138,15 @@ impl App {
                 );
                 let cx = rel_x as f32 - (page_shift as f32);
                 let cy = rel_y as f32;
-                if music_on && cx >= bx && cx <= bx + bw && cy >= by && cy <= by + bh {
+                if music_on
+                    && self.media_control_available(crate::plugin::types::MEDIA_CONTROL_TOGGLE_PLAY)
+                    && cx >= bx
+                    && cx <= bx + bw
+                    && cy >= by
+                    && cy <= by + bh
+                {
                     trigger_pause_click(media.is_playing);
-                    self.smtc.request_toggle_play();
+                    self.dispatch_media_command(crate::plugin::types::MEDIA_COMMAND_TOGGLE_PLAY, 0);
                     return;
                 }
 
@@ -151,10 +158,16 @@ impl App {
                     self.config.global_scale,
                     &self.config.expanded_cover_shape,
                 );
-                if music_on && cx >= px && cx <= px + pw && cy >= py && cy <= py + ph {
+                if music_on
+                    && self.media_control_available(crate::plugin::types::MEDIA_CONTROL_PREVIOUS)
+                    && cx >= px
+                    && cx <= px + pw
+                    && cy >= py
+                    && cy <= py + ph
+                {
                     trigger_cover_flip();
                     trigger_prev_click();
-                    self.smtc.request_prev();
+                    self.dispatch_media_command(crate::plugin::types::MEDIA_COMMAND_PREVIOUS, 0);
                     return;
                 }
 
@@ -166,10 +179,16 @@ impl App {
                     self.config.global_scale,
                     &self.config.expanded_cover_shape,
                 );
-                if music_on && cx >= nx && cx <= nx + nw && cy >= ny && cy <= ny + nh {
+                if music_on
+                    && self.media_control_available(crate::plugin::types::MEDIA_CONTROL_NEXT)
+                    && cx >= nx
+                    && cx <= nx + nw
+                    && cy >= ny
+                    && cy <= ny + nh
+                {
                     trigger_cover_flip();
                     trigger_next_click();
-                    self.smtc.request_next();
+                    self.dispatch_media_command(crate::plugin::types::MEDIA_COMMAND_NEXT, 0);
                     return;
                 }
 
@@ -181,7 +200,8 @@ impl App {
                     music_on,
                     self.config.global_scale,
                     &self.config.expanded_cover_shape,
-                ) && cx >= bar_left
+                ) && self.media_control_available(crate::plugin::types::MEDIA_CONTROL_SEEK)
+                    && cx >= bar_left
                     && cx <= bar_right
                     && cy >= bar_top
                     && cy <= bar_top + bar_hit_h
@@ -189,7 +209,15 @@ impl App {
                     let ratio = ((cx - bar_left) / (bar_right - bar_left)).clamp(0.0, 1.0);
                     let duration_ms = media.effective_duration_ms();
                     let seek_ms = (ratio as f64 * duration_ms as f64) as u64;
-                    self.seek.begin(bar_left, bar_right, duration_ms, seek_ms);
+                    self.seek.begin(
+                        bar_left,
+                        bar_right,
+                        duration_ms,
+                        seek_ms,
+                        self.plugin_media_source
+                            .as_ref()
+                            .map(|source| source.resource_id),
+                    );
                     return;
                 }
             }
@@ -266,7 +294,7 @@ impl App {
         if self.seek.active {
             self.seek.active = false;
             if self.seek.duration_ms > 0 {
-                self.smtc.request_seek(self.seek.preview_ms);
+                self.dispatch_seek_command();
             }
             return;
         }
@@ -304,9 +332,7 @@ impl App {
     }
 
     fn expand(&mut self) {
-        let media = self.smtc.get_info();
-        let widget_view =
-            should_show_widget_view(self.config.smtc_enabled, !media.title.is_empty());
+        let widget_view = should_show_widget_view(self.media_active());
         self.widget_view = widget_view;
         self.springs.view.value = f32::from(widget_view);
         self.springs.view.velocity = 0.0;

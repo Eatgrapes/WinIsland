@@ -111,27 +111,33 @@ Each style draws its background differently:
 
 ## Plugin system
 
-Plugins are native DLLs loaded via `libloading` with a C ABI interface:
+Plugins are trusted native DLLs loaded via `libloading` with versioned C ABI v1:
 
 ```
-DLL exports: plugin_get_instance() -> PluginInstanceC
+DLL exports: winisland_plugin_entry_v1() -> *const PluginDescriptorV1
 
-PluginInstanceC:
+PluginDescriptorV1:
+  ABI version + struct size
   metadata: PluginMetadataC (id, name, version, author, description)
-  plugin_type: u32 (Content=0, Theme=1, Shortcut=2)
-  handle: *mut c_void (plugin's self pointer)
-  vtable: *const PluginVTable
-
-PluginVTable (required):
-  on_load(handle) -> PluginResultC
-  on_unload(handle) -> PluginResultC
+  capability bitset (Context, Media, I18n, HostState)
+  create(create_info, out_handle) -> PluginResultC
+  shutdown(handle) -> PluginResultC
   destroy(handle)
-  [+ optional: get_content, on_click, on_expanded, supports_expand,
-              get_colors, get_animations, get_shortcuts_count,
-              get_shortcut_at, execute_shortcut]
+
+PluginCreateInfoV1:
+  host-issued PluginToken
+  HostApiV1 with query_interface()
+
+Host services issue ResourceId values. Context, Media, and translation resources
+are owned by PluginToken, validated on every operation, and revoked after a
+successful shutdown. Plugins may call host services from worker threads; resource
+changes wake the winit event loop. shutdown must stop and join all plugin threads
+before the DLL can be destroyed and unloaded.
 ```
 
-Plugin packages are `.zip` files with a manifest (YAML), optional signature, and the compiled DLL.
+Plugin packages are `.zip` files with a YAML manifest, one declared entry DLL,
+optional dependencies/assets, and optional signature metadata. Installation uses
+bounded staging extraction and backup/rollback directory activation.
 
 ---
 
