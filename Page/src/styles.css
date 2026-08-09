@@ -468,9 +468,25 @@ img, svg { display: block; }
   blockquote p { color: #285f93; }
   pre {
     max-width: 100%; overflow-x: auto; border: 1px solid rgba(255, 255, 255, .08); border-radius: 16px;
-    background: #17181c; padding: 20px; color: #f5f5f7; font: 12px/1.65 "SFMono-Regular", Consolas, monospace;
+    background: #17191e; padding: 20px; color: #d9dee7; font: 12px/1.65 "SFMono-Regular", Consolas, monospace;
     box-shadow: 0 14px 30px rgba(0, 0, 0, .09);
   }
+  pre code.hljs { display: block; overflow-x: visible; padding: 0; background: transparent; color: inherit; }
+  .hljs-comment, .hljs-quote { color: #85909f; font-style: italic; }
+  .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag { color: #ff7b72; }
+  .hljs-string, .hljs-regexp, .hljs-template-tag, .hljs-template-variable { color: #a5d6ff; }
+  .hljs-title, .hljs-title.function_, .hljs-title.class_, .hljs-section { color: #d2a8ff; }
+  .hljs-number, .hljs-symbol, .hljs-bullet { color: #79c0ff; }
+  .hljs-type, .hljs-built_in, .hljs-class .hljs-title { color: #7ee787; }
+  .hljs-attr, .hljs-attribute, .hljs-property, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-id { color: #ffa657; }
+  .hljs-variable, .hljs-variable.language_, .hljs-params { color: #e6edf3; }
+  .hljs-meta, .hljs-meta .hljs-keyword { color: #f2cc60; }
+  .hljs-name, .hljs-tag { color: #7ee787; }
+  .hljs-punctuation { color: #8b949e; }
+  .hljs-addition { background: rgba(46, 160, 67, .18); color: #aff5b4; }
+  .hljs-deletion { background: rgba(248, 81, 73, .18); color: #ffdcd7; }
+  .hljs-emphasis { font-style: italic; }
+  .hljs-strong { font-weight: 700; }
   :not(pre) > code { border: 1px solid rgba(0, 0, 0, .06); border-radius: 6px; background: #ededf0; padding: 2px 5px; color: #c7254e; font: .86em "SFMono-Regular", Consolas, monospace; }
   table { display: block; width: 100%; overflow-x: auto; border-collapse: separate; border: 1px solid var(--hairline); border-radius: 14px; border-spacing: 0; font-size: 13px; }
   :is(th, td) { border-right: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); padding: 11px 13px; text-align: left; }

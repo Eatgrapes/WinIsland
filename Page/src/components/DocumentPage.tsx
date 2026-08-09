@@ -1,10 +1,31 @@
-import { useMemo } from 'react'
+import { useMemo, type ComponentProps } from 'react'
 import { BookOpen, ChevronRight } from 'lucide-react'
+import dos from 'highlight.js/lib/languages/dos'
+import powershell from 'highlight.js/lib/languages/powershell'
 import ReactMarkdown from 'react-markdown'
 import { Link } from 'react-router-dom'
+import rehypeHighlight from 'rehype-highlight'
+import { common } from 'lowlight'
 import remarkGfm from 'remark-gfm'
 import { copy, DOC_KEYS, localePath, type DocKey, type Locale } from '../content'
 import { docs } from '../docs'
+
+type RehypePlugin = NonNullable<ComponentProps<typeof ReactMarkdown>['rehypePlugins']>[number]
+
+const syntaxHighlighting: RehypePlugin = [
+  rehypeHighlight,
+  {
+    aliases: {
+      dos: ['bat', 'batch', 'cmd'],
+      ini: ['toml'],
+      powershell: ['ps1'],
+      shell: ['sh'],
+    },
+    detect: false,
+    languages: { ...common, dos, powershell },
+    plainText: ['text', 'txt', 'plaintext'],
+  },
+]
 
 export default function DocumentPage({ locale, page }: { locale: Locale; page: DocKey }) {
   const text = copy[locale]
@@ -58,7 +79,11 @@ export default function DocumentPage({ locale, page }: { locale: Locale; page: D
           <ChevronRight size={14} />
           {text.docs.pages[page]}
         </div>
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[syntaxHighlighting]}
+          components={markdownComponents}
+        >
           {markdown}
         </ReactMarkdown>
       </article>
