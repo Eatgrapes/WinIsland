@@ -15,12 +15,15 @@
   "dependencies": {
     "@primer/octicons-react": "^19.29.2",
     "@sohumsuthar/liquid-glass": "^1.0.0",
+    "highlight.js": "^11.11.1",
     "konsta": "^5.2.0",
+    "lowlight": "^3.3.0",
     "lucide-react": "^1.25.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.18.1",
+    "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
