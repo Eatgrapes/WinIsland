@@ -1,24 +1,43 @@
 # Changelog
 
-All notable changes to `winisland-plugin-api` are documented here.
+This changelog lists published `winisland-plugin-api` releases only. Release notes are added when a version is published; there is no `Unreleased` section.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/),
-and this project adheres to [Semantic Versioning](https://semver.org/).
+## 0.3.0 - Aug 9, 2026
 
-## Unreleased
+Added:
+
+- Native DLL ABI v1 with the `winisland_plugin_entry_v1` descriptor entry point
+- `PluginToken` and `ResourceId` identities for host-validated ownership
+- Capability declarations for Context, Media, i18n, and Host State services
+- Versioned host service discovery through `HostApiV1::query_interface`
+- Create, update, and release operations for Context and Media resources
+- Optional Media control callbacks for play/pause, previous, next, and seek commands
+- Releasable translation bundles and current media/theme Host State snapshots
+- `id`, `abi-version`, and single `entry` DLL fields in `plugin.yml`
+- Packager support for Cargo `repository` and `[lib].name` metadata
 
 Changed:
 
-- Plugin development examples now match the current push-based host API and Rust 2024 syntax
-- `PluginVTable::set_host_api` is documented as reserved; the host currently injects
-  `HostApiC` through the exported `plugin_set_host_api` symbol
-- Signing documentation now clarifies that the packager records signatures and DLL hashes,
-  but the host does not yet verify them
+- **Breaking**: removed the 0.2 `PluginVTable`, `PluginType`, `PluginInstanceC`,
+  `HostApiC`, `plugin_get_instance`, and `plugin_set_host_api` interfaces
+- **Breaking**: removed the unfinished Theme and Shortcut interfaces
+- Plugin lifecycle is now strictly `create -> shutdown -> destroy`; WinIsland unloads a DLL
+  only after `shutdown` succeeds
+- Context IDs are host-issued numeric resources instead of plugin-provided strings
+- Plugin Media remains active independently of the SMTC setting and exposes only declared controls
+- Plugin worker-thread resource changes wake the WinIsland event loop
+- Development examples and packaging documentation now target Rust 2024 and ABI v1
 
 Fixed:
 
-- Broken intra-doc links in the plugin vtable documentation
-- Host callback documentation now describes the required pointer validity rules
+- Descriptor size, ABI version, capability, metadata, and lifecycle callback validation
+- Per-plugin resource ownership checks, count limits, and memory limits
+- Media callback reentrancy and unload synchronization
+- UTF-8-safe fixed-buffer truncation and bounded borrowed-slice copying
+- Context update/release event coalescing and media seek source binding
+- Bounded ZIP extraction with staging, Windows path-collision checks, transactional activation,
+  backup, and explicit rollback errors
+- Translation bundle cleanup and host wake coalescing during plugin shutdown
 
 ## 0.2.0 - Jun 19, 2026
 

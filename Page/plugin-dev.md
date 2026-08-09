@@ -1,249 +1,77 @@
-# Plugin Development Guide
+# Plugin development
 
-WinIsland plugin API `0.3` defines native ABI v1. Plugins are trusted Windows DLLs loaded into the WinIsland process. There is no sandbox or crash isolation, so users must only install plugins they trust.
+WinIsland plugin API `0.3` publishes native ABI v1. A plugin is a Windows DLL loaded directly into the WinIsland process. It can publish compact contexts, replace the displayed media source, register translations, and inspect the current host state.
 
-The old `0.2` `PluginVTable`, `PluginType`, `plugin_get_instance`, and `plugin_set_host_api` interfaces are not supported.
+> Plugins are trusted native code. There is no sandbox, process boundary, permission prompt, or crash isolation. Install and distribute plugins with the same care as desktop executables.
 
-## Architecture
+The old `0.2` `PluginVTable`, `PluginType`, `plugin_get_instance`, and `plugin_set_host_api` interfaces are not supported by ABI v1.
+
+## Documentation map
+
+| Guide | Use it for |
+|---|---|
+| [Quickstart](/plugin-dev/quickstart) | Create, build, and load a complete Context plugin |
+| [ABI and lifecycle](/plugin-dev/abi-lifecycle) | Descriptor validation, capabilities, threads, FFI rules, shutdown, and 0.2 migration |
+| [Host services](/plugin-dev/services) | Context, Media, i18n, Host State, resource limits, and callback behavior |
+| [Packaging and installation](/plugin-dev/packaging) | `PluginPackager`, `plugin.yml`, ZIP validation, updates, rollback, and troubleshooting |
+| [API changelog](/api-changelog) | Published API versions and breaking changes |
+
+Start with the quickstart even if you intend to build a Media or i18n plugin. It establishes the entry descriptor and lifecycle contract that every plugin must implement.
+
+## Runtime architecture
 
 ```text
 plugin DLL exports winisland_plugin_entry_v1()
     -> PluginDescriptorV1
-    -> WinIsland validates ABI, capabilities, and metadata
+    -> WinIsland validates ABI, capabilities, metadata, and callbacks
     -> WinIsland issues PluginToken and calls create(PluginCreateInfoV1)
-    -> plugin queries versioned Context/Media/I18n/HostState services
+    -> plugin queries versioned HostApiV1 service tables
     -> plugin creates host-owned resources identified by ResourceId
     -> WinIsland calls shutdown(handle)
     -> WinIsland revokes remaining resources
     -> WinIsland calls destroy(handle) and unloads the DLL
 ```
 
-Lifecycle is strictly `create -> shutdown -> destroy`. `shutdown` must synchronously stop and join every plugin thread that can execute plugin code or call a host service. WinIsland only destroys the handle and unloads the DLL after `shutdown` returns success.
+The lifecycle is strictly `create -> shutdown -> destroy`. `shutdown` must synchronously stop every worker and join every thread that can execute plugin code. WinIsland does not call `destroy` or unload the DLL when `shutdown` reports an error.
 
-## Project setup
+## Choose capabilities deliberately
 
-```toml
-[package]
-name = "hello-winisland-plugin"
-version = "0.1.0"
-edition = "2024"
-authors = ["Example Author"]
-description = "Minimal WinIsland ABI v1 plugin"
-repository = "https://github.com/example/hello-winisland-plugin"
+`PluginDescriptorV1.capabilities` is both a declaration and an authorization boundary. Declare only services the plugin uses.
 
-[lib]
-name = "hello_winisland_plugin"
-crate-type = ["cdylib"]
-
-[dependencies]
-winisland-plugin-api = "0.3"
-```
-
-The crate README contains a complete Context plugin that can be used as the initial `src/lib.rs` implementation.
-
-## Entry descriptor
-
-Every plugin exports one entry point:
-
-```rust
-#[unsafe(no_mangle)]
-/// # Safety
-/// WinIsland calls this function using the documented ABI v1 signature.
-pub unsafe extern "C" fn winisland_plugin_entry_v1() -> *const PluginDescriptorV1 {
-    &DESCRIPTOR
-}
-```
-
-The descriptor is static:
-
-```rust
-static DESCRIPTOR: PluginDescriptorV1 = PluginDescriptorV1 {
-    struct_size: std::mem::size_of::<PluginDescriptorV1>() as u32,
-    abi_version: ABI_VERSION_1,
-    capabilities: CAPABILITY_CONTEXT | CAPABILITY_HOST_STATE,
-    metadata: PluginMetadataC::new(
-        "hello-winisland-plugin",
-        "hello-winisland-plugin",
-        "0.1.0",
-        "Example Author",
-        "Minimal WinIsland ABI v1 plugin",
-    ),
-    create: Some(create),
-    shutdown: Some(shutdown),
-    destroy: Some(destroy),
-};
-```
-
-Plugin ID must match `[a-zA-Z0-9_-]+`. Package metadata and DLL descriptor metadata must match exactly.
-
-## Querying services
-
-During `create`, validate `PluginCreateInfoV1`, retain its `plugin_token`, and query declared services:
-
-```rust
-let info = unsafe { &*create_info };
-let host = unsafe { &*info.host_api };
-let context_api = unsafe { host.context_api() }
-    .ok_or_else(|| PluginResultC::err("context API unavailable"));
-```
-
-The available services are:
-
-| Capability | Query | Purpose |
+| Capability | Service | Typical use |
 |---|---|---|
-| `CAPABILITY_CONTEXT` | `HostApiV1::context_api()` | Compact island text/status resources |
-| `CAPABILITY_MEDIA` | `HostApiV1::media_api()` | Media UI data and optional controls |
-| `CAPABILITY_I18N` | `HostApiV1::i18n_api()` | Translation bundles |
-| `CAPABILITY_HOST_STATE` | `HostApiV1::host_state_api()` | Current media and light/dark theme snapshot |
+| `CAPABILITY_CONTEXT` | `ContextApiV1` | Build status, timers, ongoing activities, compact text |
+| `CAPABILITY_MEDIA` | `MediaApiV1` | A custom now-playing source and optional playback controls |
+| `CAPABILITY_I18N` | `I18nApiV1` | Plugin-owned translation keys for supported languages |
+| `CAPABILITY_HOST_STATE` | `HostStateApiV1` | Read the displayed media and current light/dark theme |
 
-Calling a service without declaring its capability returns an error.
+Querying a service does not grant access by itself. Every resource call also carries the host-issued `PluginToken`, and the host rejects calls made without the declared capability.
 
-## Context service
+## Ownership model
 
-Context resources support create, update, and release:
+- WinIsland issues one nonzero `PluginToken` per loaded instance.
+- Service create/register calls issue nonzero `ResourceId` values.
+- A token can update or release only its own resources of the correct service type.
+- Plugins should release resources during `shutdown`; WinIsland revokes leftovers after successful shutdown.
+- Worker threads may call host services. Resource changes wake the WinIsland event loop.
+- A DLL and its function pointers must remain valid until shutdown completes and all callbacks have returned.
 
-```rust
-let data = ContextDataV1 {
-    priority: PRIORITY_MEDIUM,
-    flags: CONTEXT_FLAG_SHOW_COMPACT,
-    timeout_ms: 5_000,
-    title: str_to_fixed("Build complete"),
-    body: str_to_fixed("Release package is ready"),
-    compact_text: str_to_fixed("Build ready"),
-    ..Default::default()
-};
+## Development workflow
 
-let mut id = INVALID_ID;
-let result = unsafe { context_api.create.unwrap()(token, &data, &mut id) };
-```
+1. Define a `cdylib` crate and depend on `winisland-plugin-api = "0.3"`.
+2. Export one `winisland_plugin_entry_v1` function returning a static descriptor.
+3. Validate `PluginCreateInfoV1`, query declared services, and return an opaque instance handle.
+4. Keep all host-issued resource IDs in plugin-owned state.
+5. Stop workers and release resources in `shutdown`, then free only plugin memory in `destroy`.
+6. Run `cargo check`, strict Clippy, and `cargo build --release`.
+7. Package one entry DLL plus optional dependencies/assets and install the ZIP by dropping it onto WinIsland.
 
-`timeout_ms = 0` means persistent. A timeout hides the context; the plugin still owns the resource and should release it. Updating a resource refreshes its display order and timeout.
+## Compatibility contract
 
-## Media service
+Crate version `0.3.x` exposes ABI version `1`. Runtime compatibility is selected by `ABI_VERSION_1`, each structure's `struct_size`, and service table versions, not by Rust crate metadata at DLL load time.
 
-Media resources replace SMTC while active. The most recently created or updated media resource is displayed. Releasing the active resource selects the next plugin resource or restores SMTC.
+All public ABI structures use `#[repr(C)]`. Plugins should initialize versioned structures with `Default` where available and must not assume fields beyond the advertised `struct_size` exist. A new incompatible ABI requires a new entry symbol and ABI version rather than changing ABI v1 in place.
 
-```rust
-let cover = std::fs::read("cover.png").unwrap_or_default();
-let media = MediaSourceDataV1 {
-    flags: MEDIA_FLAG_PLAYING,
-    title: str_to_fixed("Plugin Track"),
-    artist: str_to_fixed("Plugin Artist"),
-    duration_ms: 180_000,
-    position_ms: 12_000,
-    cover: ByteSliceV1::from_slice(&cover),
-    ..Default::default()
-};
-```
+## Where to look next
 
-The host copies cover bytes before returning. Cover data only needs to remain valid during the call.
-
-To enable media controls, declare the corresponding `MEDIA_CONTROL_*` flags and provide `on_command`. The callback runs synchronously on the WinIsland event-loop thread:
-
-```rust
-media.available_controls = MEDIA_CONTROL_TOGGLE_PLAY | MEDIA_CONTROL_SEEK;
-media.on_command = Some(on_media_command);
-media.callback_data = state_pointer;
-```
-
-`callback_data` must remain valid until the media resource is successfully released. The callback may call host services. Update or release of the same media resource returns an error while its callback is executing.
-
-## Translation service
-
-Translation strings are borrowed UTF-8 slices and are copied during registration:
-
-```rust
-let pairs = [TranslationPairV1 {
-    key: Utf8SliceV1::borrowed("hello.title"),
-    value: Utf8SliceV1::borrowed("Hello"),
-}];
-let mut bundle_id = INVALID_ID;
-let result = unsafe {
-    i18n_api.register_bundle.unwrap()(
-        token,
-        Utf8SliceV1::borrowed("en_us"),
-        pairs.as_ptr(),
-        pairs.len() as u32,
-        &mut bundle_id,
-    )
-};
-```
-
-Supported built-in language codes currently include `en_us`, `zh_cn`, and `es_es`. Retain and release every bundle `ResourceId` during shutdown.
-
-## Host state
-
-Use `HostStateV1::default()` before calling `get`; the host validates `struct_size`:
-
-```rust
-let mut state = HostStateV1::default();
-let result = unsafe { host_state_api.get.unwrap()(token, &mut state) };
-if result.status == 0 {
-    let playing = state.is_playing != 0;
-}
-```
-
-The snapshot reports the media currently displayed by WinIsland, including plugin media, plus `light` or `dark` theme text.
-
-## Resource ownership
-
-- `PluginToken` is issued by WinIsland. Never invent or share one.
-- `ResourceId` is issued by a service create/register call.
-- Update and release require the token that owns the resource.
-- WinIsland revokes remaining resources after successful shutdown.
-- Plugins should still release resources explicitly during shutdown.
-- Context, Media, and translation resources have per-plugin count and memory limits.
-- Host services may be called from plugin worker threads; resource changes wake the WinIsland event loop.
-
-## FFI rules
-
-- All ABI structs are `#[repr(C)]`.
-- Versioned structs begin with `struct_size`; initialize them with `Default` where available.
-- Required pointers must be non-null, correctly aligned, and readable/writable for the complete call.
-- `ByteSliceV1` and `Utf8SliceV1` are `(ptr, len)` borrowed slices, not NUL-terminated strings.
-- The host copies borrowed slices before returning unless a field explicitly documents a longer lifetime.
-- Do not let panic unwind across an `extern "C"` boundary.
-- Native plugins are trusted and execute with the WinIsland process permissions.
-
-## Packaging
-
-Add the packager as a dev dependency:
-
-```toml
-[dev-dependencies]
-winisland-plugin-api = { version = "0.3", features = ["packager"] }
-
-[[example]]
-name = "pack"
-path = "package.rs"
-```
-
-```rust
-fn main() {
-    winisland_plugin_api::packager::PluginPackager::from_cargo()
-        .unwrap()
-        .build()
-        .unwrap();
-}
-```
-
-Run `cargo run --example pack`.
-
-`from_cargo()` reads package name, version, author, description, repository, and `[lib].name`. Builder methods can override metadata, but generated `plugin.yml` metadata must still match `PluginMetadataC` exactly.
-
-The package has one entry DLL:
-
-```yaml
-id: hello-winisland-plugin
-name: hello-winisland-plugin
-author: Example Author
-version: 0.1.0
-description: Minimal WinIsland ABI v1 plugin
-github-link: https://github.com/example/hello-winisland-plugin
-abi-version: 1
-entry: hello_winisland_plugin.dll
-```
-
-Drag the ZIP onto WinIsland to install it. Extraction uses size/path limits and a staging directory. Updates validate the new descriptor before stopping the old plugin, then use backup-and-rollback directory replacement. Additional DLLs can be packaged as dependencies, but only `entry` is loaded as the plugin.
-
-The packager can add DLL hashes and an Ed25519 signature. WinIsland does not enforce signature verification yet.
+Build the [minimal plugin](/plugin-dev/quickstart), then read [ABI and lifecycle](/plugin-dev/abi-lifecycle) before adding worker threads or callbacks. The [service reference](/plugin-dev/services) documents exact limits and ownership rules, while [packaging and installation](/plugin-dev/packaging) covers distribution and update failures.

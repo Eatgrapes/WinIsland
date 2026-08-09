@@ -1,27 +1,40 @@
 # Plugin API Changelog
 
-All notable changes to `winisland-plugin-api` are documented here.
+This page lists published `winisland-plugin-api` releases only. Release notes are added when a version is published; there is no `Unreleased` section.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/),
-and this project adheres to [Semantic Versioning](https://semver.org/).
+## 0.3.0 - Aug 9, 2026
 
-## Unreleased
+Added:
+
+- Native DLL ABI v1 through `winisland_plugin_entry_v1() -> *const PluginDescriptorV1`
+- Host-issued `PluginToken` and `ResourceId` values for identity and ownership
+- Capability declarations for Context, Media, i18n, and Host State
+- Versioned service discovery through `HostApiV1::query_interface`
+- Context create, update, release, priority, compact text, and timeout support
+- Media sources with cover art, playback position, available controls, and optional callbacks
+- Releasable translation bundles and current media/theme Host State snapshots
+- Single-entry plugin packages with `id`, `abi-version`, and `entry` manifest fields
 
 Changed:
 
-- Plugin development guides now match the current push-based host API and Rust 2024 syntax
-- `PluginVTable::set_host_api` is documented as reserved; the host currently injects
-  `HostApiC` through the exported `plugin_set_host_api` symbol
-- Signing documentation now distinguishes packager-generated metadata from host verification
+- **Breaking**: removed the 0.2 `PluginVTable`, `PluginType`, `PluginInstanceC`,
+  `HostApiC`, `plugin_get_instance`, and `plugin_set_host_api` interfaces
+- **Breaking**: removed the unfinished Theme and Shortcut interfaces
+- Lifecycle is strictly `create -> shutdown -> destroy`; DLL unload requires successful shutdown
+- Context identifiers are host-issued numeric resources instead of plugin-defined strings
+- Plugin Media is independent of the SMTC setting and only renders declared controls
+- Worker-thread resource changes wake the WinIsland event loop
+- Packager metadata now reads Cargo `repository` and `[lib].name`
 
 Fixed:
 
-- Context IDs now use a process-local atomic counter to avoid timestamp collisions
-- Host callbacks reject invalid null pointers before reading FFI data
-- Plugin handle mappings are removed during unload
-- Plugin handles are registered before host API injection, so initialization callbacks resolve
-  to the correct plugin
-- Broken intra-doc links in the plugin vtable documentation
+- Descriptor size, ABI version, capability, metadata, and lifecycle callback validation
+- Token-bound resource ownership, per-plugin count limits, and memory limits
+- Media callback reentrancy and unload synchronization
+- UTF-8-safe fixed-buffer truncation and bounded borrowed-slice copying
+- Context update/release event coalescing and media seek source binding
+- Translation bundle cleanup and host event-loop wake coalescing
+- Bounded ZIP extraction, Windows path-collision checks, staging activation, backup, and rollback
 
 ## 0.2.0 - Jun 19, 2026
 
