@@ -330,7 +330,11 @@ pub(super) fn draw_mini_content(params: MiniContentParams<'_>) {
                 canvas.clip_rect(clip, ClipOp::Intersect, true);
                 draw_text_cached(DrawTextCachedParams {
                     canvas,
-                    text: &ctx.title,
+                    text: if ctx.compact_text.is_empty() {
+                        &ctx.title
+                    } else {
+                        &ctx.compact_text
+                    },
                     x: text_x,
                     y: text_y,
                     size: font_sz,

@@ -25,7 +25,7 @@ mod lifecycle;
 mod startup;
 mod system;
 
-type InstallResult = Result<(PluginManifest, PathBuf, Vec<String>), String>;
+type InstallResult = Result<(PluginManifest, PathBuf), String>;
 const RIGHT_DRAG_THRESHOLD: i32 = 4;
 pub(super) const DEFAULT_ANIMATION_REFRESH_RATE_MILLIHERTZ: u32 = 144_000;
 pub(super) const DEFAULT_ANIMATION_FRAME_INTERVAL: Duration = Duration::from_micros(6_944);
@@ -38,8 +38,14 @@ enum HideEdge {
     Right,
 }
 
-fn should_show_widget_view(smtc_enabled: bool, has_media: bool) -> bool {
-    !(smtc_enabled && has_media)
+fn should_show_widget_view(has_media: bool) -> bool {
+    !has_media
+}
+
+struct PluginMediaSource {
+    resource_id: u64,
+    available_controls: u32,
+    info: MediaInfo,
 }
 
 pub struct App {
@@ -85,7 +91,8 @@ pub struct App {
     touch_pos: PhysicalPosition<f64>,
     ctx_mgr: ContextManager,
     plugin_mgr: PluginManager,
-    plugin_media_source: Option<crate::core::smtc::MediaInfo>,
+    plugin_media_source: Option<PluginMediaSource>,
+    is_light_theme: bool,
     pending_install: Option<mpsc::Receiver<InstallResult>>,
     right_press_cursor: Option<(i32, i32)>,
     is_right_dragging: bool,
@@ -148,6 +155,7 @@ impl Default for App {
             ctx_mgr: ContextManager::new(),
             plugin_mgr: PluginManager::default(),
             plugin_media_source: None,
+            is_light_theme: false,
             pending_install: None,
             right_press_cursor: None,
             is_right_dragging: false,
@@ -176,15 +184,24 @@ struct SeekDrag {
     bar_right: f32,
     duration_ms: u64,
     preview_ms: u64,
+    media_resource_id: Option<crate::plugin::types::ResourceId>,
 }
 
 impl SeekDrag {
-    fn begin(&mut self, bar_left: f32, bar_right: f32, duration_ms: u64, preview_ms: u64) {
+    fn begin(
+        &mut self,
+        bar_left: f32,
+        bar_right: f32,
+        duration_ms: u64,
+        preview_ms: u64,
+        media_resource_id: Option<crate::plugin::types::ResourceId>,
+    ) {
         self.active = true;
         self.bar_left = bar_left;
         self.bar_right = bar_right;
         self.duration_ms = duration_ms;
         self.preview_ms = preview_ms;
+        self.media_resource_id = media_resource_id;
     }
 
     fn preview_at(&mut self, click_x: f32) {
@@ -298,6 +315,69 @@ struct IslandLayout {
 }
 
 impl App {
+    fn current_media_info(&self) -> &MediaInfo {
+        self.plugin_media_source
+            .as_ref()
+            .map_or(&self.smtc_media_info, |source| &source.info)
+    }
+
+    fn media_control_available(&self, control: u32) -> bool {
+        self.plugin_media_source
+            .as_ref()
+            .map_or(self.config.smtc_enabled, |source| {
+                source.available_controls & control != 0
+            })
+    }
+
+    fn media_active(&self) -> bool {
+        if let Some(source) = &self.plugin_media_source {
+            return !source.info.title.is_empty();
+        }
+        self.config.smtc_enabled && !self.smtc_media_info.title.is_empty()
+    }
+
+    fn audio_target_app_id(&self) -> &str {
+        if self.plugin_media_source.is_some() || !self.config.smtc_enabled {
+            ""
+        } else {
+            &self.smtc_media_info.source_app_id
+        }
+    }
+
+    fn dispatch_media_command(&self, command: u32, position_ms: u64) {
+        if let Some(source) = &self.plugin_media_source {
+            if let Err(error) = crate::plugin::manager::dispatch_media_command(
+                source.resource_id,
+                command,
+                position_ms,
+            ) {
+                log::warn!("Plugin media command failed: {error}");
+            }
+            return;
+        }
+        match command {
+            crate::plugin::types::MEDIA_COMMAND_TOGGLE_PLAY => self.smtc.request_toggle_play(),
+            crate::plugin::types::MEDIA_COMMAND_PREVIOUS => self.smtc.request_prev(),
+            crate::plugin::types::MEDIA_COMMAND_NEXT => self.smtc.request_next(),
+            crate::plugin::types::MEDIA_COMMAND_SEEK => self.smtc.request_seek(position_ms),
+            _ => (),
+        }
+    }
+
+    fn dispatch_seek_command(&self) {
+        if let Some(resource_id) = self.seek.media_resource_id {
+            if let Err(error) = crate::plugin::manager::dispatch_media_command(
+                resource_id,
+                crate::plugin::types::MEDIA_COMMAND_SEEK,
+                self.seek.preview_ms,
+            ) {
+                log::warn!("Plugin media seek failed: {error}");
+            }
+        } else {
+            self.smtc.request_seek(self.seek.preview_ms);
+        }
+    }
+
     fn is_hidden(&self) -> bool {
         self.hide.is_hidden()
     }

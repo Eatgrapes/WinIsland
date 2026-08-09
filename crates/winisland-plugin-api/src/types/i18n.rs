@@ -1,15 +1,7 @@
-use std::ffi::c_char;
-
-/// A translation key-value pair registered by a plugin via
-/// [`HostApiC::register_translations`](crate::HostApiC).
-///
-/// Both `key` and `value` are null-terminated UTF-8 strings.
-/// The host copies the strings immediately; the plugin may free
-/// them after the call returns.
+/// A borrowed translation key-value pair.
 #[repr(C)]
-pub struct TranslationPairC {
-    /// Translation key (e.g. `"greeting"`).
-    pub key: *const c_char,
-    /// Translation value (e.g. `"Bonjour"`).
-    pub value: *const c_char,
+#[derive(Clone, Copy)]
+pub struct TranslationPairV1 {
+    pub key: crate::Utf8SliceV1,
+    pub value: crate::Utf8SliceV1,
 }

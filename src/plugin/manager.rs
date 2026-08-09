@@ -1,273 +1,867 @@
 #![allow(dead_code)]
 
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::ffi::c_void;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
+use winit::event_loop::EventLoopProxy;
+
 use super::loader::NativePlugin;
-use super::types::read_c_str;
 use super::types::{
-    ContentProvider, Plugin, PluginError, PluginType, ShortcutProvider, ThemeProvider,
+    ABI_VERSION_1, CAPABILITY_CONTEXT, CAPABILITY_HOST_STATE, CAPABILITY_I18N, CAPABILITY_MEDIA,
+    ContextApiV1, ContextDataV1, HostApiV1, HostState, HostStateApiV1, HostStateV1, I18nApiV1,
+    INTERFACE_CONTEXT, INTERFACE_HOST_STATE, INTERFACE_I18N, INTERFACE_MEDIA, INTERFACE_VERSION_1,
+    INVALID_ID, MediaApiV1, MediaCommandV1, MediaSourceDataV1, PluginError, PluginResultC,
+    PluginToken, ResourceId, TranslationPairV1, Utf8SliceV1, context_from_ffi, read_c_str,
 };
 use super::zip_loader::{self, PluginManifest};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::RwLock;
-use std::sync::{Mutex, OnceLock};
 
-/// Buffered plugin media source, drained by the main thread each frame.
+const MAX_COVER_BYTES: u32 = 16 * 1024 * 1024;
+const MAX_CONTEXTS_PER_PLUGIN: usize = 64;
+const MAX_MEDIA_SOURCES_PER_PLUGIN: usize = 4;
+const MAX_MEDIA_BYTES_PER_PLUGIN: usize = 32 * 1024 * 1024;
+const MAX_I18N_BUNDLES_PER_PLUGIN: usize = 16;
+const MAX_I18N_BYTES_PER_PLUGIN: usize = 4 * 1024 * 1024;
+const MAX_TRANSLATION_PAIRS: u32 = 4096;
+const MAX_TRANSLATION_STRING_BYTES: u32 = 64 * 1024;
+const MAX_TRANSLATION_BUNDLE_BYTES: usize = 1024 * 1024;
+
+#[derive(Clone)]
 pub struct PendingMediaSource {
+    pub resource_id: ResourceId,
     pub title: String,
     pub artist: String,
     pub album: String,
     pub duration_ms: u64,
     pub position_ms: u64,
     pub is_playing: bool,
+    pub available_controls: u32,
     pub cover_data: Vec<u8>,
 }
 
-// ---------------------------------------------------------------------------
-// Global router — C callbacks route through thread-safe pending buffers
-// ---------------------------------------------------------------------------
-
-static PENDING_CONTEXTS: OnceLock<Mutex<Vec<crate::core::context::PluginContext>>> =
-    OnceLock::new();
-static PENDING_CLOSE: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
-static PENDING_MEDIA_SOURCE: OnceLock<Mutex<Option<PendingMediaSource>>> = OnceLock::new();
-static PLUGIN_HANDLES: OnceLock<Mutex<HashMap<isize, String>>> = OnceLock::new();
-static HOST_STATE: OnceLock<Mutex<crate::plugin::types::HostState>> = OnceLock::new();
-/// Leaked `'static` HostApiC — plugins hold a raw pointer to this.
-static HOST_API: OnceLock<Box<crate::plugin::types::HostApiC>> = OnceLock::new();
-
-/// Initialise the global plugin→host routing. Must be called once at startup.
-///
-/// Returns a `*const` to a leaked `'static` HostApiC that plugins can safely
-/// store and call through for the entire process lifetime.
-pub fn init_host_api() -> *const crate::plugin::types::HostApiC {
-    PENDING_CONTEXTS.get_or_init(|| Mutex::new(Vec::new()));
-    PENDING_CLOSE.get_or_init(|| Mutex::new(Vec::new()));
-    PENDING_MEDIA_SOURCE.get_or_init(|| Mutex::new(None));
-    PLUGIN_HANDLES.get_or_init(|| Mutex::new(HashMap::new()));
-    HOST_STATE.get_or_init(|| Mutex::new(crate::plugin::types::HostState::default()));
-
-    let api = HOST_API.get_or_init(|| {
-        Box::new(crate::plugin::types::HostApiC {
-            send_context: host_send_context,
-            close_context: host_close_context,
-            query_host_state: host_query_host_state,
-            set_media_source: host_set_media_source,
-            clear_media_source: host_clear_media_source,
-            register_translations: host_register_translations,
-        })
-    });
-    api.as_ref() as *const _
+pub enum MediaSourceEvent {
+    Set(PendingMediaSource),
+    Clear,
 }
 
-/// Drain all pending plugin contexts and push them into the ContextManager.
-/// Called once per frame from the main loop.
-pub fn drain_pending_contexts(ctx_mgr: &mut crate::core::context::ContextManager) {
-    if let Some(buf) = PENDING_CONTEXTS.get()
-        && let Ok(mut v) = buf.lock()
-    {
-        for ctx in v.drain(..) {
-            ctx_mgr.push_context(ctx);
-        }
-    }
-    if let Some(buf) = PENDING_CLOSE.get()
-        && let Ok(mut v) = buf.lock()
-    {
-        for encoded in v.drain(..) {
-            if let Some(id) = crate::core::context::ContextId::from_encoded(&encoded) {
-                ctx_mgr.close_context(&id);
-            }
-        }
-    }
+enum ContextEvent {
+    Upsert(crate::core::context::PluginContext),
+    Remove(ResourceId),
 }
 
-/// Register a plugin handle → plugin_id mapping.
-pub fn register_plugin_handle(handle: isize, plugin_id: &str) {
-    if let Some(map) = PLUGIN_HANDLES.get()
-        && let Ok(mut m) = map.lock()
-    {
-        m.insert(handle, plugin_id.to_string());
-    }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ResourceKind {
+    Context,
+    Media,
+    I18n,
 }
 
-/// Remove a plugin handle mapping on unload.
-pub fn deregister_plugin_handle(handle: isize) {
-    if let Some(map) = PLUGIN_HANDLES.get()
-        && let Ok(mut m) = map.lock()
-    {
-        m.remove(&handle);
-    }
+struct ResourceOwner {
+    plugin: PluginToken,
+    kind: ResourceKind,
+    size_bytes: usize,
 }
 
-/// Update the cached host state (called from app.rs when SMTC changes).
-pub fn update_host_state(state: crate::plugin::types::HostState) {
-    if let Some(s) = HOST_STATE.get()
-        && let Ok(mut m) = s.lock()
-    {
-        *m = state;
-    }
+struct PluginRegistration {
+    capabilities: u64,
+    stopping: bool,
 }
 
-/// Drain the pending plugin media source. Returns `None` if cleared or empty.
-pub fn drain_pending_media_source() -> Option<PendingMediaSource> {
-    PENDING_MEDIA_SOURCE.get()?.lock().ok()?.take()
+struct MediaResource {
+    data: PendingMediaSource,
+    sequence: u64,
+    on_command: Option<super::types::MediaCommandFnV1>,
+    callback_data: usize,
+    in_flight: u32,
 }
 
-unsafe extern "C" fn host_set_media_source(
-    _handle: crate::plugin::types::PluginHandle,
-    data: crate::plugin::types::MediaSourceC,
-) -> crate::plugin::types::PluginResultC {
-    let raw = read_c_str(&data.title);
-    if raw.is_empty() {
-        return crate::plugin::types::PluginResultC::err("title is empty");
-    }
+#[derive(Default)]
+struct RuntimeState {
+    plugins: HashMap<PluginToken, PluginRegistration>,
+    resources: HashMap<ResourceId, ResourceOwner>,
+    context_events: HashMap<ResourceId, ContextEvent>,
+    visible_contexts: HashSet<ResourceId>,
+    media: HashMap<ResourceId, MediaResource>,
+    media_sequence: u64,
+    media_dirty: bool,
+    host_state: HostState,
+}
 
-    let cover_data = if !data.cover_data.is_null() && data.cover_len > 0 {
-        unsafe { std::slice::from_raw_parts(data.cover_data, data.cover_len as usize) }.to_vec()
-    } else {
-        Vec::new()
+static RUNTIME: OnceLock<Mutex<RuntimeState>> = OnceLock::new();
+static EVENT_LOOP_PROXY: OnceLock<EventLoopProxy<()>> = OnceLock::new();
+static WAKE_PENDING: AtomicBool = AtomicBool::new(false);
+static NEXT_PLUGIN_TOKEN: AtomicU64 = AtomicU64::new(1);
+static NEXT_RESOURCE_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_BACKUP_ID: AtomicU64 = AtomicU64::new(1);
+
+static HOST_API: HostApiV1 = HostApiV1 {
+    struct_size: std::mem::size_of::<HostApiV1>() as u32,
+    abi_version: ABI_VERSION_1,
+    query_interface: Some(query_interface),
+};
+static CONTEXT_API: ContextApiV1 = ContextApiV1 {
+    struct_size: std::mem::size_of::<ContextApiV1>() as u32,
+    version: INTERFACE_VERSION_1,
+    create: Some(context_create),
+    update: Some(context_update),
+    release: Some(context_release),
+};
+static MEDIA_API: MediaApiV1 = MediaApiV1 {
+    struct_size: std::mem::size_of::<MediaApiV1>() as u32,
+    version: INTERFACE_VERSION_1,
+    create: Some(media_create),
+    update: Some(media_update),
+    release: Some(media_release),
+};
+static I18N_API: I18nApiV1 = I18nApiV1 {
+    struct_size: std::mem::size_of::<I18nApiV1>() as u32,
+    version: INTERFACE_VERSION_1,
+    register_bundle: Some(i18n_register_bundle),
+    release_bundle: Some(i18n_release_bundle),
+};
+static HOST_STATE_API: HostStateApiV1 = HostStateApiV1 {
+    struct_size: std::mem::size_of::<HostStateApiV1>() as u32,
+    version: INTERFACE_VERSION_1,
+    get: Some(host_state_get),
+};
+
+fn runtime() -> &'static Mutex<RuntimeState> {
+    RUNTIME.get_or_init(|| Mutex::new(RuntimeState::default()))
+}
+
+pub fn set_event_loop_proxy(proxy: EventLoopProxy<()>) {
+    let _ = EVENT_LOOP_PROXY.set(proxy);
+}
+
+pub fn acknowledge_host_wake() {
+    WAKE_PENDING.store(false, Ordering::Release);
+}
+
+fn wake_host() {
+    let Some(proxy) = EVENT_LOOP_PROXY.get() else {
+        return;
     };
+    if !WAKE_PENDING.swap(true, Ordering::AcqRel) && proxy.send_event(()).is_err() {
+        WAKE_PENDING.store(false, Ordering::Release);
+    }
+}
 
-    if let Some(buf) = PENDING_MEDIA_SOURCE.get()
-        && let Ok(mut m) = buf.lock()
+pub fn host_api() -> *const HostApiV1 {
+    &HOST_API
+}
+
+unsafe extern "C" fn query_interface(interface_id: u32, version: u32) -> *const c_void {
+    if version != INTERFACE_VERSION_1 {
+        return std::ptr::null();
+    }
+    match interface_id {
+        INTERFACE_CONTEXT => std::ptr::from_ref(&CONTEXT_API).cast(),
+        INTERFACE_MEDIA => std::ptr::from_ref(&MEDIA_API).cast(),
+        INTERFACE_I18N => std::ptr::from_ref(&I18N_API).cast(),
+        INTERFACE_HOST_STATE => std::ptr::from_ref(&HOST_STATE_API).cast(),
+        _ => std::ptr::null(),
+    }
+}
+
+fn next_id(counter: &AtomicU64) -> u64 {
+    loop {
+        let id = counter.fetch_add(1, Ordering::Relaxed);
+        if id != INVALID_ID {
+            return id;
+        }
+    }
+}
+
+fn require_capability(
+    state: &RuntimeState,
+    token: PluginToken,
+    capability: u64,
+) -> Result<(), &'static str> {
+    match state.plugins.get(&token) {
+        Some(plugin) if plugin.capabilities & capability != 0 => Ok(()),
+        Some(_) => Err("capability was not declared"),
+        None => Err("invalid plugin token"),
+    }
+}
+
+fn require_resource(
+    state: &RuntimeState,
+    token: PluginToken,
+    id: ResourceId,
+    kind: ResourceKind,
+) -> Result<(), &'static str> {
+    match state.resources.get(&id) {
+        Some(owner) if owner.plugin == token && owner.kind == kind => Ok(()),
+        Some(_) => Err("resource is owned by another plugin"),
+        None => Err("resource was not found"),
+    }
+}
+
+fn resource_count(state: &RuntimeState, token: PluginToken, kind: ResourceKind) -> usize {
+    state
+        .resources
+        .values()
+        .filter(|owner| owner.plugin == token && owner.kind == kind)
+        .count()
+}
+
+fn resource_bytes(
+    state: &RuntimeState,
+    token: PluginToken,
+    kind: ResourceKind,
+    except: Option<ResourceId>,
+) -> usize {
+    state
+        .resources
+        .iter()
+        .filter(|(id, owner)| Some(**id) != except && owner.plugin == token && owner.kind == kind)
+        .map(|(_, owner)| owner.size_bytes)
+        .sum()
+}
+
+unsafe fn read_struct<T: Copy>(value: *const T) -> Result<T, &'static str> {
+    if value.is_null() {
+        return Err("input pointer is null");
+    }
+    // SAFETY: Plugin inputs are trusted ABI values and every v1 struct starts with struct_size.
+    let struct_size = unsafe { std::ptr::read_unaligned(value.cast::<u32>()) };
+    if struct_size < std::mem::size_of::<T>() as u32 {
+        return Err("input struct is truncated");
+    }
+    // SAFETY: The size check proves the complete ABI v1 prefix is available.
+    Ok(unsafe { std::ptr::read_unaligned(value) })
+}
+
+unsafe fn read_utf8(value: Utf8SliceV1, max_len: u32) -> Result<String, &'static str> {
+    if value.len > max_len {
+        return Err("UTF-8 value exceeds the size limit");
+    }
+    if value.len == 0 {
+        return Ok(String::new());
+    }
+    if value.ptr.is_null() {
+        return Err("UTF-8 pointer is null");
+    }
+    // SAFETY: The plugin guarantees this borrowed range is valid for the call.
+    let bytes = unsafe { std::slice::from_raw_parts(value.ptr, value.len as usize) };
+    std::str::from_utf8(bytes)
+        .map(str::to_owned)
+        .map_err(|_| "value is not valid UTF-8")
+}
+
+unsafe extern "C" fn context_create(
+    token: PluginToken,
+    data: *const ContextDataV1,
+    out_id: *mut ResourceId,
+) -> PluginResultC {
+    if out_id.is_null() {
+        return PluginResultC::err("resource output pointer is null");
+    }
+    // SAFETY: Validation is performed by read_struct before the value is used.
+    let data = match unsafe { read_struct(data) } {
+        Ok(data) => data,
+        Err(error) => return PluginResultC::err(error),
+    };
+    if read_c_str(&data.title).is_empty() {
+        return PluginResultC::err("context title is empty");
+    }
+    if data.priority > super::types::PRIORITY_HIGH
+        || data.flags & !super::types::CONTEXT_FLAG_SHOW_COMPACT != 0
     {
-        *m = Some(PendingMediaSource {
-            title: raw,
+        return PluginResultC::err("context contains unknown priority or flags");
+    }
+    let mut state = match runtime().lock() {
+        Ok(state) => state,
+        Err(_) => return PluginResultC::err("plugin runtime lock is poisoned"),
+    };
+    if let Err(error) = require_capability(&state, token, CAPABILITY_CONTEXT) {
+        return PluginResultC::err(error);
+    }
+    if resource_count(&state, token, ResourceKind::Context) >= MAX_CONTEXTS_PER_PLUGIN {
+        return PluginResultC::err("context resource limit reached");
+    }
+    let id = next_id(&NEXT_RESOURCE_ID);
+    let context = context_from_ffi(token, id, &data);
+    let size_bytes = context.title.len() + context.body.len() + context.compact_text.len();
+    state.resources.insert(
+        id,
+        ResourceOwner {
+            plugin: token,
+            kind: ResourceKind::Context,
+            size_bytes,
+        },
+    );
+    state
+        .context_events
+        .insert(id, ContextEvent::Upsert(context));
+    // SAFETY: out_id was checked non-null and belongs to the caller.
+    unsafe { out_id.write(id) };
+    drop(state);
+    wake_host();
+    PluginResultC::ok()
+}
+
+unsafe extern "C" fn context_update(
+    token: PluginToken,
+    id: ResourceId,
+    data: *const ContextDataV1,
+) -> PluginResultC {
+    // SAFETY: Validation is performed by read_struct before the value is used.
+    let data = match unsafe { read_struct(data) } {
+        Ok(data) => data,
+        Err(error) => return PluginResultC::err(error),
+    };
+    if read_c_str(&data.title).is_empty() {
+        return PluginResultC::err("context title is empty");
+    }
+    if data.priority > super::types::PRIORITY_HIGH
+        || data.flags & !super::types::CONTEXT_FLAG_SHOW_COMPACT != 0
+    {
+        return PluginResultC::err("context contains unknown priority or flags");
+    }
+    let context = context_from_ffi(token, id, &data);
+    let size_bytes = context.title.len() + context.body.len() + context.compact_text.len();
+    let mut state = match runtime().lock() {
+        Ok(state) => state,
+        Err(_) => return PluginResultC::err("plugin runtime lock is poisoned"),
+    };
+    if let Err(error) = require_resource(&state, token, id, ResourceKind::Context) {
+        return PluginResultC::err(error);
+    }
+    if let Some(owner) = state.resources.get_mut(&id) {
+        owner.size_bytes = size_bytes;
+    }
+    state
+        .context_events
+        .insert(id, ContextEvent::Upsert(context));
+    drop(state);
+    wake_host();
+    PluginResultC::ok()
+}
+
+unsafe extern "C" fn context_release(token: PluginToken, id: ResourceId) -> PluginResultC {
+    let mut state = match runtime().lock() {
+        Ok(state) => state,
+        Err(_) => return PluginResultC::err("plugin runtime lock is poisoned"),
+    };
+    if let Err(error) = require_resource(&state, token, id, ResourceKind::Context) {
+        return PluginResultC::err(error);
+    }
+    state.resources.remove(&id);
+    state.context_events.remove(&id);
+    if state.visible_contexts.remove(&id) {
+        state.context_events.insert(id, ContextEvent::Remove(id));
+    }
+    drop(state);
+    wake_host();
+    PluginResultC::ok()
+}
+
+fn copy_media(data: &MediaSourceDataV1, id: ResourceId) -> Result<MediaResource, &'static str> {
+    let title = read_c_str(&data.title);
+    if title.is_empty() {
+        return Err("media title is empty");
+    }
+    if data.cover.len > MAX_COVER_BYTES {
+        return Err("cover exceeds 16 MiB");
+    }
+    let known_controls = super::types::MEDIA_CONTROL_TOGGLE_PLAY
+        | super::types::MEDIA_CONTROL_PREVIOUS
+        | super::types::MEDIA_CONTROL_NEXT
+        | super::types::MEDIA_CONTROL_SEEK;
+    if data.flags & !super::types::MEDIA_FLAG_PLAYING != 0
+        || data.available_controls & !known_controls != 0
+    {
+        return Err("media source contains unknown flags or controls");
+    }
+    if data.available_controls != 0 && data.on_command.is_none() {
+        return Err("media controls require an on_command callback");
+    }
+    let cover_data = if data.cover.len == 0 {
+        Vec::new()
+    } else {
+        if data.cover.ptr.is_null() {
+            return Err("cover pointer is null");
+        }
+        // SAFETY: The plugin guarantees the cover range is valid for this call.
+        unsafe { std::slice::from_raw_parts(data.cover.ptr, data.cover.len as usize) }.to_vec()
+    };
+    Ok(MediaResource {
+        data: PendingMediaSource {
+            resource_id: id,
+            title,
             artist: read_c_str(&data.artist),
             album: read_c_str(&data.album),
             duration_ms: data.duration_ms,
             position_ms: data.position_ms,
-            is_playing: data.is_playing,
+            is_playing: data.flags & super::types::MEDIA_FLAG_PLAYING != 0,
+            available_controls: data.available_controls,
             cover_data,
-        });
-    }
-    crate::plugin::types::PluginResultC::ok()
+        },
+        sequence: 0,
+        on_command: data.on_command,
+        callback_data: data.callback_data as usize,
+        in_flight: 0,
+    })
 }
 
-unsafe extern "C" fn host_clear_media_source(
-    _handle: crate::plugin::types::PluginHandle,
-) -> crate::plugin::types::PluginResultC {
-    if let Some(buf) = PENDING_MEDIA_SOURCE.get()
-        && let Ok(mut m) = buf.lock()
-    {
-        *m = None;
+unsafe extern "C" fn media_create(
+    token: PluginToken,
+    data: *const MediaSourceDataV1,
+    out_id: *mut ResourceId,
+) -> PluginResultC {
+    if out_id.is_null() {
+        return PluginResultC::err("resource output pointer is null");
     }
-    crate::plugin::types::PluginResultC::ok()
-}
-
-unsafe extern "C" fn host_send_context(
-    handle: crate::plugin::types::PluginHandle,
-    data: crate::plugin::types::ContextDataC,
-) -> crate::plugin::types::ContextIdC {
-    let plugin_id = PLUGIN_HANDLES
-        .get()
-        .and_then(|m| m.lock().ok())
-        .and_then(|m| m.get(&(handle as isize)).cloned())
-        .unwrap_or_default();
-
-    let mut ctx = crate::core::context::PluginContext::from(&data);
-    ctx.id.source = plugin_id.clone();
-
-    let encoded_id = if let Some(buf) = PENDING_CONTEXTS.get()
-        && let Ok(mut v) = buf.lock()
-    {
-        ctx.id.uuid = crate::core::context::ContextId::new(&plugin_id).uuid;
-        let encoded = ctx.id.encode();
-        v.push(ctx);
-        encoded
-    } else {
-        String::new()
+    // SAFETY: Validation is performed by read_struct before the value is used.
+    let data = match unsafe { read_struct(data) } {
+        Ok(data) => data,
+        Err(error) => return PluginResultC::err(error),
     };
-
-    let mut id_buf = [0u8; 128];
-    let len = encoded_id.len().min(127);
-    id_buf[..len].copy_from_slice(encoded_id.as_bytes());
-    crate::plugin::types::ContextIdC { id: id_buf }
-}
-
-unsafe extern "C" fn host_close_context(
-    handle: crate::plugin::types::PluginHandle,
-    id_str: *const std::ffi::c_char,
-) -> crate::plugin::types::PluginResultC {
-    if id_str.is_null() {
-        return crate::plugin::types::PluginResultC::err("Context ID is null");
+    let id = next_id(&NEXT_RESOURCE_ID);
+    let mut media = match copy_media(&data, id) {
+        Ok(media) => media,
+        Err(error) => return PluginResultC::err(error),
+    };
+    let mut state = match runtime().lock() {
+        Ok(state) => state,
+        Err(_) => return PluginResultC::err("plugin runtime lock is poisoned"),
+    };
+    if let Err(error) = require_capability(&state, token, CAPABILITY_MEDIA) {
+        return PluginResultC::err(error);
     }
-    let raw = unsafe { std::ffi::CStr::from_ptr(id_str) };
-    let s = raw.to_string_lossy();
-    if let Some(context_id) = crate::core::context::ContextId::from_encoded(&s) {
-        let plugin_id = PLUGIN_HANDLES
-            .get()
-            .and_then(|m| m.lock().ok())
-            .and_then(|m| m.get(&(handle as isize)).cloned())
-            .unwrap_or_default();
-        // Only allow closing own contexts
-        if context_id.source != plugin_id {
-            return crate::plugin::types::PluginResultC::err(
-                "Cannot close another plugin's context",
-            );
-        }
-        if let Some(buf) = PENDING_CLOSE.get()
-            && let Ok(mut v) = buf.lock()
-        {
-            v.push(context_id.encode());
-        }
-        crate::plugin::types::PluginResultC::ok()
-    } else {
-        crate::plugin::types::PluginResultC::err("Invalid context ID format")
+    if resource_count(&state, token, ResourceKind::Media) >= MAX_MEDIA_SOURCES_PER_PLUGIN {
+        return PluginResultC::err("media resource limit reached");
     }
+    if resource_bytes(&state, token, ResourceKind::Media, None)
+        .saturating_add(media.data.cover_data.len())
+        > MAX_MEDIA_BYTES_PER_PLUGIN
+    {
+        return PluginResultC::err("media resources exceed the 32 MiB limit");
+    }
+    state.media_sequence = state.media_sequence.wrapping_add(1);
+    media.sequence = state.media_sequence;
+    state.resources.insert(
+        id,
+        ResourceOwner {
+            plugin: token,
+            kind: ResourceKind::Media,
+            size_bytes: media.data.cover_data.len(),
+        },
+    );
+    state.media.insert(id, media);
+    state.media_dirty = true;
+    // SAFETY: out_id was checked non-null and belongs to the caller.
+    unsafe { out_id.write(id) };
+    drop(state);
+    wake_host();
+    PluginResultC::ok()
 }
 
-unsafe extern "C" fn host_query_host_state(
-    _handle: crate::plugin::types::PluginHandle,
-) -> crate::plugin::types::HostStateC {
-    HOST_STATE
-        .get()
-        .and_then(|m| m.lock().ok())
-        .map(|m| crate::plugin::types::HostStateC::from(&*m))
-        .unwrap_or_else(|| crate::plugin::types::HostStateC {
-            media_title: [0u8; 256],
-            media_artist: [0u8; 256],
-            is_playing: false,
-            theme: [0u8; 32],
-        })
+unsafe extern "C" fn media_update(
+    token: PluginToken,
+    id: ResourceId,
+    data: *const MediaSourceDataV1,
+) -> PluginResultC {
+    // SAFETY: Validation is performed by read_struct before the value is used.
+    let data = match unsafe { read_struct(data) } {
+        Ok(data) => data,
+        Err(error) => return PluginResultC::err(error),
+    };
+    let mut media = match copy_media(&data, id) {
+        Ok(media) => media,
+        Err(error) => return PluginResultC::err(error),
+    };
+    let mut state = match runtime().lock() {
+        Ok(state) => state,
+        Err(_) => return PluginResultC::err("plugin runtime lock is poisoned"),
+    };
+    if let Err(error) = require_resource(&state, token, id, ResourceKind::Media) {
+        return PluginResultC::err(error);
+    }
+    if state
+        .media
+        .get(&id)
+        .is_some_and(|media| media.in_flight != 0)
+    {
+        return PluginResultC::err("media callback is in progress");
+    }
+    if resource_bytes(&state, token, ResourceKind::Media, Some(id))
+        .saturating_add(media.data.cover_data.len())
+        > MAX_MEDIA_BYTES_PER_PLUGIN
+    {
+        return PluginResultC::err("media resources exceed the 32 MiB limit");
+    }
+    state.media_sequence = state.media_sequence.wrapping_add(1);
+    media.sequence = state.media_sequence;
+    if let Some(owner) = state.resources.get_mut(&id) {
+        owner.size_bytes = media.data.cover_data.len();
+    }
+    state.media.insert(id, media);
+    state.media_dirty = true;
+    drop(state);
+    wake_host();
+    PluginResultC::ok()
 }
 
-unsafe extern "C" fn host_register_translations(
-    _handle: crate::plugin::types::PluginHandle,
-    lang: *const std::ffi::c_char,
-    pairs: *const crate::plugin::types::TranslationPairC,
+unsafe extern "C" fn media_release(token: PluginToken, id: ResourceId) -> PluginResultC {
+    let mut state = match runtime().lock() {
+        Ok(state) => state,
+        Err(_) => return PluginResultC::err("plugin runtime lock is poisoned"),
+    };
+    if let Err(error) = require_resource(&state, token, id, ResourceKind::Media) {
+        return PluginResultC::err(error);
+    }
+    if state
+        .media
+        .get(&id)
+        .is_some_and(|media| media.in_flight != 0)
+    {
+        return PluginResultC::err("media callback is in progress");
+    }
+    state.resources.remove(&id);
+    state.media.remove(&id);
+    state.media_dirty = true;
+    drop(state);
+    wake_host();
+    PluginResultC::ok()
+}
+
+unsafe extern "C" fn i18n_register_bundle(
+    token: PluginToken,
+    language: Utf8SliceV1,
+    pairs: *const TranslationPairV1,
     count: u32,
-) -> crate::plugin::types::PluginResultC {
-    if lang.is_null() {
-        return crate::plugin::types::PluginResultC::err("Language is null");
+    out_id: *mut ResourceId,
+) -> PluginResultC {
+    if out_id.is_null() {
+        return PluginResultC::err("resource output pointer is null");
     }
-    if count > 0 && pairs.is_null() {
-        return crate::plugin::types::PluginResultC::err("Translation pairs are null");
+    if count == 0 || count > MAX_TRANSLATION_PAIRS || pairs.is_null() {
+        return PluginResultC::err("translation bundle is empty or too large");
     }
-    let lang = unsafe { std::ffi::CStr::from_ptr(lang) }
-        .to_str()
-        .unwrap_or("en_us");
-    let slice = unsafe { std::slice::from_raw_parts(pairs, count as usize) };
-    let rust_pairs: Vec<(&str, &str)> = slice
-        .iter()
-        .filter_map(|p| {
-            if p.key.is_null() || p.value.is_null() {
-                return None;
-            }
-            let k = unsafe { std::ffi::CStr::from_ptr(p.key) }.to_str().ok()?;
-            let v = unsafe { std::ffi::CStr::from_ptr(p.value) }.to_str().ok()?;
-            Some((k, v))
-        })
-        .collect();
-    crate::core::i18n::register_plugin_translations(lang, &rust_pairs);
-    crate::plugin::types::PluginResultC::ok()
+    // SAFETY: The plugin owns the borrowed language bytes for this call.
+    let language = match unsafe { read_utf8(language, 64) } {
+        Ok(language) if !language.is_empty() => language,
+        Ok(_) => return PluginResultC::err("language is empty"),
+        Err(error) => return PluginResultC::err(error),
+    };
+    // SAFETY: count is bounded and the plugin guarantees this borrowed array is valid.
+    let pairs = unsafe { std::slice::from_raw_parts(pairs, count as usize) };
+    let mut copied = Vec::with_capacity(pairs.len());
+    let mut total_bytes = 0usize;
+    for pair in pairs {
+        // SAFETY: Translation strings are borrowed for this call and copied immediately.
+        let key = match unsafe { read_utf8(pair.key, MAX_TRANSLATION_STRING_BYTES) } {
+            Ok(key) if !key.is_empty() => key,
+            Ok(_) => return PluginResultC::err("translation key is empty"),
+            Err(error) => return PluginResultC::err(error),
+        };
+        // SAFETY: Translation strings are borrowed for this call and copied immediately.
+        let value = match unsafe { read_utf8(pair.value, MAX_TRANSLATION_STRING_BYTES) } {
+            Ok(value) => value,
+            Err(error) => return PluginResultC::err(error),
+        };
+        total_bytes = match total_bytes.checked_add(key.len() + value.len()) {
+            Some(total) if total <= MAX_TRANSLATION_BUNDLE_BYTES => total,
+            _ => return PluginResultC::err("translation bundle exceeds 1 MiB"),
+        };
+        copied.push((key, value));
+    }
+
+    let mut state = match runtime().lock() {
+        Ok(state) => state,
+        Err(_) => return PluginResultC::err("plugin runtime lock is poisoned"),
+    };
+    if let Err(error) = require_capability(&state, token, CAPABILITY_I18N) {
+        return PluginResultC::err(error);
+    }
+    if resource_count(&state, token, ResourceKind::I18n) >= MAX_I18N_BUNDLES_PER_PLUGIN {
+        return PluginResultC::err("translation bundle limit reached");
+    }
+    if resource_bytes(&state, token, ResourceKind::I18n, None).saturating_add(total_bytes)
+        > MAX_I18N_BYTES_PER_PLUGIN
+    {
+        return PluginResultC::err("translation bundles exceed the 4 MiB limit");
+    }
+    let id = next_id(&NEXT_RESOURCE_ID);
+    if let Err(error) = crate::core::i18n::register_plugin_translation_bundle(id, language, copied)
+    {
+        return PluginResultC::err(error);
+    }
+    state.resources.insert(
+        id,
+        ResourceOwner {
+            plugin: token,
+            kind: ResourceKind::I18n,
+            size_bytes: total_bytes,
+        },
+    );
+    // SAFETY: out_id was checked non-null and belongs to the caller.
+    unsafe { out_id.write(id) };
+    drop(state);
+    wake_host();
+    PluginResultC::ok()
 }
 
-// ---------------------------------------------------------------------------
-// PluginManager
-// ---------------------------------------------------------------------------
+unsafe extern "C" fn i18n_release_bundle(token: PluginToken, id: ResourceId) -> PluginResultC {
+    let mut state = match runtime().lock() {
+        Ok(state) => state,
+        Err(_) => return PluginResultC::err("plugin runtime lock is poisoned"),
+    };
+    if let Err(error) = require_resource(&state, token, id, ResourceKind::I18n) {
+        return PluginResultC::err(error);
+    }
+    if let Err(error) = crate::core::i18n::release_plugin_translation_bundle(id) {
+        return PluginResultC::err(error);
+    }
+    state.resources.remove(&id);
+    drop(state);
+    wake_host();
+    PluginResultC::ok()
+}
+
+unsafe extern "C" fn host_state_get(
+    token: PluginToken,
+    out_state: *mut HostStateV1,
+) -> PluginResultC {
+    if out_state.is_null() {
+        return PluginResultC::err("host state output pointer is null");
+    }
+    // SAFETY: HostStateV1 begins with struct_size, which is readable by contract.
+    let struct_size = unsafe { std::ptr::read_unaligned(out_state.cast::<u32>()) };
+    if struct_size < std::mem::size_of::<HostStateV1>() as u32 {
+        return PluginResultC::err("host state output struct is truncated");
+    }
+    let state = match runtime().lock() {
+        Ok(state) => state,
+        Err(_) => return PluginResultC::err("plugin runtime lock is poisoned"),
+    };
+    if let Err(error) = require_capability(&state, token, CAPABILITY_HOST_STATE) {
+        return PluginResultC::err(error);
+    }
+    let snapshot = HostStateV1::from(&state.host_state);
+    // SAFETY: The size check proves the caller provided a complete v1 output struct.
+    unsafe { out_state.write(snapshot) };
+    PluginResultC::ok()
+}
+
+pub fn update_host_state(state: HostState) {
+    if let Ok(mut runtime) = runtime().lock() {
+        runtime.host_state = state;
+    }
+}
+
+pub fn update_host_theme(is_light: bool) {
+    if let Ok(mut runtime) = runtime().lock() {
+        runtime.host_state.theme = if is_light {
+            "light".to_string()
+        } else {
+            "dark".to_string()
+        };
+    }
+}
+
+pub fn drain_pending_contexts(manager: &mut crate::core::context::ContextManager) {
+    let events = match runtime().lock() {
+        Ok(mut runtime) => {
+            let events = runtime
+                .context_events
+                .drain()
+                .map(|(_, event)| event)
+                .collect::<Vec<_>>();
+            for event in &events {
+                match event {
+                    ContextEvent::Upsert(context) => {
+                        runtime.visible_contexts.insert(context.id);
+                    }
+                    ContextEvent::Remove(id) => {
+                        runtime.visible_contexts.remove(id);
+                    }
+                }
+            }
+            events
+        }
+        Err(_) => return,
+    };
+    for event in events {
+        match event {
+            ContextEvent::Upsert(context) => manager.upsert_context(context),
+            ContextEvent::Remove(id) => {
+                manager.remove_context(id);
+            }
+        }
+    }
+}
+
+pub fn drain_media_source_event() -> Option<MediaSourceEvent> {
+    let mut runtime = runtime().lock().ok()?;
+    if !runtime.media_dirty {
+        return None;
+    }
+    runtime.media_dirty = false;
+    Some(
+        runtime
+            .media
+            .values()
+            .max_by_key(|media| media.sequence)
+            .map_or(MediaSourceEvent::Clear, |media| {
+                MediaSourceEvent::Set(media.data.clone())
+            }),
+    )
+}
+
+pub fn dispatch_media_command(
+    resource_id: ResourceId,
+    command: u32,
+    position_ms: u64,
+) -> Result<(), String> {
+    let required_control = match command {
+        super::types::MEDIA_COMMAND_TOGGLE_PLAY => super::types::MEDIA_CONTROL_TOGGLE_PLAY,
+        super::types::MEDIA_COMMAND_PREVIOUS => super::types::MEDIA_CONTROL_PREVIOUS,
+        super::types::MEDIA_COMMAND_NEXT => super::types::MEDIA_CONTROL_NEXT,
+        super::types::MEDIA_COMMAND_SEEK => super::types::MEDIA_CONTROL_SEEK,
+        _ => return Err("unknown media command".to_string()),
+    };
+    let (callback, callback_data) = {
+        let mut runtime = runtime()
+            .lock()
+            .map_err(|_| "plugin runtime lock is poisoned".to_string())?;
+        let plugin_token = runtime
+            .resources
+            .get(&resource_id)
+            .filter(|owner| owner.kind == ResourceKind::Media)
+            .map(|owner| owner.plugin)
+            .ok_or_else(|| "media resource was not found".to_string())?;
+        if runtime
+            .plugins
+            .get(&plugin_token)
+            .is_none_or(|plugin| plugin.stopping)
+        {
+            return Err("plugin is shutting down".to_string());
+        }
+        let media = runtime
+            .media
+            .get_mut(&resource_id)
+            .ok_or_else(|| "media resource was not found".to_string())?;
+        if media.data.available_controls & required_control == 0 {
+            return Err("media control is not supported".to_string());
+        }
+        let callback = media
+            .on_command
+            .ok_or_else(|| "media command callback is missing".to_string())?;
+        media.in_flight = media.in_flight.saturating_add(1);
+        (callback, media.callback_data)
+    };
+    let command = MediaCommandV1 {
+        struct_size: std::mem::size_of::<MediaCommandV1>() as u32,
+        command,
+        position_ms,
+    };
+    // SAFETY: Media callbacks are invoked on the winit thread while the plugin is loaded.
+    unsafe { callback(callback_data as *mut c_void, resource_id, &command) };
+    if let Ok(mut runtime) = runtime().lock()
+        && let Some(media) = runtime.media.get_mut(&resource_id)
+    {
+        media.in_flight = media.in_flight.saturating_sub(1);
+    }
+    Ok(())
+}
+
+fn register_plugin(token: PluginToken, capabilities: u64) -> Result<(), PluginError> {
+    let mut runtime = runtime()
+        .lock()
+        .map_err(|_| PluginError::ExecutionError("plugin runtime lock is poisoned".to_string()))?;
+    runtime.plugins.insert(
+        token,
+        PluginRegistration {
+            capabilities,
+            stopping: false,
+        },
+    );
+    Ok(())
+}
+
+fn begin_plugin_shutdown(token: PluginToken) -> Result<bool, PluginError> {
+    let mut runtime = runtime()
+        .lock()
+        .map_err(|_| PluginError::ExecutionError("plugin runtime lock is poisoned".to_string()))?;
+    let was_stopping = runtime
+        .plugins
+        .get(&token)
+        .ok_or_else(|| PluginError::ExecutionError("plugin token is not registered".to_string()))?
+        .stopping;
+    let callback_in_progress = runtime.resources.iter().any(|(&id, owner)| {
+        owner.plugin == token
+            && owner.kind == ResourceKind::Media
+            && runtime
+                .media
+                .get(&id)
+                .is_some_and(|media| media.in_flight != 0)
+    });
+    if callback_in_progress {
+        return Err(PluginError::ExecutionError(
+            "plugin media callback is in progress".to_string(),
+        ));
+    }
+    if let Some(plugin) = runtime.plugins.get_mut(&token) {
+        plugin.stopping = true;
+    }
+    Ok(was_stopping)
+}
+
+fn restore_plugin_shutdown_state(token: PluginToken, stopping: bool) {
+    if let Ok(mut runtime) = runtime().lock()
+        && let Some(plugin) = runtime.plugins.get_mut(&token)
+    {
+        plugin.stopping = stopping;
+    }
+}
+
+fn revoke_plugin(token: PluginToken) {
+    let i18n_resources = {
+        let Ok(mut runtime) = runtime().lock() else {
+            return;
+        };
+        runtime.plugins.remove(&token);
+        let resources = runtime
+            .resources
+            .iter()
+            .filter_map(|(&id, owner)| (owner.plugin == token).then_some((id, owner.kind)))
+            .collect::<Vec<_>>();
+        let mut i18n_resources = Vec::new();
+        let mut media_removed = false;
+        for (id, kind) in resources {
+            runtime.resources.remove(&id);
+            match kind {
+                ResourceKind::Context => {
+                    runtime.context_events.remove(&id);
+                    if runtime.visible_contexts.remove(&id) {
+                        runtime.context_events.insert(id, ContextEvent::Remove(id));
+                    }
+                }
+                ResourceKind::Media => {
+                    runtime.media.remove(&id);
+                    media_removed = true;
+                }
+                ResourceKind::I18n => i18n_resources.push(id),
+            }
+        }
+        runtime.media_dirty |= media_removed;
+        i18n_resources
+    };
+    for id in i18n_resources {
+        if let Err(error) = crate::core::i18n::release_plugin_translation_bundle(id) {
+            log::error!("Failed to release plugin translation bundle {id}: {error}");
+        }
+    }
+    wake_host();
+}
 
 pub struct PluginManager {
-    entries: RwLock<Vec<NativePlugin>>,
+    entries: RefCell<Vec<NativePlugin>>,
     plugin_dir: PathBuf,
 }
 
@@ -275,9 +869,8 @@ impl PluginManager {
     pub fn new<P: AsRef<Path>>(plugin_dir: P) -> Self {
         let plugin_dir = plugin_dir.as_ref().to_path_buf();
         let _ = std::fs::create_dir_all(&plugin_dir);
-
         Self {
-            entries: RwLock::new(Vec::new()),
+            entries: RefCell::new(Vec::new()),
             plugin_dir,
         }
     }
@@ -285,270 +878,235 @@ impl PluginManager {
     pub fn load_all(&self) {
         let dlls = discover_plugins(&self.plugin_dir);
         log::info!(
-            "Discovering plugins in {}: {} DLL(s) found",
+            "Discovering ABI v1 plugins in {}: {} DLL(s) found",
             self.plugin_dir.display(),
             dlls.len()
         );
-        for dll_path in dlls {
-            self.load_dll(&dll_path);
-        }
-    }
-
-    pub(crate) fn load_dll(&self, dll_path: &Path) {
-        let host_api = init_host_api();
-        match NativePlugin::load(dll_path) {
-            Ok(mut native) => {
-                let plugin_id = native.metadata().id.clone();
-
-                // C4: reject duplicate plugin IDs
-                let entries = match self.entries.read() {
-                    Ok(g) => g,
-                    Err(_) => {
-                        log::error!("Lock poisoned while loading plugin '{}'", plugin_id);
-                        return;
-                    }
-                };
-                if entries.iter().any(|p| p.metadata().id == plugin_id) {
-                    log::warn!("Plugin '{}' already loaded, skipping duplicate", plugin_id);
-                    return;
-                }
-                drop(entries);
-
-                let handle = native.handle_raw();
-                register_plugin_handle(handle, &plugin_id);
-                native.set_host_api(host_api);
-                if let Err(e) = native.initialize() {
-                    deregister_plugin_handle(handle);
-                    log::warn!(
-                        "Failed to initialize plugin '{}' from '{}': {}",
-                        plugin_id,
-                        dll_path.display(),
-                        e
-                    );
-                    return;
-                }
-
-                if let Ok(mut entries) = self.entries.write() {
-                    entries.push(native);
-                    log::info!(
-                        "Loaded plugin: {} ({})",
-                        entries.last().unwrap().metadata().name,
-                        plugin_id
-                    );
-                } else {
-                    drop(native);
-                    deregister_plugin_handle(handle);
-                    log::error!("Lock poisoned while adding plugin '{}'", plugin_id);
-                }
-            }
-            Err(e) => {
-                log::warn!("Failed to load plugin '{}': {}", dll_path.display(), e);
+        for (path, manifest) in dlls {
+            if let Err(error) = self.load_dll_checked(&path, manifest.as_ref()) {
+                log::warn!("Failed to load plugin '{}': {error}", path.display());
             }
         }
     }
 
-    pub fn install_from_zip(&self, zip_path: &Path) -> Result<PluginManifest, String> {
-        let (manifest, _extracted_dir, dll_paths) =
-            zip_loader::extract_plugin(zip_path, &self.plugin_dir)?;
-
-        for dll_path in &dll_paths {
-            self.load_dll(Path::new(dll_path));
-        }
-
-        log::info!(
-            "Installed plugin '{}' v{} by {}",
-            manifest.name,
-            manifest.version,
-            manifest.author
-        );
-        Ok(manifest)
-    }
-
-    pub fn read_manifest_from_zip(&self, zip_path: &Path) -> Result<PluginManifest, String> {
-        zip_loader::read_manifest_from_zip(zip_path)
-    }
-
-    pub fn validate_zip(&self, zip_path: &Path) -> Result<(), String> {
-        zip_loader::validate_zip(zip_path)
-    }
-
-    pub fn cancel_pending_install(&self, manifest: &PluginManifest) {
-        let dir_name = manifest.safe_dir_name();
-        let path = self.plugin_dir.join(&dir_name);
-        if path.exists() {
-            let _ = std::fs::remove_dir_all(&path);
+    pub(crate) fn load_dll(&self, path: &Path) {
+        if let Err(error) = self.load_dll_checked(path, None) {
+            log::warn!("Failed to load plugin '{}': {error}", path.display());
         }
     }
 
-    pub fn unload(&self, plugin_id: &str) -> Result<(), PluginError> {
-        let mut entries = self
-            .entries
-            .write()
-            .map_err(|e| PluginError::ExecutionError(format!("Lock poisoned: {}", e)))?;
-        let idx = entries
-            .iter()
-            .position(|p| p.metadata().id == plugin_id)
-            .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
-        let plugin = entries.remove(idx);
-        let handle = plugin.handle_raw();
+    fn load_dll_checked(
+        &self,
+        path: &Path,
+        manifest: Option<&PluginManifest>,
+    ) -> Result<(), PluginError> {
+        let mut plugin = NativePlugin::load(path)?;
+        let plugin_id = plugin.metadata().id.clone();
+        if let Some(manifest) = manifest {
+            validate_manifest_metadata(manifest, plugin.metadata())?;
+        }
+        let mut entries = self.entries.try_borrow_mut().map_err(|_| {
+            PluginError::ExecutionError("plugin list is already borrowed".to_string())
+        })?;
+        if entries.iter().any(|entry| entry.metadata().id == plugin_id) {
+            return Err(PluginError::InvalidPlugin(format!(
+                "plugin '{}' is already loaded",
+                plugin_id
+            )));
+        }
+
+        let token = next_id(&NEXT_PLUGIN_TOKEN);
+        register_plugin(token, plugin.capabilities())?;
+        if let Err(error) = plugin.initialize(token, host_api()) {
+            if let Err(shutdown_error) = begin_plugin_shutdown(token) {
+                entries.push(plugin);
+                return Err(PluginError::ExecutionError(format!(
+                    "{error}; cleanup could not start: {shutdown_error}"
+                )));
+            }
+            match plugin.shutdown() {
+                Ok(()) => {
+                    revoke_plugin(token);
+                    return Err(error);
+                }
+                Err(shutdown_error) => {
+                    entries.push(plugin);
+                    return Err(PluginError::ExecutionError(format!(
+                        "{error}; cleanup also failed: {shutdown_error}"
+                    )));
+                }
+            }
+        }
         log::info!(
-            "Plugin unloaded: {} ({})",
+            "Loaded ABI v1 plugin: {} v{} by {} ({})",
             plugin.metadata().name,
+            plugin.metadata().version,
+            plugin.metadata().author,
             plugin_id
         );
-        drop(plugin);
-        deregister_plugin_handle(handle);
+        log::debug!("Plugin description: {}", plugin.metadata().description);
+        entries.push(plugin);
         Ok(())
     }
 
-    pub fn list_content_providers(&self) -> Vec<String> {
-        let entries = match self.entries.read() {
-            Ok(g) => g,
-            Err(e) => {
-                log::error!("Plugin lock poisoned: {}", e);
-                return Vec::new();
-            }
+    pub fn unload(&self, plugin_id: &str) -> Result<(), PluginError> {
+        if self.unload_if_loaded(plugin_id)? {
+            Ok(())
+        } else {
+            Err(PluginError::NotFound(plugin_id.to_string()))
+        }
+    }
+
+    pub fn unload_if_loaded(&self, plugin_id: &str) -> Result<bool, PluginError> {
+        let mut entries = self.entries.try_borrow_mut().map_err(|_| {
+            PluginError::ExecutionError("plugin list is already borrowed".to_string())
+        })?;
+        let Some(index) = entries
+            .iter()
+            .position(|plugin| plugin.metadata().id == plugin_id)
+        else {
+            return Ok(false);
         };
-        entries
-            .iter()
-            .filter(|p| p.plugin_type() == PluginType::Content)
-            .map(|p| p.metadata().id.clone())
-            .collect()
+        let token = entries[index].token();
+        let was_stopping = begin_plugin_shutdown(token)?;
+        if let Err(error) = entries[index].shutdown() {
+            restore_plugin_shutdown_state(token, was_stopping);
+            return Err(error);
+        }
+        let plugin = entries.remove(index);
+        revoke_plugin(token);
+        drop(plugin);
+        Ok(true)
     }
 
-    pub fn list_theme_providers(&self) -> Vec<String> {
-        let entries = match self.entries.read() {
-            Ok(g) => g,
-            Err(e) => {
-                log::error!("Plugin lock poisoned: {}", e);
-                return Vec::new();
+    pub fn len(&self) -> usize {
+        self.entries.try_borrow().map_or(0, |entries| entries.len())
+    }
+
+    pub fn install_from_zip(&self, path: &Path) -> Result<PluginManifest, String> {
+        let (manifest, staging) = zip_loader::extract_plugin(path, &self.plugin_dir)?;
+        if let Err(error) = self.activate_staged_plugin(&manifest, &staging) {
+            let _ = std::fs::remove_dir_all(staging);
+            return Err(error);
+        }
+        Ok(manifest)
+    }
+
+    pub fn activate_staged_plugin(
+        &self,
+        manifest: &PluginManifest,
+        staging: &Path,
+    ) -> Result<(), String> {
+        let staged_entry = staging.join(&manifest.entry);
+        let validation = NativePlugin::load(&staged_entry).map_err(|error| error.to_string())?;
+        validate_manifest_metadata(manifest, validation.metadata())
+            .map_err(|error| error.to_string())?;
+        drop(validation);
+
+        let destination = self.plugin_dir.join(manifest.safe_dir_name());
+        let old_source = self.entries.try_borrow().ok().and_then(|entries| {
+            entries
+                .iter()
+                .find(|plugin| plugin.metadata().id == manifest.id)
+                .map(|plugin| plugin.path().to_path_buf())
+        });
+        let old_relative = old_source
+            .as_ref()
+            .and_then(|path| path.strip_prefix(&destination).ok().map(Path::to_path_buf));
+        if old_source.is_some() && old_relative.is_none() {
+            return Err(
+                "Cannot replace a manually installed root DLL with a packaged plugin".to_string(),
+            );
+        }
+        self.unload_if_loaded(&manifest.id)
+            .map_err(|error| error.to_string())?;
+
+        let backup = self.plugin_dir.join(format!(
+            ".{}.backup-{}-{}",
+            manifest.safe_dir_name(),
+            std::process::id(),
+            NEXT_BACKUP_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let had_previous = destination.exists();
+        if had_previous && let Err(error) = std::fs::rename(&destination, &backup) {
+            let reload = reload_previous(
+                self,
+                old_source.as_deref(),
+                old_relative.as_deref(),
+                &destination,
+            );
+            return Err(rollback_message(
+                format!("Cannot back up the existing plugin: {error}"),
+                reload,
+            ));
+        }
+        if let Err(error) = std::fs::rename(staging, &destination) {
+            let mut message = format!("Cannot activate the staged plugin: {error}");
+            if had_previous && let Err(restore_error) = std::fs::rename(&backup, &destination) {
+                message.push_str(&format!(
+                    "; cannot restore the previous plugin directory: {restore_error}"
+                ));
             }
-        };
-        entries
-            .iter()
-            .filter(|p| p.plugin_type() == PluginType::Theme)
-            .map(|p| p.metadata().id.clone())
-            .collect()
-    }
+            let reload = reload_previous(
+                self,
+                old_source.as_deref(),
+                old_relative.as_deref(),
+                &destination,
+            );
+            return Err(rollback_message(message, reload));
+        }
 
-    pub fn list_shortcut_providers(&self) -> Vec<String> {
-        let entries = match self.entries.read() {
-            Ok(g) => g,
-            Err(e) => {
-                log::error!("Plugin lock poisoned: {}", e);
-                return Vec::new();
+        let new_entry = destination.join(&manifest.entry);
+        if let Err(error) = self.load_dll_checked(&new_entry, Some(manifest)) {
+            if self.is_loaded(&manifest.id) {
+                return Err(format!(
+                    "New plugin failed after creating a non-stoppable instance: {error}"
+                ));
             }
-        };
-        entries
-            .iter()
-            .filter(|p| p.plugin_type() == PluginType::Shortcut)
-            .map(|p| p.metadata().id.clone())
-            .collect()
-    }
-
-    pub fn with_content<F, R>(&self, plugin_id: &str, f: F) -> Result<R, PluginError>
-    where
-        F: FnOnce(&dyn ContentProvider) -> R,
-    {
-        let entries = self
-            .entries
-            .read()
-            .map_err(|e| PluginError::ExecutionError(format!("Lock poisoned: {}", e)))?;
-        let entry = entries
-            .iter()
-            .find(|p| p.metadata().id == plugin_id)
-            .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
-
-        if entry.plugin_type() != PluginType::Content {
-            return Err(PluginError::InvalidPlugin(format!(
-                "Plugin '{}' is not a ContentProvider",
-                plugin_id
-            )));
+            let mut message = format!("Cannot initialize the new plugin: {error}");
+            if let Err(move_error) = std::fs::rename(&destination, staging)
+                && let Err(remove_error) = std::fs::remove_dir_all(&destination)
+            {
+                message.push_str(&format!(
+                    "; cannot remove the failed plugin directory ({move_error}; {remove_error})"
+                ));
+            }
+            if had_previous && let Err(restore_error) = std::fs::rename(&backup, &destination) {
+                message.push_str(&format!(
+                    "; cannot restore the previous plugin directory: {restore_error}"
+                ));
+            }
+            let reload = reload_previous(
+                self,
+                old_source.as_deref(),
+                old_relative.as_deref(),
+                &destination,
+            );
+            return Err(rollback_message(message, reload));
         }
-
-        Ok(f(entry))
-    }
-
-    pub fn with_content_mut<F, R>(&self, plugin_id: &str, f: F) -> Result<R, PluginError>
-    where
-        F: FnOnce(&mut dyn ContentProvider) -> R,
-    {
-        let mut entries = self
-            .entries
-            .write()
-            .map_err(|e| PluginError::ExecutionError(format!("Lock poisoned: {}", e)))?;
-        let entry = entries
-            .iter_mut()
-            .find(|p| p.metadata().id == plugin_id)
-            .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
-
-        if entry.plugin_type() != PluginType::Content {
-            return Err(PluginError::InvalidPlugin(format!(
-                "Plugin '{}' is not a ContentProvider",
-                plugin_id
-            )));
+        if had_previous && let Err(error) = std::fs::remove_dir_all(&backup) {
+            log::warn!(
+                "Cannot remove plugin backup '{}': {error}",
+                backup.display()
+            );
         }
-
-        Ok(f(entry))
+        Ok(())
     }
 
-    pub fn with_theme<F, R>(&self, plugin_id: &str, f: F) -> Result<R, PluginError>
-    where
-        F: FnOnce(&dyn ThemeProvider) -> R,
-    {
-        let entries = self
-            .entries
-            .read()
-            .map_err(|e| PluginError::ExecutionError(format!("Lock poisoned: {}", e)))?;
-        let entry = entries
-            .iter()
-            .find(|p| p.metadata().id == plugin_id)
-            .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
-
-        if entry.plugin_type() != PluginType::Theme {
-            return Err(PluginError::InvalidPlugin(format!(
-                "Plugin '{}' is not a ThemeProvider",
-                plugin_id
-            )));
-        }
-
-        Ok(f(entry))
+    fn is_loaded(&self, plugin_id: &str) -> bool {
+        self.entries.try_borrow().is_ok_and(|entries| {
+            entries
+                .iter()
+                .any(|plugin| plugin.metadata().id == plugin_id)
+        })
     }
 
-    pub fn with_shortcut_mut<F, R>(&self, plugin_id: &str, f: F) -> Result<R, PluginError>
-    where
-        F: FnOnce(&mut dyn ShortcutProvider) -> R,
-    {
-        let mut entries = self
-            .entries
-            .write()
-            .map_err(|e| PluginError::ExecutionError(format!("Lock poisoned: {}", e)))?;
-        let entry = entries
-            .iter_mut()
-            .find(|p| p.metadata().id == plugin_id)
-            .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
-
-        if entry.plugin_type() != PluginType::Shortcut {
-            return Err(PluginError::InvalidPlugin(format!(
-                "Plugin '{}' is not a ShortcutProvider",
-                plugin_id
-            )));
-        }
-
-        Ok(f(entry))
+    pub fn read_manifest_from_zip(&self, path: &Path) -> Result<PluginManifest, String> {
+        zip_loader::read_manifest_from_zip(path)
     }
 
-    /// Iterate over all content plugins and call `f` with each one.
-    /// Stops early if `f` returns `Some<T>` on any plugin.
-    pub fn find_content<F, T>(&self, mut f: F) -> Option<T>
-    where
-        F: FnMut(&mut dyn ContentProvider) -> Option<T>,
-    {
-        let mut entries = self.entries.write().ok()?;
-        entries
-            .iter_mut()
-            .filter(|p| p.plugin_type() == PluginType::Content)
-            .find_map(|entry| f(entry as &mut dyn ContentProvider))
+    pub fn validate_zip(&self, path: &Path) -> Result<(), String> {
+        zip_loader::validate_zip(path)
     }
 
     pub fn plugin_dir(&self) -> &Path {
@@ -556,47 +1114,122 @@ impl PluginManager {
     }
 }
 
-impl Default for PluginManager {
-    fn default() -> Self {
-        let dir = dirs::config_dir()
-            .unwrap_or_default()
-            .join("WinIsland")
-            .join("plugins");
-        Self::new(dir)
-    }
-}
-
-fn discover_plugins(plugin_dir: &Path) -> Vec<PathBuf> {
-    if !plugin_dir.exists() {
-        return Vec::new();
-    }
-
-    let mut result = Vec::new();
-    match std::fs::read_dir(plugin_dir) {
-        Ok(entries) => {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    if let Ok(sub) = std::fs::read_dir(&path) {
-                        for e in sub.flatten() {
-                            let p = e.path();
-                            if p.extension().is_some_and(|ext| ext == "dll") {
-                                result.push(p);
-                            }
-                        }
-                    }
-                } else if path.extension().is_some_and(|ext| ext == "dll") {
-                    result.push(path);
+impl Drop for PluginManager {
+    fn drop(&mut self) {
+        for mut plugin in self.entries.get_mut().drain(..) {
+            let token = plugin.token();
+            if let Err(error) = begin_plugin_shutdown(token) {
+                log::error!("{error}; keeping the plugin DLL loaded");
+                std::mem::forget(plugin);
+                continue;
+            }
+            match plugin.shutdown() {
+                Ok(()) => revoke_plugin(token),
+                Err(error) => {
+                    log::error!("{error}; keeping the plugin DLL loaded");
+                    std::mem::forget(plugin);
                 }
             }
         }
-        Err(e) => {
-            log::warn!(
-                "Failed to read plugin directory '{}': {}",
-                plugin_dir.display(),
-                e
-            );
+    }
+}
+
+impl Default for PluginManager {
+    fn default() -> Self {
+        let directory = dirs::config_dir()
+            .unwrap_or_default()
+            .join("WinIsland")
+            .join("plugins");
+        Self::new(directory)
+    }
+}
+
+fn discover_plugins(directory: &Path) -> Vec<(PathBuf, Option<PluginManifest>)> {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    let mut plugins = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with('.'))
+            {
+                continue;
+            }
+            let manifest_path = path.join("plugin.yml");
+            match zip_loader::read_manifest_file(&manifest_path) {
+                Ok(manifest) => {
+                    let entry = path.join(&manifest.entry);
+                    if entry.is_file() {
+                        plugins.push((entry, Some(manifest)));
+                    } else {
+                        log::warn!("Plugin entry '{}' is missing", entry.display());
+                    }
+                }
+                Err(error) if manifest_path.exists() => {
+                    log::warn!("Skipping '{}': {error}", path.display());
+                }
+                Err(_) => (),
+            }
+        } else if path.extension().is_some_and(|ext| ext == "dll") {
+            plugins.push((path, None));
         }
     }
-    result
+    plugins
+}
+
+fn validate_manifest_metadata(
+    manifest: &PluginManifest,
+    metadata: &super::types::PluginMetadata,
+) -> Result<(), PluginError> {
+    let mismatched = manifest.id != metadata.id
+        || manifest.name != metadata.name
+        || manifest.version != metadata.version
+        || manifest.author != metadata.author
+        || manifest.description != metadata.description;
+    if mismatched {
+        return Err(PluginError::InvalidPlugin(
+            "plugin.yml metadata does not match the DLL descriptor".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn reload_previous(
+    manager: &PluginManager,
+    old_source: Option<&Path>,
+    old_relative: Option<&Path>,
+    destination: &Path,
+) -> Result<(), String> {
+    let Some(path) = old_relative
+        .map(|relative| destination.join(relative))
+        .or_else(|| old_source.map(Path::to_path_buf))
+    else {
+        return Ok(());
+    };
+    if !path.is_file() {
+        return Err(format!(
+            "previous plugin entry '{}' is missing",
+            path.display()
+        ));
+    }
+    let manifest = zip_loader::read_manifest_file(&destination.join("plugin.yml")).ok();
+    manager
+        .load_dll_checked(&path, manifest.as_ref())
+        .map_err(|error| {
+            format!(
+                "cannot reload previous plugin '{}': {error}",
+                path.display()
+            )
+        })
+}
+
+fn rollback_message(mut message: String, rollback: Result<(), String>) -> String {
+    if let Err(error) = rollback {
+        message.push_str(&format!("; rollback also failed: {error}"));
+    }
+    message
 }

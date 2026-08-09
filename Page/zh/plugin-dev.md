@@ -1,453 +1,247 @@
 # 插件开发指南
 
-欢迎！你将通过插件扩展 WinIsland 的功能。
+WinIsland 插件 API `0.3` 定义了原生 ABI v1。插件是直接加载进 WinIsland 进程的受信任 Windows DLL，没有沙箱或崩溃隔离，只应安装可信来源的插件。
 
-> **注意：插件系统目前处于基础阶段。** C ABI 类型定义已经就绪，基于 push 模式的内容系统（`send_context`）已经可以使用。但宿主端的 trait 接口（`ContentProvider`、`ThemeProvider`、`ShortcutProvider`）尚未接入渲染管线。请关注 [issue #55](https://github.com/Eatgrapes/WinIsland/issues/55) 了解详情。
+旧版 `0.2` 的 `PluginVTable`、`PluginType`、`plugin_get_instance` 和 `plugin_set_host_api` 均不再兼容。
 
-## 插件工作原理
+## 架构
 
-WinIsland 使用 **C ABI vtable** 模式来安全加载原生 `.dll` 插件：
-
-```
-WinIsland.exe  ──libloading──>  your_plugin.dll
-   |                                  |
-   |  PluginManager                   |  导出 plugin_get_instance()
-   |  `-- Vec<NativePlugin>           |  返回 PluginInstanceC {
-   |       |-- metadata (id, name...) |    handle: 不透明指针
-   |       |-- handle (不透明指针)     |    vtable: 函数指针表
-   |       `-- vtable (函数指针表)     |    metadata: PluginMetadataC
-   |                                  |  }
-   `-- 调用 trait --> 通过 vtable --> 你的代码运行！
+```text
+插件 DLL 导出 winisland_plugin_entry_v1()
+    -> PluginDescriptorV1
+    -> WinIsland 校验 ABI、能力和元数据
+    -> WinIsland 签发 PluginToken 并调用 create(PluginCreateInfoV1)
+    -> 插件查询版本化的 Context/Media/I18n/HostState 服务
+    -> 插件创建由宿主管理、以 ResourceId 标识的资源
+    -> WinIsland 调用 shutdown(handle)
+    -> WinIsland 回收剩余资源
+    -> WinIsland 调用 destroy(handle) 并卸载 DLL
 ```
 
-跨 FFI 边界的所有数据都是 `#[repr(C)]` -- 扁平结构体，没有 `Vec`、`String` 或 trait 对象。这意味着你的插件可以用任意 Rust 版本编译都能正常工作。
+生命周期严格为 `create -> shutdown -> destroy`。`shutdown` 必须同步停止并 join 所有可能执行插件代码或调用宿主服务的线程。只有 `shutdown` 成功后，WinIsland 才会销毁 handle 并卸载 DLL。
 
-## 插件类型
-
-| 类型 | ID | 用途 | 状态 |
-|------|----|------|------|
-| **Content** | 1 | 通过 `send_context` 推送自定义岛内容（通知、状态等）| 可用 |
-| **Theme** | 2 | 覆盖岛的配色和动画参数 | API 已定义，尚未接入 |
-| **Shortcut** | 3 | 注册可执行操作 | API 已定义，尚未接入 |
-
-## 项目初始化
-
-创建一个新的 Rust 库项目：
-
-```
-cargo new --lib my-winisland-plugin
-```
-
-编辑 `Cargo.toml`：
+## 项目配置
 
 ```toml
 [package]
-name = "my-winisland-plugin"
+name = "hello-winisland-plugin"
 version = "0.1.0"
 edition = "2024"
+authors = ["Example Author"]
+description = "Minimal WinIsland ABI v1 plugin"
+repository = "https://github.com/example/hello-winisland-plugin"
 
 [lib]
+name = "hello_winisland_plugin"
 crate-type = ["cdylib"]
 
 [dependencies]
-winisland-plugin-api = "0.2"
+winisland-plugin-api = "0.3"
 ```
 
-## 实现插件
+API crate 的 README 提供了一个完整的 Context 插件，可直接作为最初的 `src/lib.rs`。
 
-创建一个导出 C ABI 入口点的最小插件。
+## 入口描述符
 
-**src/lib.rs:**
+每个插件只导出一个入口：
 
 ```rust
-use winisland_plugin_api::*;
-
-// 插件实例就是你的插件状态。
-struct MyPlugin;
-
-// 唯一且必需的入口点 -- WinIsland 通过 libloading 调用它。
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn plugin_get_instance() -> PluginInstanceC {
-    let handle = Box::into_raw(Box::new(MyPlugin)) as PluginHandle;
-
-    // vtable 是静态的 -- 只要 DLL 被加载它就存在。
-    static VTABLE: PluginVTable = PluginVTable {
-        on_load:    on_load,
-        on_unload:  on_unload,
-        destroy:    destroy,
-        set_host_api: None,
-        on_click:   None,
-        on_expanded: None,
-        supports_expand: None,
-        get_colors: None,
-        get_animations: None,
-        get_shortcuts_count: None,
-        get_shortcut_at: None,
-        execute_shortcut: None,
-    };
-
-    PluginInstanceC {
-        handle,
-        metadata: PluginMetadataC {
-            id:          str_to_fixed("my-plugin"),
-            name:        str_to_fixed("My Plugin"),
-            version:     str_to_fixed("0.1.0"),
-            author:      str_to_fixed("you"),
-            description: str_to_fixed("A minimal WinIsland plugin"),
-        },
-        vtable: &VTABLE,
-        plugin_type: PluginType::Content as u32,
-    }
-}
-
-unsafe extern "C" fn on_load(_handle: PluginHandle) -> PluginResultC {
-    PluginResultC::ok()
-}
-
-unsafe extern "C" fn on_unload(_handle: PluginHandle) -> PluginResultC {
-    PluginResultC::ok()
-}
-
-unsafe extern "C" fn destroy(handle: PluginHandle) {
-    drop(unsafe { Box::from_raw(handle as *mut MyPlugin) });
+/// # Safety
+/// WinIsland 使用 ABI v1 约定的签名调用该函数。
+pub unsafe extern "C" fn winisland_plugin_entry_v1() -> *const PluginDescriptorV1 {
+    &DESCRIPTOR
 }
 ```
 
-### 向岛推送内容
-
-Content 类型插件可以导出 `plugin_set_host_api` 来接收宿主 API 表，然后调用 `send_context` 向岛推送数据。`PluginVTable::set_host_api` 字段为未来版本保留，当前宿主不会调用该字段。
+描述符必须具有静态生命周期：
 
 ```rust
-struct MyPlugin {
-    host_api: Option<*const HostApiC>,
-}
+static DESCRIPTOR: PluginDescriptorV1 = PluginDescriptorV1 {
+    struct_size: std::mem::size_of::<PluginDescriptorV1>() as u32,
+    abi_version: ABI_VERSION_1,
+    capabilities: CAPABILITY_CONTEXT | CAPABILITY_HOST_STATE,
+    metadata: PluginMetadataC::new(
+        "hello-winisland-plugin",
+        "hello-winisland-plugin",
+        "0.1.0",
+        "Example Author",
+        "Minimal WinIsland ABI v1 plugin",
+    ),
+    create: Some(create),
+    shutdown: Some(shutdown),
+    destroy: Some(destroy),
+};
+```
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn plugin_set_host_api(
-    handle: PluginHandle,
-    api: *const HostApiC,
-) {
-    let plugin = unsafe { &mut *(handle as *mut MyPlugin) };
-    plugin.host_api = Some(api);
-}
+插件 ID 必须匹配 `[a-zA-Z0-9_-]+`。安装包和 DLL 描述符中的元数据必须完全一致。
 
-fn send_notification(handle: PluginHandle) -> Option<ContextIdC> {
-    let plugin = unsafe { &*(handle as *const MyPlugin) };
-    if let Some(api) = plugin.host_api {
-        let ctx = ContextDataC {
-            priority: PRIORITY_MEDIUM,
-            title: str_to_fixed("Notification"),
-            body: str_to_fixed("Hello from plugin!"),
-            duration_sec: 5,
-            mini_render: true,
-            mini_text: str_to_fixed("New notification"),
-        };
-        return Some(unsafe { ((*api).send_context)(handle, ctx) });
-    }
-    None
+## 查询宿主服务
+
+在 `create` 中校验 `PluginCreateInfoV1`，保存 `plugin_token`，并查询已声明的服务：
+
+```rust
+let info = unsafe { &*create_info };
+let host = unsafe { &*info.host_api };
+let context_api = unsafe { host.context_api() }
+    .ok_or_else(|| PluginResultC::err("context API unavailable"));
+```
+
+| 能力 | 查询方法 | 用途 |
+|---|---|---|
+| `CAPABILITY_CONTEXT` | `HostApiV1::context_api()` | 紧凑岛文本和状态资源 |
+| `CAPABILITY_MEDIA` | `HostApiV1::media_api()` | 媒体 UI 数据和可选控制命令 |
+| `CAPABILITY_I18N` | `HostApiV1::i18n_api()` | 翻译 bundle |
+| `CAPABILITY_HOST_STATE` | `HostApiV1::host_state_api()` | 当前媒体和明暗主题快照 |
+
+调用未在描述符中声明的能力会返回错误。
+
+## Context 服务
+
+Context 资源支持创建、更新和释放：
+
+```rust
+let data = ContextDataV1 {
+    priority: PRIORITY_MEDIUM,
+    flags: CONTEXT_FLAG_SHOW_COMPACT,
+    timeout_ms: 5_000,
+    title: str_to_fixed("Build complete"),
+    body: str_to_fixed("Release package is ready"),
+    compact_text: str_to_fixed("Build ready"),
+    ..Default::default()
+};
+
+let mut id = INVALID_ID;
+let result = unsafe { context_api.create.unwrap()(token, &data, &mut id) };
+```
+
+`timeout_ms = 0` 表示持续显示。超时只会隐藏 Context，资源所有权仍属于插件，插件仍应释放它。更新资源会刷新显示顺序和超时时间。
+
+## Media 服务
+
+活动 Media 资源会覆盖 SMTC。最近创建或更新的媒体资源会被显示；释放后会选择下一个插件媒体源，没有剩余资源时恢复 SMTC。
+
+```rust
+let cover = std::fs::read("cover.png").unwrap_or_default();
+let media = MediaSourceDataV1 {
+    flags: MEDIA_FLAG_PLAYING,
+    title: str_to_fixed("Plugin Track"),
+    artist: str_to_fixed("Plugin Artist"),
+    duration_ms: 180_000,
+    position_ms: 12_000,
+    cover: ByteSliceV1::from_slice(&cover),
+    ..Default::default()
+};
+```
+
+宿主会在调用返回前复制封面，封面字节只需在本次调用期间有效。
+
+需要媒体控制时，应声明相应的 `MEDIA_CONTROL_*` 标志并提供 `on_command`：
+
+```rust
+media.available_controls = MEDIA_CONTROL_TOGGLE_PLAY | MEDIA_CONTROL_SEEK;
+media.on_command = Some(on_media_command);
+media.callback_data = state_pointer;
+```
+
+回调在 WinIsland 事件循环线程同步执行，并允许再次调用宿主服务。`callback_data` 必须持续有效，直到媒体资源成功释放。回调执行期间，更新或释放同一资源会返回错误。
+
+## 翻译服务
+
+翻译字符串使用带长度的 UTF-8 借用切片，宿主会在注册调用期间复制：
+
+```rust
+let pairs = [TranslationPairV1 {
+    key: Utf8SliceV1::borrowed("hello.title"),
+    value: Utf8SliceV1::borrowed("Hello"),
+}];
+let mut bundle_id = INVALID_ID;
+let result = unsafe {
+    i18n_api.register_bundle.unwrap()(
+        token,
+        Utf8SliceV1::borrowed("en_us"),
+        pairs.as_ptr(),
+        pairs.len() as u32,
+        &mut bundle_id,
+    )
+};
+```
+
+当前内置语言代码包括 `en_us`、`zh_cn` 和 `es_es`。插件应保留每个 bundle 的 `ResourceId`，并在 shutdown 中释放。
+
+## Host State
+
+调用 `get` 前使用 `HostStateV1::default()` 初始化，宿主会检查 `struct_size`：
+
+```rust
+let mut state = HostStateV1::default();
+let result = unsafe { host_state_api.get.unwrap()(token, &mut state) };
+if result.status == 0 {
+    let playing = state.is_playing != 0;
 }
 ```
 
-## 一行命令打包
+快照包含 WinIsland 当前实际显示的媒体（包括插件媒体）以及 `light` 或 `dark` 主题文本。
 
-`winisland-plugin-api` crate 带有一个可选的 **packager** 模块，可自动完成编译、签名和 ZIP 打包。
+## 资源所有权
 
-### 1. 添加打包脚本
+- `PluginToken` 由 WinIsland 签发，插件不可自行构造或共享。
+- `ResourceId` 由资源创建或注册接口返回。
+- 更新和释放操作必须使用资源所属的 token。
+- shutdown 成功后，WinIsland 会统一回收剩余资源。
+- 插件仍应在 shutdown 中主动释放自己的资源。
+- Context、Media 和翻译资源均有每插件数量及内存上限。
+- 插件工作线程可以调用宿主服务，资源变更会主动唤醒 WinIsland 事件循环。
 
-在 `Cargo.toml` 中添加：
+## FFI 规则
+
+- 所有 ABI 结构体都使用 `#[repr(C)]`。
+- 可版本扩展的结构体以 `struct_size` 开头；存在 `Default` 时应优先使用它初始化。
+- 必需指针必须非空、满足对应类型对齐，并在整个调用期间可读或可写。
+- `ByteSliceV1` 和 `Utf8SliceV1` 是 `(ptr, len)`，不是 NUL 结尾字符串。
+- 除非字段明确要求更长生命周期，宿主都会在调用返回前复制借用数据。
+- 不允许 panic 跨越 `extern "C"` 边界。
+- 原生插件与 WinIsland 进程具有相同权限，属于受信任扩展。
+
+## 打包和安装
+
+加入 packager dev dependency：
 
 ```toml
 [dev-dependencies]
-winisland-plugin-api = { version = "0.2", features = ["packager"] }
+winisland-plugin-api = { version = "0.3", features = ["packager"] }
 
-[[bin]]
+[[example]]
 name = "pack"
 path = "package.rs"
 ```
-
-在项目根目录创建 `package.rs`：
 
 ```rust
 fn main() {
     winisland_plugin_api::packager::PluginPackager::from_cargo()
         .unwrap()
-        .signing_key_path("signing_key.pem")  // 可选
-        .include_dir("assets")                 // 可选
         .build()
         .unwrap();
 }
 ```
 
-### 2. 一键构建
+执行 `cargo run --example pack`。
 
-```bash
-# 这一条命令完成：编译 + 签名（如果有密钥）+ 打包为 ZIP：
-cargo run --bin pack
-# 输出：target/my-winisland-plugin-0.1.0.zip
-```
+`from_cargo()` 会读取包名、版本、作者、描述、repository 和 `[lib].name`。可以通过 builder 方法覆盖字段，但生成的 `plugin.yml` 仍必须与 `PluginMetadataC` 完全一致。
 
-Packager 会自动：
-
-1. 执行 `cargo build --release` 编译你的 DLL
-2. 在 `target/release/` 中找到编译好的 `.dll`
-3. 复制任何额外目录（如 `assets/`）
-4. 计算所有 DLL 的 SHA-256 哈希
-5. 用 Ed25519 密钥签名 manifest（如果提供了密钥）
-6. 生成包含所有元数据的 `plugin.yml`
-7. 打包为 `<name>-<version>.zip`
-
-### 不使用 packager（手动打包）
-
-插件必须以 `.zip` 格式打包才能被 WinIsland 加载。ZIP 必须包含：
-
-```
-my-plugin.zip
-|-- plugin.yml    (插件清单，必需)
-`-- *.dll         (插件二进制，必需，可多个 .dll)
-```
-
-#### plugin.yml
+安装包只有一个入口 DLL：
 
 ```yaml
-name: example
-author: xxx
-version: 1.0.0
-description: This is example plugin
-github-link: example/example-plugin
+id: hello-winisland-plugin
+name: hello-winisland-plugin
+author: Example Author
+version: 0.1.0
+description: Minimal WinIsland ABI v1 plugin
+github-link: https://github.com/example/hello-winisland-plugin
+abi-version: 1
+entry: hello_winisland_plugin.dll
 ```
 
-**所有 5 个字段都是必需的** -- 缺少任何一个都会导致安装失败。
+把 ZIP 拖到 WinIsland 上即可安装。解压过程包含路径和大小限制，并先进入 staging 目录。更新时，WinIsland 会先验证新描述符，再停止旧插件，并通过目录备份实现失败回滚。安装包可以带额外依赖 DLL，但只有 `entry` 会作为插件加载。
 
-## 数字签名（推荐）
-
-Packager 可以选择性地向 `plugin.yml` 写入 Ed25519 签名和 DLL 哈希。当前宿主尚未验证这些字段，因此签名目前只是包元数据，不能作为强制信任边界。
-
-### 生成签名密钥
-
-```bash
-openssl genpkey -algorithm ed25519 -out signing_key.pem
-openssl pkey -in signing_key.pem -pubout -out public_key.pem
-```
-
-私钥不得提交到仓库；在 CI 中应通过受保护的 secret 提供。
-
-### 打包时签名
-
-```bash
-cargo run --bin pack
-```
-
-调用 `signing_key_path` 或 `signing_key_env` 后，packager 会把签名写入 `plugin.yml`：
-
-```yaml
-name: my-plugin
-author: you
-version: 1.0.0
-description: My awesome plugin
-github-link: you/my-plugin
-signature: "abc123deadbeef..."    # Ed25519 签名（64 字节 hex）
-dll_hashes:
-  - "sha256hashofdll..."
-```
-
-### CI 中使用环境变量签名
-
-```yaml
-# .github/workflows/release.yml
-- run: cargo run --bin pack
-  env:
-    PLUGIN_SIGNING_KEY: ${{ secrets.PLUGIN_SIGNING_KEY }}
-```
-
-```rust
-// package.rs
-PluginPackager::from_cargo()
-    .unwrap()
-    .signing_key_env("PLUGIN_SIGNING_KEY")
-    .build()
-    .unwrap();
-```
-
-## 安装
-
-直接把 **`.zip` 文件拖到岛（Dynamic Island）上**。插件会在后台线程中解压（保证岛保持流畅响应）并自动加载。
-
-安装成功后会弹出 Windows 通知对话框确认。
-
-你也可以手动将 `.dll` 文件放入插件目录的子目录中 -- WinIsland 启动时会扫描它们。
-
-### 插件存储位置
-
-```
-C:\Users\<你的用户名>\AppData\Roaming\WinIsland\plugins\<插件名>\*.dll
-```
-
-## 安全性
-
-WinIsland 在加载插件时应用了多重安全措施：
-
-| 防护措施 | 说明 |
-|---------|------|
-| **插件 ID 校验** | ID 只能包含 `[a-zA-Z0-9_-]` |
-| **ID 冲突检测** | 拒绝加载重复的插件 ID |
-| **包哈希** | Packager 可记录 DLL 哈希；宿主验证尚未实现 |
-| **路径穿越防护** | 拒绝包含 `..`、`:` 或绝对路径的 ZIP 条目 |
-| **符号链接拒绝** | 拒绝 ZIP 中的符号链接条目 |
-| **后台解压** | ZIP 解压在后台线程执行 |
-| **锁中毒处理** | 锁中毒不会导致宿主崩溃 |
-| **VTable 校验** | 调用前检查必需的函数指针是否为空 |
-
-## C ABI 类型参考
-
-这些类型定义在 `winisland-plugin-api` crate 中。
-
-### PluginResultC
-
-```rust
-pub struct PluginResultC {
-    pub ok: bool,
-    pub error: [u8; 256],  // 以 null 结尾的 UTF-8
-}
-```
-
-成功返回 `PluginResultC::ok()`，失败返回 `PluginResultC::err("消息")`。
-
-### PluginMetadataC
-
-```rust
-pub struct PluginMetadataC {
-    pub id: [u8; 64],
-    pub name: [u8; 128],
-    pub version: [u8; 32],
-    pub author: [u8; 128],
-    pub description: [u8; 256],
-}
-```
-
-### HostApiC
-
-宿主 API 表通过插件导出的 `plugin_set_host_api` 函数传递。插件存储此指针并通过它来与宿主交互。
-
-```rust
-pub struct HostApiC {
-    pub send_context: unsafe extern "C" fn(PluginHandle, ContextDataC) -> ContextIdC,
-    pub close_context: unsafe extern "C" fn(PluginHandle, *const c_char) -> PluginResultC,
-    pub query_host_state: unsafe extern "C" fn(PluginHandle) -> HostStateC,
-    pub set_media_source: unsafe extern "C" fn(PluginHandle, MediaSourceC) -> PluginResultC,
-    pub clear_media_source: unsafe extern "C" fn(PluginHandle) -> PluginResultC,
-    pub register_translations: unsafe extern "C" fn(
-        PluginHandle,
-        *const c_char,
-        *const TranslationPairC,
-        u32,
-    ) -> PluginResultC,
-}
-```
-
-### ContextDataC / ContextIdC / HostStateC / MediaSourceC
-
-```rust
-pub struct ContextDataC {
-    pub priority: u32,       // PRIORITY_LOW, PRIORITY_MEDIUM, 或 PRIORITY_HIGH
-    pub title: [u8; 256],    // 在 mini 和展开视图显示
-    pub body: [u8; 512],     // 展开正文
-    pub duration_sec: u32,   // 自动折叠前的秒数
-    pub mini_render: bool,   // 折叠后是否显示 mini 摘要
-    pub mini_text: [u8; 128],// mini 摘要文本
-}
-
-pub struct ContextIdC {
-    pub id: [u8; 128],       // 编码为 "plugin_id:context_id"
-}
-
-pub struct HostStateC {
-    pub media_title: [u8; 256],
-    pub media_artist: [u8; 256],
-    pub is_playing: bool,
-    pub theme: [u8; 32],     // "light" 或 "dark"
-}
-
-pub struct MediaSourceC {
-    pub title: [u8; 256],
-    pub artist: [u8; 256],
-    pub album: [u8; 256],
-    pub duration_ms: u64,
-    pub position_ms: u64,
-    pub is_playing: bool,
-    pub cover_data: *const u8,
-    pub cover_len: u32,
-}
-```
-
-### PluginVTable
-
-```rust
-pub struct PluginVTable {
-    pub on_load: unsafe extern "C" fn(PluginHandle) -> PluginResultC,
-    pub on_unload: unsafe extern "C" fn(PluginHandle) -> PluginResultC,
-    pub destroy: unsafe extern "C" fn(PluginHandle),
-    pub set_host_api: Option<unsafe extern "C" fn(PluginHandle, *const HostApiC)>, // 保留字段
-    pub on_click: Option<unsafe extern "C" fn(PluginHandle)>,
-    pub on_expanded: Option<unsafe extern "C" fn(PluginHandle, bool)>,
-    pub supports_expand: Option<unsafe extern "C" fn(PluginHandle) -> bool>,
-    pub get_colors: Option<unsafe extern "C" fn(PluginHandle) -> ThemeColorsC>,
-    pub get_animations: Option<unsafe extern "C" fn(PluginHandle) -> AnimationConfigC>,
-    pub get_shortcuts_count: Option<unsafe extern "C" fn(PluginHandle) -> u32>,
-    pub get_shortcut_at: Option<unsafe extern "C" fn(PluginHandle, i: u32, out: *mut ShortcutC)>,
-    pub execute_shortcut: Option<unsafe extern "C" fn(PluginHandle, id: *const c_char) -> PluginResultC>,
-}
-```
-
-### PluginInstanceC
-
-```rust
-pub struct PluginInstanceC {
-    pub handle: PluginHandle,
-    pub metadata: PluginMetadataC,
-    pub vtable: *const PluginVTable,
-    pub plugin_type: u32, // 1=Content, 2=Theme, 3=Shortcut
-}
-```
-
-### ThemeColorsC / AnimationConfigC / ShortcutC
-
-```rust
-pub struct ThemeColorsC {
-    pub primary: [u8; 4],    // RGBA
-    pub secondary: [u8; 4],
-    pub background: [u8; 4],
-    pub text: [u8; 4],
-    pub border: [u8; 4],
-}
-
-pub struct AnimationConfigC {
-    pub expand_duration_ms: u32,
-    pub collapse_duration_ms: u32,
-    pub bounce_intensity: f32,
-}
-
-pub struct ShortcutC {
-    pub id: [u8; 64],
-    pub name: [u8; 128],
-    pub description: [u8; 256],
-    pub icon: [u8; 256],
-    pub hotkey: [u8; 32],
-}
-```
-
-### TranslationPairC
-
-```rust
-pub struct TranslationPairC {
-    pub key: *const c_char,
-    pub value: *const c_char,
-}
-```
-
-## 加入讨论
-
-除了接入岛上下文之外，我们还没有太多具体的方向。欢迎来 [#55](https://github.com/Eatgrapes/WinIsland/issues/55) 一起讨论你希望插件系统支持什么功能。
-
----
-
-如果遇到问题，欢迎在 [GitHub](https://github.com/Eatgrapes/WinIsland) 上开 issue。
+Packager 可以写入 DLL 哈希和 Ed25519 签名；宿主目前尚未强制验证签名。

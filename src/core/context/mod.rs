@@ -2,9 +2,7 @@ mod types;
 
 pub use types::*;
 
-use std::time::{Duration, Instant};
-
-const MINI_TIMEOUT_SECS: u64 = 30;
+use std::time::Instant;
 
 #[derive(Debug, Clone, Copy)]
 pub enum MiniContent<'a> {
@@ -15,7 +13,6 @@ pub enum MiniContent<'a> {
 pub struct ContextManager {
     plugin_contexts: Vec<PluginContext>,
     smtc_active: bool,
-    expanded_id: Option<ContextId>,
 }
 
 impl ContextManager {
@@ -23,7 +20,6 @@ impl ContextManager {
         Self {
             plugin_contexts: Vec::new(),
             smtc_active: false,
-            expanded_id: None,
         }
     }
 
@@ -31,82 +27,41 @@ impl ContextManager {
         self.smtc_active = active;
     }
 
-    #[allow(dead_code)]
-    pub fn smtc_active(&self) -> bool {
-        self.smtc_active
-    }
-
-    pub fn push_context(&mut self, ctx: PluginContext) {
-        if let Some(pos) = self
+    pub fn upsert_context(&mut self, context: PluginContext) {
+        if let Some(existing) = self
             .plugin_contexts
-            .iter()
-            .position(|c| c.id.source == ctx.id.source && c.priority == ctx.priority)
+            .iter_mut()
+            .find(|existing| existing.id == context.id)
         {
-            self.plugin_contexts.remove(pos);
-        }
-        self.plugin_contexts.push(ctx);
-    }
-
-    pub fn close_context(&mut self, id: &ContextId) -> bool {
-        let pos = self.plugin_contexts.iter().position(|c| c.id == *id);
-        if let Some(pos) = pos {
-            self.plugin_contexts.remove(pos);
-            if self.expanded_id.as_ref() == Some(id) {
-                self.expanded_id = None;
-            }
-            true
+            *existing = context;
         } else {
-            false
+            self.plugin_contexts.push(context);
         }
     }
 
-    #[allow(dead_code)]
-    pub fn current_expanded(&self) -> Option<&PluginContext> {
-        self.expanded_id
-            .as_ref()
-            .and_then(|id| self.plugin_contexts.iter().find(|c| c.id == *id))
-    }
-
-    #[allow(dead_code)]
-    pub fn set_expanded(&mut self, id: Option<ContextId>) {
-        self.expanded_id = id;
+    pub fn remove_context(&mut self, id: u64) -> bool {
+        let original_len = self.plugin_contexts.len();
+        self.plugin_contexts.retain(|context| context.id != id);
+        self.plugin_contexts.len() != original_len
     }
 
     pub fn current_mini(&self) -> Option<MiniContent<'_>> {
-        if let Some(ctx) = self.plugin_contexts.iter().rev().find(|c| c.mini_render) {
-            return Some(MiniContent::Plugin(ctx));
+        if let Some(context) = self
+            .plugin_contexts
+            .iter()
+            .filter(|context| context.show_compact)
+            .max_by_key(|context| (context.priority, context.updated_at))
+        {
+            return Some(MiniContent::Plugin(context));
         }
-        if self.smtc_active {
-            return Some(MiniContent::Music);
-        }
-        None
+        self.smtc_active.then_some(MiniContent::Music)
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self) -> bool {
         let now = Instant::now();
-
-        if let Some(exp_id) = &self.expanded_id.clone()
-            && let Some(ctx) = self.plugin_contexts.iter().find(|c| c.id == *exp_id)
-            && let Some(started) = ctx.expanded_started_at
-            && now.duration_since(started) > Duration::from_secs(ctx.duration_sec as u64)
-        {
-            self.expanded_id = None;
-            if let Some(ctx) = self.plugin_contexts.iter_mut().find(|c| c.id == *exp_id) {
-                ctx.collapsed_at = Some(now);
-                ctx.mini_timeout_start = Some(now);
-            }
-        }
-
-        let mut to_remove = Vec::new();
-        for ctx in &self.plugin_contexts {
-            if let Some(timeout_start) = ctx.mini_timeout_start
-                && now.duration_since(timeout_start) > Duration::from_secs(MINI_TIMEOUT_SECS)
-            {
-                to_remove.push(ctx.id.clone());
-            }
-        }
-        for id in to_remove {
-            self.close_context(&id);
-        }
+        let previous_len = self.plugin_contexts.len();
+        self.plugin_contexts
+            .retain(|context| context.expires_at.is_none_or(|expires_at| expires_at > now));
+        self.plugin_contexts.len() != previous_len
     }
 }

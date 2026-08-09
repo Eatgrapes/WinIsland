@@ -1,462 +1,249 @@
 # Plugin Development Guide
 
-Welcome! You are about to extend WinIsland with your own plugin.
+WinIsland plugin API `0.3` defines native ABI v1. Plugins are trusted Windows DLLs loaded into the WinIsland process. There is no sandbox or crash isolation, so users must only install plugins they trust.
 
-> **Note: The plugin system is currently in a foundation stage.** The C ABI type definitions are ready, and the push-based content system (`send_context`) works. However, the host-side trait interfaces (`ContentProvider`, `ThemeProvider`, `ShortcutProvider`) are not yet wired into the render pipeline. See [issue #55](https://github.com/Eatgrapes/WinIsland/issues/55) for details.
+The old `0.2` `PluginVTable`, `PluginType`, `plugin_get_instance`, and `plugin_set_host_api` interfaces are not supported.
 
-## How Plugins Work
+## Architecture
 
-WinIsland uses a **C ABI vtable** pattern to load native `.dll` plugins safely:
-
-```
-WinIsland.exe  ──libloading──>  your_plugin.dll
-   |                                  |
-   |  PluginManager                   |  exports plugin_get_instance()
-   |  `-- Vec<NativePlugin>           |  returns PluginInstanceC {
-   |       |-- metadata (id, name...) |    handle: opaque ptr
-   |       |-- handle (opaque ptr)    |    vtable: function ptrs
-   |       `-- vtable (fn ptrs)       |    metadata: PluginMetadataC
-   |                                  |  }
-   `-- calls traits --> through vtable --> your code runs!
+```text
+plugin DLL exports winisland_plugin_entry_v1()
+    -> PluginDescriptorV1
+    -> WinIsland validates ABI, capabilities, and metadata
+    -> WinIsland issues PluginToken and calls create(PluginCreateInfoV1)
+    -> plugin queries versioned Context/Media/I18n/HostState services
+    -> plugin creates host-owned resources identified by ResourceId
+    -> WinIsland calls shutdown(handle)
+    -> WinIsland revokes remaining resources
+    -> WinIsland calls destroy(handle) and unloads the DLL
 ```
 
-All data crossing the FFI boundary is `#[repr(C)]` -- flat structs with no `Vec`, `String`, or trait objects. This means your plugin can be compiled with any Rust version and it will still work.
+Lifecycle is strictly `create -> shutdown -> destroy`. `shutdown` must synchronously stop and join every plugin thread that can execute plugin code or call a host service. WinIsland only destroys the handle and unloads the DLL after `shutdown` returns success.
 
-## Plugin Types
-
-| Type | ID | Purpose | Status |
-|------|----|---------|--------|
-| **Content** | 1 | Push custom island content (notifications, status, etc.) via `send_context` | Working |
-| **Theme** | 2 | Override island colors and animation parameters | API defined, not yet wired |
-| **Shortcut** | 3 | Register executable actions | API defined, not yet wired |
-
-## Project Setup
-
-Create a new Rust library project:
-
-```
-cargo new --lib my-winisland-plugin
-```
-
-Edit `Cargo.toml`:
+## Project setup
 
 ```toml
 [package]
-name = "my-winisland-plugin"
+name = "hello-winisland-plugin"
 version = "0.1.0"
 edition = "2024"
+authors = ["Example Author"]
+description = "Minimal WinIsland ABI v1 plugin"
+repository = "https://github.com/example/hello-winisland-plugin"
 
 [lib]
+name = "hello_winisland_plugin"
 crate-type = ["cdylib"]
 
 [dependencies]
-winisland-plugin-api = "0.2"
+winisland-plugin-api = "0.3"
 ```
 
-## Implementing the Plugin
+The crate README contains a complete Context plugin that can be used as the initial `src/lib.rs` implementation.
 
-Create a minimal plugin that exports the required C ABI entry point.
+## Entry descriptor
 
-**src/lib.rs:**
+Every plugin exports one entry point:
 
 ```rust
-use winisland_plugin_api::*;
-
-// The plugin instance is your plugin's state.
-struct MyPlugin;
-
-// The one and only entry point -- WinIsland calls this via libloading.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn plugin_get_instance() -> PluginInstanceC {
-    let handle = Box::into_raw(Box::new(MyPlugin)) as PluginHandle;
-
-    // The vtable is static -- it lives as long as the DLL is loaded.
-    static VTABLE: PluginVTable = PluginVTable {
-        on_load:    on_load,
-        on_unload:  on_unload,
-        destroy:    destroy,
-        set_host_api: None,
-        on_click:   None,
-        on_expanded: None,
-        supports_expand: None,
-        get_colors: None,
-        get_animations: None,
-        get_shortcuts_count: None,
-        get_shortcut_at: None,
-        execute_shortcut: None,
-    };
-
-    PluginInstanceC {
-        handle,
-        metadata: PluginMetadataC {
-            id:          str_to_fixed("my-plugin"),
-            name:        str_to_fixed("My Plugin"),
-            version:     str_to_fixed("0.1.0"),
-            author:      str_to_fixed("you"),
-            description: str_to_fixed("A minimal WinIsland plugin"),
-        },
-        vtable: &VTABLE,
-        plugin_type: PluginType::Content as u32,
-    }
-}
-
-unsafe extern "C" fn on_load(_handle: PluginHandle) -> PluginResultC {
-    PluginResultC::ok()
-}
-
-unsafe extern "C" fn on_unload(_handle: PluginHandle) -> PluginResultC {
-    PluginResultC::ok()
-}
-
-unsafe extern "C" fn destroy(handle: PluginHandle) {
-    drop(unsafe { Box::from_raw(handle as *mut MyPlugin) });
+/// # Safety
+/// WinIsland calls this function using the documented ABI v1 signature.
+pub unsafe extern "C" fn winisland_plugin_entry_v1() -> *const PluginDescriptorV1 {
+    &DESCRIPTOR
 }
 ```
 
-### Pushing Content to the Island
-
-Content-type plugins can export `plugin_set_host_api` to receive the host API table, then call `send_context`. The `PluginVTable::set_host_api` field is reserved for a future version and is not called by the current host.
+The descriptor is static:
 
 ```rust
-struct MyPlugin {
-    host_api: Option<*const HostApiC>,
-}
+static DESCRIPTOR: PluginDescriptorV1 = PluginDescriptorV1 {
+    struct_size: std::mem::size_of::<PluginDescriptorV1>() as u32,
+    abi_version: ABI_VERSION_1,
+    capabilities: CAPABILITY_CONTEXT | CAPABILITY_HOST_STATE,
+    metadata: PluginMetadataC::new(
+        "hello-winisland-plugin",
+        "hello-winisland-plugin",
+        "0.1.0",
+        "Example Author",
+        "Minimal WinIsland ABI v1 plugin",
+    ),
+    create: Some(create),
+    shutdown: Some(shutdown),
+    destroy: Some(destroy),
+};
+```
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn plugin_set_host_api(
-    handle: PluginHandle,
-    api: *const HostApiC,
-) {
-    let plugin = unsafe { &mut *(handle as *mut MyPlugin) };
-    plugin.host_api = Some(api);
-}
+Plugin ID must match `[a-zA-Z0-9_-]+`. Package metadata and DLL descriptor metadata must match exactly.
 
-fn send_notification(handle: PluginHandle) -> Option<ContextIdC> {
-    let plugin = unsafe { &*(handle as *const MyPlugin) };
-    if let Some(api) = plugin.host_api {
-        let ctx = ContextDataC {
-            priority: PRIORITY_MEDIUM,
-            title: str_to_fixed("Notification"),
-            body: str_to_fixed("Hello from plugin!"),
-            duration_sec: 5,
-            mini_render: true,
-            mini_text: str_to_fixed("New notification"),
-        };
-        return Some(unsafe { ((*api).send_context)(handle, ctx) });
-    }
-    None
+## Querying services
+
+During `create`, validate `PluginCreateInfoV1`, retain its `plugin_token`, and query declared services:
+
+```rust
+let info = unsafe { &*create_info };
+let host = unsafe { &*info.host_api };
+let context_api = unsafe { host.context_api() }
+    .ok_or_else(|| PluginResultC::err("context API unavailable"));
+```
+
+The available services are:
+
+| Capability | Query | Purpose |
+|---|---|---|
+| `CAPABILITY_CONTEXT` | `HostApiV1::context_api()` | Compact island text/status resources |
+| `CAPABILITY_MEDIA` | `HostApiV1::media_api()` | Media UI data and optional controls |
+| `CAPABILITY_I18N` | `HostApiV1::i18n_api()` | Translation bundles |
+| `CAPABILITY_HOST_STATE` | `HostApiV1::host_state_api()` | Current media and light/dark theme snapshot |
+
+Calling a service without declaring its capability returns an error.
+
+## Context service
+
+Context resources support create, update, and release:
+
+```rust
+let data = ContextDataV1 {
+    priority: PRIORITY_MEDIUM,
+    flags: CONTEXT_FLAG_SHOW_COMPACT,
+    timeout_ms: 5_000,
+    title: str_to_fixed("Build complete"),
+    body: str_to_fixed("Release package is ready"),
+    compact_text: str_to_fixed("Build ready"),
+    ..Default::default()
+};
+
+let mut id = INVALID_ID;
+let result = unsafe { context_api.create.unwrap()(token, &data, &mut id) };
+```
+
+`timeout_ms = 0` means persistent. A timeout hides the context; the plugin still owns the resource and should release it. Updating a resource refreshes its display order and timeout.
+
+## Media service
+
+Media resources replace SMTC while active. The most recently created or updated media resource is displayed. Releasing the active resource selects the next plugin resource or restores SMTC.
+
+```rust
+let cover = std::fs::read("cover.png").unwrap_or_default();
+let media = MediaSourceDataV1 {
+    flags: MEDIA_FLAG_PLAYING,
+    title: str_to_fixed("Plugin Track"),
+    artist: str_to_fixed("Plugin Artist"),
+    duration_ms: 180_000,
+    position_ms: 12_000,
+    cover: ByteSliceV1::from_slice(&cover),
+    ..Default::default()
+};
+```
+
+The host copies cover bytes before returning. Cover data only needs to remain valid during the call.
+
+To enable media controls, declare the corresponding `MEDIA_CONTROL_*` flags and provide `on_command`. The callback runs synchronously on the WinIsland event-loop thread:
+
+```rust
+media.available_controls = MEDIA_CONTROL_TOGGLE_PLAY | MEDIA_CONTROL_SEEK;
+media.on_command = Some(on_media_command);
+media.callback_data = state_pointer;
+```
+
+`callback_data` must remain valid until the media resource is successfully released. The callback may call host services. Update or release of the same media resource returns an error while its callback is executing.
+
+## Translation service
+
+Translation strings are borrowed UTF-8 slices and are copied during registration:
+
+```rust
+let pairs = [TranslationPairV1 {
+    key: Utf8SliceV1::borrowed("hello.title"),
+    value: Utf8SliceV1::borrowed("Hello"),
+}];
+let mut bundle_id = INVALID_ID;
+let result = unsafe {
+    i18n_api.register_bundle.unwrap()(
+        token,
+        Utf8SliceV1::borrowed("en_us"),
+        pairs.as_ptr(),
+        pairs.len() as u32,
+        &mut bundle_id,
+    )
+};
+```
+
+Supported built-in language codes currently include `en_us`, `zh_cn`, and `es_es`. Retain and release every bundle `ResourceId` during shutdown.
+
+## Host state
+
+Use `HostStateV1::default()` before calling `get`; the host validates `struct_size`:
+
+```rust
+let mut state = HostStateV1::default();
+let result = unsafe { host_state_api.get.unwrap()(token, &mut state) };
+if result.status == 0 {
+    let playing = state.is_playing != 0;
 }
 ```
 
-## Packaging with One Command
+The snapshot reports the media currently displayed by WinIsland, including plugin media, plus `light` or `dark` theme text.
 
-The `winisland-plugin-api` crate comes with an optional **packager** module that automates release builds, signing, and ZIP packaging.
+## Resource ownership
 
-### 1. Add a packing script
+- `PluginToken` is issued by WinIsland. Never invent or share one.
+- `ResourceId` is issued by a service create/register call.
+- Update and release require the token that owns the resource.
+- WinIsland revokes remaining resources after successful shutdown.
+- Plugins should still release resources explicitly during shutdown.
+- Context, Media, and translation resources have per-plugin count and memory limits.
+- Host services may be called from plugin worker threads; resource changes wake the WinIsland event loop.
 
-Add to your `Cargo.toml`:
+## FFI rules
+
+- All ABI structs are `#[repr(C)]`.
+- Versioned structs begin with `struct_size`; initialize them with `Default` where available.
+- Required pointers must be non-null, correctly aligned, and readable/writable for the complete call.
+- `ByteSliceV1` and `Utf8SliceV1` are `(ptr, len)` borrowed slices, not NUL-terminated strings.
+- The host copies borrowed slices before returning unless a field explicitly documents a longer lifetime.
+- Do not let panic unwind across an `extern "C"` boundary.
+- Native plugins are trusted and execute with the WinIsland process permissions.
+
+## Packaging
+
+Add the packager as a dev dependency:
 
 ```toml
 [dev-dependencies]
-winisland-plugin-api = { version = "0.2", features = ["packager"] }
+winisland-plugin-api = { version = "0.3", features = ["packager"] }
 
-[[bin]]
+[[example]]
 name = "pack"
 path = "package.rs"
 ```
-
-Create `package.rs` at the project root:
 
 ```rust
 fn main() {
     winisland_plugin_api::packager::PluginPackager::from_cargo()
         .unwrap()
-        .signing_key_path("signing_key.pem")  // optional
-        .include_dir("assets")                 // optional
         .build()
         .unwrap();
 }
 ```
 
-### 2. Build everything
+Run `cargo run --example pack`.
 
-```bash
-# This single command compiles, signs (if key provided), and packages into a ZIP:
-cargo run --bin pack
-# Output: target/my-winisland-plugin-0.1.0.zip
-```
+`from_cargo()` reads package name, version, author, description, repository, and `[lib].name`. Builder methods can override metadata, but generated `plugin.yml` metadata must still match `PluginMetadataC` exactly.
 
-The packager will:
-
-1. Run `cargo build --release` to compile your DLL
-2. Find the built `.dll` in `target/release/`
-3. Copy any extra directories (like `assets/`)
-4. Compute SHA-256 hashes of all DLLs
-5. Sign the manifest with your Ed25519 key (if provided)
-6. Generate `plugin.yml` with all metadata
-7. Pack everything into `<name>-<version>.zip`
-
-### Without the packager (manual ZIP)
-
-Your plugin must be packaged as `.zip` to be loaded by WinIsland. The ZIP must contain:
-
-```
-my-plugin.zip
-|-- plugin.yml    (plugin manifest, required)
-`-- *.dll         (plugin binary, required, multiple .dll OK)
-```
-
-#### plugin.yml
+The package has one entry DLL:
 
 ```yaml
-name: example
-author: xxx
-version: 1.0.0
-description: This is example plugin
-github-link: example/example-plugin
+id: hello-winisland-plugin
+name: hello-winisland-plugin
+author: Example Author
+version: 0.1.0
+description: Minimal WinIsland ABI v1 plugin
+github-link: https://github.com/example/hello-winisland-plugin
+abi-version: 1
+entry: hello_winisland_plugin.dll
 ```
 
-**All 5 fields are required** -- missing any will cause install to fail.
+Drag the ZIP onto WinIsland to install it. Extraction uses size/path limits and a staging directory. Updates validate the new descriptor before stopping the old plugin, then use backup-and-rollback directory replacement. Additional DLLs can be packaged as dependencies, but only `entry` is loaded as the plugin.
 
-## Digital Signing (Recommended)
-
-The packager can optionally add an Ed25519 signature and DLL hashes to `plugin.yml`. The current host does not verify these fields yet, so signing should be treated as package metadata rather than an enforced trust boundary.
-
-### Generate a signing key
-
-```bash
-openssl genpkey -algorithm ed25519 -out signing_key.pem
-openssl pkey -in signing_key.pem -pubout -out public_key.pem
-```
-
-Keep private signing keys outside the repository and provide them to CI through a protected secret.
-
-### Sign during packaging
-
-```bash
-cargo run --bin pack
-```
-
-Calling `signing_key_path` or `signing_key_env` makes the packager add the signature to `plugin.yml`:
-
-```yaml
-name: my-plugin
-author: you
-version: 1.0.0
-description: My awesome plugin
-github-link: you/my-plugin
-signature: "abc123deadbeef..."    # Ed25519 signature (64 bytes hex)
-dll_hashes:
-  - "sha256hashofdll..."
-```
-
-### CI signing with environment variable
-
-```yaml
-# .github/workflows/release.yml
-- run: cargo run --bin pack
-  env:
-    PLUGIN_SIGNING_KEY: ${{ secrets.PLUGIN_SIGNING_KEY }}
-```
-
-```rust
-// package.rs
-PluginPackager::from_cargo()
-    .unwrap()
-    .signing_key_env("PLUGIN_SIGNING_KEY")
-    .build()
-    .unwrap();
-```
-
-## Installing
-
-Simply **drag the `.zip` file onto the island**. The plugin is extracted in a background thread (so your island stays smooth and responsive) and loaded automatically.
-
-A Windows notification dialog will confirm successful installation.
-
-You can also manually place `.dll` files into subdirectories under the plugins folder -- WinIsland scans them on startup.
-
-### Plugin storage location
-
-```
-C:\Users\<YourName>\AppData\Roaming\WinIsland\plugins\<plugin-name>\*.dll
-```
-
-## Security
-
-WinIsland applies several security measures when loading plugins:
-
-| Protection | Details |
-|-----------|---------|
-| **Plugin ID validation** | IDs must match `[a-zA-Z0-9_-]+` only |
-| **ID conflict detection** | Duplicate plugin IDs are rejected |
-| **Package hashes** | The packager can record DLL hashes; host verification is not implemented yet |
-| **Path traversal protection** | ZIP entries with `..`, `:`, or absolute paths are rejected |
-| **Symlink rejection** | ZIP symlink entries are rejected |
-| **Background extraction** | ZIP decompression runs in a background thread |
-| **Poison handling** | Lock poisoning does not crash the host |
-| **VTable validation** | Required function pointers checked for null before calling |
-
-## How to Verify Your Plugin Loaded?
-
-`send_context` content and plugin media sources are connected to the Island UI. Theme, shortcut, click, and expanded-state provider callbacks are not connected yet.
-
-**Verification:**
-1. Press `F12` to open the WinIsland debug log window
-2. Search for your plugin name -- you should see something like `Loaded plugin: xxx (xxx)`
-3. Dropping a ZIP triggers a Windows popup confirming success/failure
-
-## C ABI Type Reference
-
-These types live in the `winisland-plugin-api` crate.
-
-### PluginResultC
-
-```rust
-pub struct PluginResultC {
-    pub ok: bool,
-    pub error: [u8; 256],  // null-terminated UTF-8
-}
-```
-
-Use `PluginResultC::ok()` for success, `PluginResultC::err("message")` for failure.
-
-### PluginMetadataC
-
-```rust
-pub struct PluginMetadataC {
-    pub id: [u8; 64],
-    pub name: [u8; 128],
-    pub version: [u8; 32],
-    pub author: [u8; 128],
-    pub description: [u8; 256],
-}
-```
-
-### HostApiC
-
-The host API table is passed to plugins through the exported `plugin_set_host_api` function. Plugins store this pointer and call through it to interact with the host.
-
-```rust
-pub struct HostApiC {
-    pub send_context: unsafe extern "C" fn(PluginHandle, ContextDataC) -> ContextIdC,
-    pub close_context: unsafe extern "C" fn(PluginHandle, *const c_char) -> PluginResultC,
-    pub query_host_state: unsafe extern "C" fn(PluginHandle) -> HostStateC,
-    pub set_media_source: unsafe extern "C" fn(PluginHandle, MediaSourceC) -> PluginResultC,
-    pub clear_media_source: unsafe extern "C" fn(PluginHandle) -> PluginResultC,
-    pub register_translations: unsafe extern "C" fn(
-        PluginHandle,
-        *const c_char,
-        *const TranslationPairC,
-        u32,
-    ) -> PluginResultC,
-}
-```
-
-### ContextDataC / ContextIdC / HostStateC / MediaSourceC
-
-```rust
-pub struct ContextDataC {
-    pub priority: u32,       // PRIORITY_LOW, PRIORITY_MEDIUM, or PRIORITY_HIGH
-    pub title: [u8; 256],    // shown in mini and expanded views
-    pub body: [u8; 512],     // expanded body text
-    pub duration_sec: u32,   // seconds before auto-collapse
-    pub mini_render: bool,   // show mini summary after collapsing
-    pub mini_text: [u8; 128],// mini summary text
-}
-
-pub struct ContextIdC {
-    pub id: [u8; 128],       // encoded as "plugin_id:context_id"
-}
-
-pub struct HostStateC {
-    pub media_title: [u8; 256],
-    pub media_artist: [u8; 256],
-    pub is_playing: bool,
-    pub theme: [u8; 32],     // "light" or "dark"
-}
-
-pub struct MediaSourceC {
-    pub title: [u8; 256],
-    pub artist: [u8; 256],
-    pub album: [u8; 256],
-    pub duration_ms: u64,
-    pub position_ms: u64,
-    pub is_playing: bool,
-    pub cover_data: *const u8,
-    pub cover_len: u32,
-}
-```
-
-### PluginVTable
-
-```rust
-pub struct PluginVTable {
-    pub on_load: unsafe extern "C" fn(PluginHandle) -> PluginResultC,
-    pub on_unload: unsafe extern "C" fn(PluginHandle) -> PluginResultC,
-    pub destroy: unsafe extern "C" fn(PluginHandle),
-    pub set_host_api: Option<unsafe extern "C" fn(PluginHandle, *const HostApiC)>, // reserved
-    pub on_click: Option<unsafe extern "C" fn(PluginHandle)>,
-    pub on_expanded: Option<unsafe extern "C" fn(PluginHandle, bool)>,
-    pub supports_expand: Option<unsafe extern "C" fn(PluginHandle) -> bool>,
-    pub get_colors: Option<unsafe extern "C" fn(PluginHandle) -> ThemeColorsC>,
-    pub get_animations: Option<unsafe extern "C" fn(PluginHandle) -> AnimationConfigC>,
-    pub get_shortcuts_count: Option<unsafe extern "C" fn(PluginHandle) -> u32>,
-    pub get_shortcut_at: Option<unsafe extern "C" fn(PluginHandle, i: u32, out: *mut ShortcutC)>,
-    pub execute_shortcut: Option<unsafe extern "C" fn(PluginHandle, id: *const c_char) -> PluginResultC>,
-}
-```
-
-### PluginInstanceC
-
-```rust
-pub struct PluginInstanceC {
-    pub handle: PluginHandle,
-    pub metadata: PluginMetadataC,
-    pub vtable: *const PluginVTable,
-    pub plugin_type: u32, // 1=Content, 2=Theme, 3=Shortcut
-}
-```
-
-### ThemeColorsC / AnimationConfigC / ShortcutC
-
-```rust
-pub struct ThemeColorsC {
-    pub primary: [u8; 4],    // RGBA
-    pub secondary: [u8; 4],
-    pub background: [u8; 4],
-    pub text: [u8; 4],
-    pub border: [u8; 4],
-}
-
-pub struct AnimationConfigC {
-    pub expand_duration_ms: u32,
-    pub collapse_duration_ms: u32,
-    pub bounce_intensity: f32,
-}
-
-pub struct ShortcutC {
-    pub id: [u8; 64],
-    pub name: [u8; 128],
-    pub description: [u8; 256],
-    pub icon: [u8; 256],
-    pub hotkey: [u8; 32],
-}
-```
-
-### TranslationPairC
-
-```rust
-pub struct TranslationPairC {
-    pub key: *const c_char,
-    pub value: *const c_char,
-}
-```
-
-## Join the Discussion
-
-Beyond hooking into the Island context, we do not have many concrete directions yet. Please join us at [#55](https://github.com/Eatgrapes/WinIsland/issues/55) to discuss what you would like the plugin system to support.
-
----
-
-If you run into trouble, feel free to open an issue on [GitHub](https://github.com/Eatgrapes/WinIsland).
+The packager can add DLL hashes and an Ed25519 signature. WinIsland does not enforce signature verification yet.

@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 ///     .unwrap();
 /// ```
 pub struct PluginPackager {
+    id: String,
     name: String,
     author: String,
     version: String,
@@ -38,9 +39,8 @@ pub struct PluginPackager {
 impl PluginPackager {
     /// Create a packager by reading `Cargo.toml` from the current working directory.
     ///
-    /// Automatically fills in `name`, `version`, and `author` from the
-    /// `[package]` section. The DLL filename is derived from the crate name
-    /// (hyphens replaced with underscores).
+    /// Automatically fills in package metadata, repository URL, and the DLL
+    /// filename from `[lib].name` when present.
     pub fn from_cargo() -> Result<Self, String> {
         let cargo_toml_path = Path::new("Cargo.toml");
         let contents = std::fs::read_to_string(cargo_toml_path).map_err(|e| {
@@ -83,14 +83,25 @@ impl PluginPackager {
             .unwrap_or("")
             .to_string();
 
-        let dll_name = name.replace('-', "_");
+        let github_link = pkg
+            .get("repository")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let dll_name = value
+            .get("lib")
+            .and_then(|lib| lib.get("name"))
+            .and_then(|value| value.as_str())
+            .map_or_else(|| name.replace('-', "_"), str::to_string);
 
         Ok(Self {
+            id: name.clone(),
             name,
             author,
             version,
             description,
-            github_link: String::new(),
+            github_link,
             dll_name,
             dll_path: None,
             extra_dirs: Vec::new(),
@@ -102,6 +113,7 @@ impl PluginPackager {
     /// Create a packager with manually specified plugin name.
     pub fn new(name: &str) -> Self {
         Self {
+            id: name.to_string(),
             name: name.to_string(),
             author: String::new(),
             version: "0.1.0".to_string(),
@@ -113,6 +125,18 @@ impl PluginPackager {
             signing_key: None,
             output: None,
         }
+    }
+
+    /// Set the plugin ID returned by the ABI v1 descriptor.
+    pub fn id(&mut self, value: &str) -> &mut Self {
+        self.id = value.to_string();
+        self
+    }
+
+    /// Set the human-readable plugin name returned by the ABI descriptor.
+    pub fn name(&mut self, value: &str) -> &mut Self {
+        self.name = value.to_string();
+        self
     }
 
     /// Set the plugin author.
@@ -252,9 +276,9 @@ impl PluginPackager {
 
         // 5. Copy extra directories
         for dir in &self.extra_dirs {
-            let src = Path::new(dir);
+            let src = package_relative_path(dir)?;
             if src.exists() {
-                let dst = staging_path.join(dir);
+                let dst = staging_path.join(src);
                 copy_dir_all(src, &dst)?;
             } else {
                 log::warn!("Extra directory '{}' not found, skipping", dir);
@@ -267,7 +291,7 @@ impl PluginPackager {
         dll_hashes.push(dll_hash);
         // Also hash any extra DLLs in extra dirs
         for dir in &self.extra_dirs {
-            let dll_dir = staging_path.join(dir);
+            let dll_dir = staging_path.join(package_relative_path(dir)?);
             if dll_dir.exists() {
                 collect_dll_hashes(&dll_dir, &mut dll_hashes)?;
             }
@@ -275,11 +299,14 @@ impl PluginPackager {
 
         // 7. Build manifest
         let mut manifest = PluginManifest {
+            id: self.id.clone(),
             name: self.name.clone(),
             author: self.author.clone(),
             version: self.version.clone(),
             description: self.description.clone(),
             github_link: self.github_link.clone(),
+            abi_version: crate::ABI_VERSION_1,
+            entry: dll_dest_name.to_string(),
             signature: None,
             dll_hashes: Some(dll_hashes.clone()),
         };
@@ -344,6 +371,20 @@ impl PluginPackager {
             release_so.display(),
         ))
     }
+}
+
+fn package_relative_path(path: &str) -> Result<&Path, String> {
+    let path = Path::new(path);
+    if path.as_os_str().is_empty()
+        || path
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(format!(
+            "Package directory '{path:?}' must be a relative path"
+        ));
+    }
+    Ok(path)
 }
 
 fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {

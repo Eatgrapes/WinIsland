@@ -1,8 +1,8 @@
 [package]
 name = "winisland-plugin-api"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
-description = "C ABI types for WinIsland plugin development, with optional build-time packaging and signing tools"
+description = "Versioned native plugin ABI for WinIsland, with optional packaging and signing tools"
 repository = "https://github.com/Eatgrapes/WinIsland"
 homepage = "https://github.com/Eatgrapes/WinIsland"
 license = "MIT"

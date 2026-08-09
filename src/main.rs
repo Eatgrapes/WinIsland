@@ -95,6 +95,7 @@ fn main() {
     utils::updater::start_update_checker();
 
     let event_loop = EventLoop::new().unwrap();
+    plugin::manager::set_event_loop_proxy(event_loop.create_proxy());
     let mut app = App::default();
     event_loop.run_app(&mut app).unwrap();
     log::info!("Application event loop exited, shutting down");

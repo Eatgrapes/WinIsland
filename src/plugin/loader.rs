@@ -1,336 +1,194 @@
-use super::types::{
-    AnimationConfig, ContentProvider, Plugin, PluginError, PluginGetInstanceFn, PluginHandle,
-    PluginInstanceC, PluginMetadata, PluginResultC, PluginType, Shortcut, ShortcutC,
-    ShortcutProvider, ThemeColors, ThemeProvider,
-};
-use libloading::Library;
 use std::mem::ManuallyDrop;
-use std::path::Path;
-use std::thread::ThreadId;
+use std::path::{Path, PathBuf};
 
-/// Wrapper around a native DLL plugin. Implements host-side traits by
-/// calling through the C ABI vtable, avoiding any trait-object crossing
-/// the FFI boundary.
-///
-/// # Safety (Send + Sync)
-/// This type holds a raw vtable pointer and a raw plugin handle from a loaded
-/// DLL. All vtable calls (`on_load`, `on_unload`, etc.) go
-/// through these raw pointers — they are only safe in a single-threaded context
-/// because the underlying C plugin code may not be thread-safe.
-///
-/// `Send + Sync` are unsafely implemented so that `PluginManager` can store
-/// `NativePlugin` behind an `RwLock`. At runtime, all access goes through the
-/// `RwLock` which ensures single-threaded access on the main thread. Any
-/// attempt to use a `NativePlugin` from a different thread will be caught and
-/// logged via the stored `owner_thread` assertion.
+use libloading::Library;
+
+use super::types::{
+    ABI_VERSION_1, HostApiV1, KNOWN_CAPABILITIES, PLUGIN_ENTRY_SYMBOL_V1, PluginCreateInfoV1,
+    PluginDescriptorV1, PluginEntryFnV1, PluginError, PluginHandle, PluginMetadata, PluginToken,
+};
+
 pub struct NativePlugin {
     metadata: PluginMetadata,
-    plugin_type: PluginType,
+    descriptor: PluginDescriptorV1,
     handle: PluginHandle,
-    vtable: *const super::types::PluginVTable,
-    _lib: ManuallyDrop<Library>,
-    initialized: bool,
-    #[allow(dead_code)]
-    owner_thread: ThreadId,
+    token: PluginToken,
+    created: bool,
+    shutdown: bool,
+    path: PathBuf,
+    library: ManuallyDrop<Library>,
 }
 
-// SAFETY: NativePlugin is only accessed through RwLock in PluginManager,
-// which serialises all access to a single thread at runtime.
-unsafe impl Send for NativePlugin {}
-unsafe impl Sync for NativePlugin {}
-
 impl NativePlugin {
-    /// Load a native plugin from a DLL file.
-    ///
-    /// The DLL must export a `plugin_get_instance` symbol with signature:
-    /// `unsafe extern "C" fn() -> PluginInstanceC`
     pub fn load(path: &Path) -> Result<Self, PluginError> {
-        // SAFETY: libloading loads a DLL; we assume the provided path is trustworthy.
-        let lib = unsafe {
-            Library::new(path).map_err(|e| {
-                PluginError::LoadFailed(format!(
-                    "Failed to load library '{}': {}",
-                    path.display(),
-                    e
-                ))
-            })?
-        };
-
-        // SAFETY: we call the exported symbol with the expected C ABI signature.
-        // The DLL author is responsible for returning a valid PluginInstanceC.
-        let get_instance: libloading::Symbol<PluginGetInstanceFn> = unsafe {
-            lib.get(b"plugin_get_instance").map_err(|e| {
+        // SAFETY: Native plugins are trusted DLLs selected by the user.
+        let library = unsafe { Library::new(path) }
+            .map_err(|error| PluginError::LoadFailed(format!("{}: {error}", path.display())))?;
+        // SAFETY: The symbol is validated against the documented ABI v1 signature.
+        let entry =
+            unsafe { library.get::<PluginEntryFnV1>(PLUGIN_ENTRY_SYMBOL_V1) }.map_err(|error| {
                 PluginError::InvalidPlugin(format!(
-                    "Plugin '{}' does not export 'plugin_get_instance': {}",
-                    path.display(),
-                    e
+                    "{} does not export winisland_plugin_entry_v1: {error}",
+                    path.display()
                 ))
-            })?
-        };
-
-        let instance: PluginInstanceC = unsafe { get_instance() };
-
-        if instance.handle.is_null() {
-            return Err(PluginError::LoadFailed(format!(
-                "Plugin '{}' returned null handle",
-                path.display()
-            )));
-        }
-
-        if instance.vtable.is_null() {
+            })?;
+        // SAFETY: Calling the trusted plugin entry point does not transfer ownership.
+        let descriptor_ptr = unsafe { entry() };
+        if descriptor_ptr.is_null() {
             return Err(PluginError::InvalidPlugin(format!(
-                "Plugin '{}' returned null vtable",
+                "{} returned a null descriptor",
                 path.display()
             )));
         }
 
-        let metadata = PluginMetadata::from(&instance.metadata);
+        // SAFETY: A valid descriptor starts with a readable u32 struct_size field.
+        let struct_size = unsafe { std::ptr::read_unaligned(descriptor_ptr.cast::<u32>()) };
+        if struct_size < std::mem::size_of::<PluginDescriptorV1>() as u32 {
+            return Err(PluginError::InvalidPlugin(format!(
+                "{} returned a truncated ABI v1 descriptor",
+                path.display()
+            )));
+        }
+        // SAFETY: struct_size proves the complete ABI v1 prefix is available.
+        let descriptor = unsafe { std::ptr::read_unaligned(descriptor_ptr) };
+        if descriptor.abi_version != ABI_VERSION_1 {
+            return Err(PluginError::InvalidPlugin(format!(
+                "{} uses unsupported ABI version {}",
+                path.display(),
+                descriptor.abi_version
+            )));
+        }
+        if descriptor.capabilities & !KNOWN_CAPABILITIES != 0 {
+            return Err(PluginError::InvalidPlugin(format!(
+                "{} requires unsupported capabilities 0x{:x}",
+                path.display(),
+                descriptor.capabilities & !KNOWN_CAPABILITIES
+            )));
+        }
+        if descriptor.create.is_none()
+            || descriptor.shutdown.is_none()
+            || descriptor.destroy.is_none()
+        {
+            return Err(PluginError::InvalidPlugin(format!(
+                "{} is missing required lifecycle functions",
+                path.display()
+            )));
+        }
 
-        // C4: validate plugin ID charset - only alphanumeric, '-', '_'
+        let metadata = PluginMetadata::from(&descriptor.metadata);
         if metadata.id.is_empty()
             || !metadata
                 .id
-                .chars()
-                .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
         {
             return Err(PluginError::InvalidPlugin(format!(
-                "Plugin '{}' has invalid id: only alphanumeric, '-' and '_' allowed",
+                "plugin id '{}' must match [a-zA-Z0-9_-]+",
                 metadata.id
             )));
         }
 
-        let plugin_type = PluginType::from_u32(instance.plugin_type).ok_or_else(|| {
-            PluginError::InvalidPlugin(format!(
-                "Plugin '{}' has unknown plugin_type: {}",
-                path.display(),
-                instance.plugin_type
-            ))
-        })?;
-
-        let plugin = Self {
+        Ok(Self {
             metadata,
-            plugin_type,
-            handle: instance.handle,
-            vtable: instance.vtable,
-            _lib: ManuallyDrop::new(lib),
-            initialized: false,
-            owner_thread: std::thread::current().id(),
-        };
-
-        // SAFETY: vtable pointer was validated non-null above and is 'static for the DLL's lifetime.
-        let vtable = unsafe { &*plugin.vtable };
-
-        // C3: validate required vtable function pointers are non-null before calling them
-        if vtable.on_load as usize == 0
-            || vtable.on_unload as usize == 0
-            || vtable.destroy as usize == 0
-        {
-            return Err(PluginError::InvalidPlugin(format!(
-                "Plugin '{}' has null function pointer in required vtable fields",
-                plugin.metadata.id
-            )));
-        }
-
-        Ok(plugin)
+            descriptor,
+            handle: std::ptr::null_mut(),
+            token: 0,
+            created: false,
+            shutdown: false,
+            path: path.to_path_buf(),
+            library: ManuallyDrop::new(library),
+        })
     }
 
-    /// Initialise the plugin after the host API has been injected.
-    pub fn initialize(&mut self) -> Result<(), PluginError> {
-        if self.initialized {
-            return Ok(());
+    pub fn initialize(
+        &mut self,
+        token: PluginToken,
+        host_api: *const HostApiV1,
+    ) -> Result<(), PluginError> {
+        let create_info = PluginCreateInfoV1 {
+            struct_size: std::mem::size_of::<PluginCreateInfoV1>() as u32,
+            abi_version: ABI_VERSION_1,
+            plugin_token: token,
+            host_api,
+        };
+        let create = self
+            .descriptor
+            .create
+            .ok_or_else(|| PluginError::InvalidPlugin("missing create function".to_string()))?;
+        let mut handle = std::ptr::null_mut();
+        // SAFETY: create comes from the validated descriptor and receives ABI v1 data.
+        let result = unsafe { create(&create_info, &mut handle) };
+        if let Err(error) = result.into_result() {
+            if !handle.is_null() {
+                self.handle = handle;
+                self.token = token;
+                self.created = true;
+            }
+            return Err(PluginError::ExecutionError(format!(
+                "plugin '{}' create failed: {error}",
+                self.metadata.id
+            )));
         }
-
-        let result: PluginResultC = unsafe { (self.vtable().on_load)(self.handle) };
-        result.into_result().map_err(|e| {
-            PluginError::ExecutionError(format!(
-                "Plugin '{}' on_load failed: {}",
-                self.metadata.id, e
-            ))
-        })?;
-        self.initialized = true;
+        if handle.is_null() {
+            return Err(PluginError::ExecutionError(format!(
+                "plugin '{}' returned a null handle",
+                self.metadata.id
+            )));
+        }
+        self.handle = handle;
+        self.token = token;
+        self.created = true;
         Ok(())
     }
 
-    #[allow(dead_code)]
-    fn vtable(&self) -> &super::types::PluginVTable {
-        // SAFETY: vtable was validated on construction and is 'static in the DLL.
-        unsafe { &*self.vtable }
-    }
-
-    /// Give this plugin a pointer to the host API table.
-    ///
-    /// Looks for a `plugin_set_host_api` symbol exported by the DLL.
-    /// If the plugin doesn't export it (old plugin), this is a no-op.
-    /// The pointer must be `'static` (leaked or global).
-    pub fn set_host_api(&self, api: *const super::types::HostApiC) {
-        // Try to find the `plugin_set_host_api` symbol exported by the DLL.
-        // Old plugins don't export it — this is a no-op for those.
-        let lib: &Library = &self._lib;
-        if let Ok(func) = unsafe {
-            lib.get::<unsafe extern "C" fn(
-                crate::plugin::types::PluginHandle,
-                *const crate::plugin::types::HostApiC,
-            )>(b"plugin_set_host_api\0")
-        } {
-            unsafe { (func)(self.handle, api) };
+    pub fn shutdown(&mut self) -> Result<(), PluginError> {
+        if !self.created || self.shutdown {
+            return Ok(());
         }
+        if let Some(shutdown) = self.descriptor.shutdown {
+            // SAFETY: handle was returned by create and remains valid until destroy.
+            let result = unsafe { shutdown(self.handle) };
+            if let Err(error) = result.into_result() {
+                return Err(PluginError::ExecutionError(format!(
+                    "plugin '{}' shutdown failed: {error}",
+                    self.metadata.id
+                )));
+            }
+        }
+        self.shutdown = true;
+        Ok(())
     }
 
-    /// Raw handle pointer value, used as a key in plugin→id mapping.
-    pub fn handle_raw(&self) -> isize {
-        self.handle as isize
-    }
-}
-
-impl Plugin for NativePlugin {
-    fn metadata(&self) -> &PluginMetadata {
+    pub fn metadata(&self) -> &PluginMetadata {
         &self.metadata
     }
 
-    fn plugin_type(&self) -> PluginType {
-        self.plugin_type
-    }
-}
-
-impl ContentProvider for NativePlugin {
-    fn on_click(&mut self) {
-        let vtable = self.vtable();
-        if let Some(f) = vtable.on_click {
-            // SAFETY: calling through vtable with the opaque handle from the same DLL.
-            unsafe { f(self.handle) };
-        }
+    pub fn capabilities(&self) -> u64 {
+        self.descriptor.capabilities
     }
 
-    fn on_expanded(&mut self, expanded: bool) {
-        let vtable = self.vtable();
-        if let Some(f) = vtable.on_expanded {
-            // SAFETY: calling through vtable with the opaque handle from the same DLL.
-            unsafe { f(self.handle, expanded) };
-        }
+    pub fn token(&self) -> PluginToken {
+        self.token
     }
 
-    fn supports_expand(&self) -> bool {
-        let vtable = self.vtable();
-        vtable
-            .supports_expand
-            .map(|f| {
-                // SAFETY: calling through vtable with the opaque handle from the same DLL.
-                unsafe { f(self.handle) }
-            })
-            .unwrap_or(false)
-    }
-}
-
-impl ThemeProvider for NativePlugin {
-    fn get_colors(&self) -> ThemeColors {
-        let vtable = self.vtable();
-        vtable
-            .get_colors
-            .map(|f| {
-                // SAFETY: calling through vtable with the opaque handle from the same DLL.
-                ThemeColors::from(&unsafe { f(self.handle) })
-            })
-            .unwrap_or(ThemeColors {
-                primary: (255, 255, 255, 255),
-                secondary: (200, 200, 200, 255),
-                background: (30, 30, 30, 255),
-                text: (255, 255, 255, 255),
-                border: (100, 100, 100, 255),
-            })
-    }
-
-    fn get_animations(&self) -> AnimationConfig {
-        let vtable = self.vtable();
-        vtable
-            .get_animations
-            .map(|f| {
-                // SAFETY: calling through vtable with the opaque handle from the same DLL.
-                AnimationConfig::from(&unsafe { f(self.handle) })
-            })
-            .unwrap_or(AnimationConfig {
-                expand_duration_ms: 300,
-                collapse_duration_ms: 300,
-                bounce_intensity: 0.5,
-            })
-    }
-}
-
-impl ShortcutProvider for NativePlugin {
-    fn get_shortcuts(&self) -> Vec<Shortcut> {
-        let vtable = self.vtable();
-        let count = match vtable.get_shortcuts_count {
-            // SAFETY: calling through vtable with the opaque handle from the same DLL.
-            Some(f) => unsafe { f(self.handle) },
-            None => return Vec::new(),
-        };
-        let get_at = match vtable.get_shortcut_at {
-            Some(f) => f,
-            None => return Vec::new(),
-        };
-        let mut shortcuts = Vec::with_capacity(count as usize);
-        for i in 0..count {
-            let mut c = ShortcutC {
-                id: [0u8; 64],
-                name: [0u8; 128],
-                description: [0u8; 256],
-                icon: [0u8; 256],
-                hotkey: [0u8; 32],
-            };
-            // SAFETY: calling through vtable with opaque handle; &mut c is a valid
-            // pointer to a stack-allocated ShortcutC struct for the DLL to fill.
-            unsafe { get_at(self.handle, i, &mut c) };
-            shortcuts.push(Shortcut {
-                id: super::types::read_c_str(&c.id),
-                name: super::types::read_c_str(&c.name),
-                description: super::types::read_c_str(&c.description),
-                icon: super::types::read_opt_c_str(&c.icon),
-                hotkey: super::types::read_opt_c_str(&c.hotkey),
-            });
-        }
-        shortcuts
-    }
-
-    fn execute(&mut self, shortcut_id: &str) -> Result<(), String> {
-        let vtable = self.vtable();
-        match vtable.execute_shortcut {
-            Some(f) => {
-                let mut id_bytes = [0i8; 128];
-                let bytes = shortcut_id.as_bytes();
-                let len = bytes.len().min(127);
-                if bytes.len() > 127 {
-                    log::warn!("shortcut_id '{}' truncated to 127 bytes", shortcut_id);
-                }
-                for (i, &b) in bytes[..len].iter().enumerate() {
-                    id_bytes[i] = b as i8;
-                }
-                unsafe { f(self.handle, id_bytes.as_ptr()).into_result() }
-            }
-            None => Err("Plugin does not support execute_shortcut".into()),
-        }
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 }
 
 impl Drop for NativePlugin {
     fn drop(&mut self) {
-        // SAFETY: vtable was validated on construction and stays valid for
-        // the DLL's lifetime. The function pointer null checks below prevent
-        // calling through potentially-null pointers if the plugin failed to
-        // load after vtable validation (on_unload/destroy may be zero).
-        //
-        // on_unload and destroy are called with the plugin's own handle
-        // during drop, which is the correct lifecycle point for cleanup.
-        let vtable = unsafe { &*self.vtable };
-        unsafe {
-            if self.initialized && vtable.on_unload as usize != 0 {
-                let _ = (vtable.on_unload)(self.handle);
-            }
-            if vtable.destroy as usize != 0 {
-                (vtable.destroy)(self.handle);
-            }
-            // C8: manually drop the Library after destroy to ensure the DLL
-            // is unloaded last, preserving vtable validity until after all
-            // plugin cleanup calls.
-            ManuallyDrop::drop(&mut self._lib);
+        if let Err(error) = self.shutdown() {
+            log::error!("{error}; keeping the plugin DLL loaded");
+            return;
         }
+        if self.created
+            && let Some(destroy) = self.descriptor.destroy
+        {
+            // SAFETY: shutdown has completed and destroy owns the plugin handle cleanup.
+            unsafe { destroy(self.handle) };
+        }
+        // SAFETY: The DLL is unloaded only after all plugin function calls have completed.
+        unsafe { ManuallyDrop::drop(&mut self.library) };
     }
 }

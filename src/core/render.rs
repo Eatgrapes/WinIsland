@@ -30,6 +30,7 @@ pub struct LayoutParams {
 pub struct MediaParams<'a> {
     pub media: &'a MediaInfo,
     pub music_active: bool,
+    pub available_controls: u32,
 }
 
 pub struct LyricsParams<'a> {
@@ -101,6 +102,7 @@ pub fn draw_island(
     let MediaParams {
         media,
         music_active,
+        available_controls,
     } = media;
     let LyricsParams {
         current_lyric,
@@ -196,6 +198,7 @@ pub fn draw_island(
         current_h,
         media,
         music_active,
+        available_controls,
         global_scale,
         expansion_progress,
         viz_h_scale,

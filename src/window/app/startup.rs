@@ -22,11 +22,6 @@ impl App {
         event_loop.set_control_flow(ControlFlow::Wait);
         if self.window.is_none() {
             Self::set_aumid();
-            self.plugin_mgr.load_all();
-            let plugin_count = self.plugin_mgr.list_content_providers().len()
-                + self.plugin_mgr.list_theme_providers().len()
-                + self.plugin_mgr.list_shortcut_providers().len();
-            log::info!("{} plugin(s) loaded", plugin_count);
             let max_w = self.config.expanded_width.max(450.0);
             self.geom.os_w = (max_w * self.config.global_scale + PADDING) as u32;
             self.geom.os_h =
@@ -103,6 +98,17 @@ impl App {
                     }
                 };
             let is_light = window.theme() == Some(winit::window::Theme::Light);
+            self.is_light_theme = is_light;
+            crate::plugin::manager::update_host_state(crate::plugin::types::HostState {
+                theme: if is_light {
+                    "light".to_string()
+                } else {
+                    "dark".to_string()
+                },
+                ..Default::default()
+            });
+            self.plugin_mgr.load_all();
+            log::info!("{} plugin(s) loaded", self.plugin_mgr.len());
             self.tray = Some(TrayManager::new(is_light));
             log::info!(
                 "Tray icon created (theme={})",

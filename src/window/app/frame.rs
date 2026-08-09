@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -55,6 +54,9 @@ impl App {
         }
 
         self.poll_pending_plugin_install();
+        if self.ctx_mgr.tick() {
+            window.request_redraw();
+        }
 
         let dt = (self.last_update_time.elapsed().as_secs_f32() * 60.0).clamp(0.1, 6.0);
         self.last_update_time = now;
@@ -128,7 +130,7 @@ impl App {
         self.update_expand_collapse_click(&window, is_hovering_visible);
 
         let is_paused = music_active && !media_is_playing;
-        self.update_lyrics(&window, is_paused, dt);
+        self.update_lyrics(&window, music_active, is_paused, dt);
         self.update_spring_targets(&window, music_active, is_paused, dt);
 
         self.schedule_next_frame(
@@ -148,9 +150,12 @@ impl App {
             return;
         };
         match rx.try_recv() {
-            Ok(Ok((manifest, _dest, dll_paths))) => {
-                for dll in &dll_paths {
-                    self.plugin_mgr.load_dll(Path::new(dll));
+            Ok(Ok((manifest, staging))) => {
+                if let Err(error) = self.plugin_mgr.activate_staged_plugin(&manifest, &staging) {
+                    let _ = std::fs::remove_dir_all(staging);
+                    Self::show_toast("Plugin Error", &error);
+                    log::error!("Failed to activate installed plugin: {error}");
+                    return;
                 }
                 Self::show_toast(
                     "Plugin Installed",
@@ -216,9 +221,7 @@ impl App {
             self.geom.monitor_size.1,
         );
         self.is_cursor_suppressed = is_cursor_hidden();
-        let has_live_activity = self.config.smtc_enabled
-            && self.smtc_media_info.is_playing
-            && !self.smtc_media_info.title.is_empty();
+        let has_live_activity = self.media_active() && self.current_media_info().is_playing;
         let should_hide_for_fullscreen = self.config.auto_hide
             && self.is_fullscreen_suppressed
             && !has_live_activity
@@ -263,33 +266,26 @@ impl App {
 
     fn poll_media_info(&mut self, window: &Window) -> (bool, bool) {
         if let Some(media) = self.smtc.take_info_if_changed() {
-            let media_ended = !self.smtc_media_info.title.is_empty() && media.title.is_empty();
-            self.audio
-                .set_target_app_id(if self.config.smtc_enabled && !media.title.is_empty() {
-                    &media.source_app_id
-                } else {
-                    ""
-                });
             self.smtc_media_info = media;
-            if media_ended {
+        }
+        self.audio.set_target_app_id(self.audio_target_app_id());
+        let music_active = self.media_active();
+        let media = self.current_media_info();
+        let media_is_playing = music_active && media.is_playing;
+        let title = media.title.clone();
+        let artist = media.artist.clone();
+        let album = media.album.clone();
+        if !music_active {
+            self.audio.set_gate_override(false);
+            if !self.last_media_title.is_empty() {
                 self.last_media_title.clear();
                 crate::ui::expanded::music_view::clear_cover_cache();
                 crate::utils::backdrop::clear_blurred_cover_cache();
             }
         }
-        let music_active = self.config.smtc_enabled && !self.smtc_media_info.title.is_empty();
-        let media_is_playing = self.smtc_media_info.is_playing;
-        if !music_active {
-            self.audio.set_gate_override(false);
-        }
-        if music_active && self.smtc_media_info.title != self.last_media_title {
-            log::info!(
-                "Track changed: {} - {} / {}",
-                self.smtc_media_info.title,
-                self.smtc_media_info.artist,
-                self.smtc_media_info.album
-            );
-            self.last_media_title = self.smtc_media_info.title.clone();
+        if music_active && title != self.last_media_title {
+            log::info!("Track changed: {title} - {artist} / {album}");
+            self.last_media_title = title;
             crate::ui::expanded::music_view::trigger_cover_flip();
             crate::utils::backdrop::clear_blurred_cover_cache();
             window.request_redraw();
@@ -371,7 +367,7 @@ impl App {
         } else if self.seek.active {
             self.seek.active = false;
             if self.seek.duration_ms > 0 {
-                self.smtc.request_seek(self.seek.preview_ms);
+                self.dispatch_seek_command();
                 window.request_redraw();
             }
         }
@@ -387,12 +383,15 @@ impl App {
     ) {
         let progress_hover_active = if self.seek.active {
             true
-        } else if self.expanded && (self.springs.view.value as f64) < 0.5 {
+        } else if self.expanded
+            && (self.springs.view.value as f64) < 0.5
+            && self.media_control_available(crate::plugin::types::MEDIA_CONTROL_SEEK)
+        {
             if let Some((bar_left, bar_right, bar_top, bar_hit_h)) = get_progress_bar_rect(
                 offset_x as f32,
                 island_y as f32,
                 self.springs.w.value,
-                &self.smtc_media_info,
+                self.current_media_info(),
                 music_active,
                 self.config.global_scale,
                 &self.config.expanded_cover_shape,
@@ -469,17 +468,17 @@ impl App {
         }
     }
 
-    fn update_lyrics(&mut self, window: &Window, is_paused: bool, dt: f32) {
-        let current_lyric = if self.config.show_lyrics && !is_paused {
-            self.smtc_media_info
+    fn update_lyrics(&mut self, window: &Window, music_active: bool, is_paused: bool, dt: f32) {
+        let current_lyric = if music_active && self.config.show_lyrics && !is_paused {
+            self.current_media_info()
                 .current_lyric((self.config.lyrics_delay * 1000.0) as i64)
+                .map(str::to_owned)
         } else {
             None
         };
         if let Some(lyric) = current_lyric {
             if lyric != self.lyrics.current_text {
-                let text = lyric.to_owned();
-                self.lyrics.transition_to(text);
+                self.lyrics.transition_to(lyric);
             }
         } else if !is_paused && !self.lyrics.current_text.is_empty() {
             self.lyrics.transition_to(String::new());

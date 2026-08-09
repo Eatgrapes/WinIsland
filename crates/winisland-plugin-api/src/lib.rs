@@ -2,8 +2,8 @@
 //!
 //! C ABI types and tooling for developing [WinIsland](https://github.com/Eatgrapes/WinIsland) plugins.
 //!
-//! Plugins are native DLLs that communicate with the WinIsland host via a
-//! C-compatible vtable interface — no serialization, no IPC, straight FFI.
+//! Plugins are trusted native DLLs that communicate with WinIsland through a
+//! versioned C ABI and host service tables.
 //!
 //! ## Usage modes
 //!
@@ -11,18 +11,18 @@
 //!
 //! ```toml
 //! [dependencies]
-//! winisland-plugin-api = "0.2"
+//! winisland-plugin-api = "0.3"
 //! ```
 //!
-//! Implement the C ABI by exporting a `plugin_get_instance` function:
+//! Export the ABI v1 descriptor from a `cdylib`. See the crate README for a
+//! complete lifecycle and Context example:
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use winisland_plugin_api::*;
 //!
 //! #[unsafe(no_mangle)]
-//! pub unsafe extern "C" fn plugin_get_instance() -> PluginInstanceC {
-//!     // See the crate docs for a full plugin example.
-//!     unimplemented!()
+//! pub unsafe extern "C" fn winisland_plugin_entry_v1() -> *const PluginDescriptorV1 {
+//!     &DESCRIPTOR
 //! }
 //! ```
 //!
@@ -30,24 +30,23 @@
 //!
 //! ```toml
 //! [dev-dependencies]
-//! winisland-plugin-api = { version = "0.2", features = ["packager"] }
+//! winisland-plugin-api = { version = "0.3", features = ["packager"] }
 //! ```
 //!
-//! Add a `package.rs` binary that builds, signs and zips the plugin:
+//! Add a `package.rs` example target that builds, signs and zips the plugin:
 //!
 //! ```rust,no_run
 //! winisland_plugin_api::packager::PluginPackager::from_cargo()
 //!     .unwrap()
-//!     .signing_key_path("signing_key.pem")
 //!     .build()
 //!     .unwrap();
 //! ```
 //!
-//! Then run `cargo run --bin pack` to produce a signed `.zip` distributable.
+//! Then run `cargo run --example pack` to produce a `.zip` distributable.
 
+pub mod descriptor;
 pub mod host;
 pub mod types;
-pub mod vtable;
 
 #[cfg(feature = "packager")]
 pub mod packager;
@@ -56,14 +55,18 @@ pub mod packager;
 // Public re-exports — flat import for plugin authors
 // ---------------------------------------------------------------------------
 
-pub use host::HostApiC;
+pub use descriptor::*;
+pub use host::*;
 pub use types::context::{
-    ContextDataC, ContextIdC, HostStateC, MediaSourceC, PRIORITY_HIGH, PRIORITY_LOW,
+    CONTEXT_FLAG_SHOW_COMPACT, ContextDataV1, HostStateV1, MEDIA_COMMAND_NEXT,
+    MEDIA_COMMAND_PREVIOUS, MEDIA_COMMAND_SEEK, MEDIA_COMMAND_TOGGLE_PLAY, MEDIA_CONTROL_NEXT,
+    MEDIA_CONTROL_PREVIOUS, MEDIA_CONTROL_SEEK, MEDIA_CONTROL_TOGGLE_PLAY, MEDIA_FLAG_PLAYING,
+    MediaCommandFnV1, MediaCommandV1, MediaSourceDataV1, PRIORITY_HIGH, PRIORITY_LOW,
     PRIORITY_MEDIUM,
 };
-pub use types::i18n::TranslationPairC;
+pub use types::i18n::TranslationPairV1;
 pub use types::metadata::PluginMetadataC;
-pub use types::shortcut::ShortcutC;
-pub use types::theme::{AnimationConfigC, ThemeColorsC};
-pub use types::{PluginHandle, PluginResultC, PluginType, str_to_fixed};
-pub use vtable::{PluginGetInstanceFn, PluginInstanceC, PluginVTable};
+pub use types::{
+    ByteSliceV1, INVALID_ID, PluginHandle, PluginResultC, PluginToken, ResourceId, Utf8SliceV1,
+    str_to_fixed,
+};
