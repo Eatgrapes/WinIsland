@@ -2,14 +2,14 @@ use std::cell::RefCell;
 use std::time::Instant;
 
 use skia_safe::{
-    gpu::{self, Budgeted, DirectContext, SurfaceOrigin}, image_filters, AlphaType, Color, ColorType, FilterMode, ISize, Image, ImageInfo, MipmapMode,
-    Paint, Rect,
-    SamplingOptions,
-    Surface,
+    AlphaType, Color, ColorType, FilterMode, ISize, Image, ImageInfo, MipmapMode, Paint, Rect,
+    SamplingOptions, Surface,
+    gpu::{self, Budgeted, DirectContext, SurfaceOrigin},
+    image_filters,
 };
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Dwm::{
-    DwmSetWindowAttribute, DWMWA_SYSTEMBACKDROP_TYPE, DWMWINDOWATTRIBUTE,
+    DWMWA_SYSTEMBACKDROP_TYPE, DWMWINDOWATTRIBUTE, DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::*;
 

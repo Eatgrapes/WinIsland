@@ -1,15 +1,15 @@
 use std::cell::RefCell;
 use std::time::{Duration, Instant};
 
+use crate::utils::gpu::render_surface;
 use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
-    gpu::{self, DirectContext}, image_filters, AlphaType, Color, ColorType, FilterMode, ISize, Image, ImageInfo, MipmapMode,
-    Paint, Rect, SamplingOptions,
-    Surface,
-    TileMode,
+    AlphaType, Color, ColorType, FilterMode, ISize, Image, ImageInfo, MipmapMode, Paint, Rect,
+    SamplingOptions, Surface, TileMode,
+    gpu::{self, DirectContext},
+    image_filters,
 };
 use windows::Win32::Graphics::Gdi::*;
-use crate::utils::gpu::render_surface;
 
 const GLASS_REFRESH_INTERVAL: Duration = Duration::from_millis(33);
 const GLASS_CAPTURE_DOWNSCALE: u32 = 2;
