@@ -71,6 +71,12 @@ pub fn get_mica_background(
         return None;
     }
 
+    let refresh_interval_ms =
+        if crate::utils::gpu::gpu_profile() == crate::utils::gpu::GpuProfile::Integrated {
+            1500
+        } else {
+            1000
+        };
     let needs_capture = MICA_CACHE.with(|cell| {
         let cache = cell.borrow();
         match cache.as_ref() {
@@ -80,7 +86,7 @@ pub fn get_mica_background(
                     || c.monitor_y != monitor_y
                     || c.monitor_w != monitor_w
                     || c.monitor_h != monitor_h
-                    || c.timestamp.elapsed().as_millis() >= 1000
+                    || c.timestamp.elapsed().as_millis() >= refresh_interval_ms
             }
         }
     });

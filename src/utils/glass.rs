@@ -12,7 +12,25 @@ use skia_safe::{
 use windows::Win32::Graphics::Gdi::*;
 
 const GLASS_REFRESH_INTERVAL: Duration = Duration::from_millis(33);
+const GLASS_REFRESH_INTERVAL_INTEGRATED: Duration = Duration::from_millis(100);
 const GLASS_CAPTURE_DOWNSCALE: u32 = 2;
+const GLASS_CAPTURE_DOWNSCALE_INTEGRATED: u32 = 3;
+
+fn glass_refresh_interval() -> Duration {
+    if crate::utils::gpu::gpu_profile() == crate::utils::gpu::GpuProfile::Integrated {
+        GLASS_REFRESH_INTERVAL_INTEGRATED
+    } else {
+        GLASS_REFRESH_INTERVAL
+    }
+}
+
+fn glass_capture_downscale() -> u32 {
+    if crate::utils::gpu::gpu_profile() == crate::utils::gpu::GpuProfile::Integrated {
+        GLASS_CAPTURE_DOWNSCALE_INTEGRATED
+    } else {
+        GLASS_CAPTURE_DOWNSCALE
+    }
+}
 
 #[derive(Clone)]
 pub struct GlassBackground {
@@ -83,7 +101,7 @@ pub fn get_glass_background(
     let cached = GLASS_CACHE.with(|cell| {
         let cache = cell.borrow();
         let cache = cache.as_ref()?;
-        (cache.timestamp.elapsed() < GLASS_REFRESH_INTERVAL
+        (cache.timestamp.elapsed() < glass_refresh_interval()
             && cache.screen_x == screen_x
             && cache.screen_y == screen_y
             && cache.width == width
@@ -100,8 +118,8 @@ pub fn get_glass_background(
     }
     let info = capture_image_info(width, height);
     let surface_info = info.with_dimensions(ISize::new(
-        div_ceil(surface_width.max(width), GLASS_CAPTURE_DOWNSCALE) as i32,
-        div_ceil(surface_height.max(height), GLASS_CAPTURE_DOWNSCALE) as i32,
+        div_ceil(surface_width.max(width), glass_capture_downscale()) as i32,
+        div_ceil(surface_height.max(height), glass_capture_downscale()) as i32,
     ));
     GLASS_CACHE.with(|cell| {
         let mut cache = cell.borrow_mut();
@@ -204,8 +222,8 @@ fn update_cache(
     let scale_y = cache.surface_height as f32 / info.height() as f32;
     if let Some(filter) = image_filters::blur(
         (
-            blur_sigma / GLASS_CAPTURE_DOWNSCALE as f32 * scale_x,
-            blur_sigma / GLASS_CAPTURE_DOWNSCALE as f32 * scale_y,
+            blur_sigma / glass_capture_downscale() as f32 * scale_x,
+            blur_sigma / glass_capture_downscale() as f32 * scale_y,
         ),
         Some(TileMode::Clamp),
         None,
@@ -241,8 +259,8 @@ fn update_cache(
 fn capture_image_info(width: u32, height: u32) -> ImageInfo {
     ImageInfo::new(
         ISize::new(
-            div_ceil(width, GLASS_CAPTURE_DOWNSCALE) as i32,
-            div_ceil(height, GLASS_CAPTURE_DOWNSCALE) as i32,
+            div_ceil(width, glass_capture_downscale()) as i32,
+            div_ceil(height, glass_capture_downscale()) as i32,
         ),
         ColorType::BGRA8888,
         AlphaType::Opaque,
