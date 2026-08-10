@@ -3,12 +3,13 @@ use std::time::{Duration, Instant};
 
 use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
-    AlphaType, Color, ColorType, FilterMode, ISize, Image, ImageInfo, MipmapMode, Paint, Rect,
-    SamplingOptions, Surface, TileMode,
-    gpu::{self, Budgeted, DirectContext, SurfaceOrigin, SyncCpu},
-    image_filters,
+    gpu::{self, DirectContext}, image_filters, AlphaType, Color, ColorType, FilterMode, ISize, Image, ImageInfo, MipmapMode,
+    Paint, Rect, SamplingOptions,
+    Surface,
+    TileMode,
 };
 use windows::Win32::Graphics::Gdi::*;
+use crate::utils::gpu::render_surface;
 
 const GLASS_REFRESH_INTERVAL: Duration = Duration::from_millis(33);
 const GLASS_CAPTURE_DOWNSCALE: u32 = 2;
@@ -167,19 +168,6 @@ pub fn clear_glass_cache() {
     });
 }
 
-fn render_surface(direct_context: &mut DirectContext, info: &ImageInfo) -> Option<Surface> {
-    gpu::surfaces::render_target(
-        direct_context,
-        Budgeted::Yes,
-        info,
-        None,
-        Some(SurfaceOrigin::TopLeft),
-        None,
-        Some(false),
-        Some(false),
-    )
-}
-
 fn create_surfaces(
     direct_context: &mut DirectContext,
     info: &ImageInfo,
@@ -205,7 +193,7 @@ fn update_cache(
     ) {
         return None;
     }
-    direct_context.flush_and_submit_surface(&mut cache.source_surface, Some(SyncCpu::Yes));
+    direct_context.flush_and_submit_surface(&mut cache.source_surface, None);
     let source_image = cache.source_surface.make_temporary_image()?;
 
     cache.image = None;
@@ -237,7 +225,7 @@ fn update_cache(
             SamplingOptions::new(FilterMode::Linear, MipmapMode::None),
             &blur_paint,
         );
-    direct_context.flush_and_submit_surface(&mut cache.blur_surface, Some(SyncCpu::Yes));
+    direct_context.flush_and_submit_surface(&mut cache.blur_surface, None);
     let image = cache.blur_surface.make_temporary_image()?;
     gpu::images::get_backend_texture_from_image(&image, false)?;
     let background = GlassBackground {
