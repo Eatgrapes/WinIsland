@@ -71,8 +71,14 @@ impl App {
             .refresh_rate_millihertz()
             .filter(|refresh_rate| *refresh_rate > 0)
             .unwrap_or(DEFAULT_ANIMATION_REFRESH_RATE_MILLIHERTZ);
+        let rate = if crate::utils::gpu::gpu_profile() == crate::utils::gpu::GpuProfile::Integrated
+        {
+            refresh_rate_millihertz.min(60_000)
+        } else {
+            refresh_rate_millihertz
+        };
         self.animation_frame_interval =
-            Duration::from_nanos(1_000_000_000_000u64 / u64::from(refresh_rate_millihertz));
+            Duration::from_nanos(1_000_000_000_000u64 / u64::from(rate));
     }
 
     pub(super) fn enforce_topmost(window: &Window) {

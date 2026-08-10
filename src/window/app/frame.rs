@@ -287,7 +287,6 @@ impl App {
             log::info!("Track changed: {title} - {artist} / {album}");
             self.last_media_title = title;
             crate::ui::expanded::music_view::trigger_cover_flip();
-            crate::utils::backdrop::clear_blurred_cover_cache();
             window.request_redraw();
         }
         (music_active, media_is_playing)

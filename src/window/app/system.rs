@@ -253,7 +253,6 @@ impl App {
                             } else {
                                 crate::utils::backdrop::clear_mica_cache();
                                 crate::utils::glass::clear_glass_cache();
-                                crate::utils::backdrop::clear_blurred_cover_cache();
                             }
                         }
                     }

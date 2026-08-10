@@ -5,6 +5,7 @@ pub mod blur;
 pub mod color;
 pub mod font;
 pub mod glass;
+pub mod gpu;
 pub mod icon;
 pub mod logger;
 pub mod mouse;

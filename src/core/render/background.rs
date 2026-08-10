@@ -138,11 +138,20 @@ pub(super) fn draw_background(params: BackgroundParams<'_>) {
                 .unwrap_or_default()
                 .as_secs_f64();
 
-            let angle_rad = (now * 0.03) % (2.0 * std::f64::consts::PI);
+            let integrated =
+                crate::utils::gpu::gpu_profile() == crate::utils::gpu::GpuProfile::Integrated;
+            let (rotate_speed, drift_speed_x, drift_speed_y, drift_amp_x, drift_amp_y) =
+                if integrated {
+                    (0.015, 0.075, 0.06, 10.0, 7.5)
+                } else {
+                    (0.03, 0.15, 0.12, 20.0, 15.0)
+                };
+
+            let angle_rad = (now * rotate_speed) % (2.0 * std::f64::consts::PI);
             let angle_deg = angle_rad * 180.0 / std::f64::consts::PI;
 
-            let dx = (now * 0.15).sin() * 20.0;
-            let dy = (now * 0.12).cos() * 15.0;
+            let dx = (now * drift_speed_x).sin() * drift_amp_x;
+            let dy = (now * drift_speed_y).cos() * drift_amp_y;
 
             let cx = rect.left() + rect.width() / 2.0;
             let cy = rect.top() + rect.height() / 2.0;

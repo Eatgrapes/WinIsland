@@ -4,7 +4,7 @@ use std::time::Instant;
 use skia_safe::{
     AlphaType, Color, ColorType, FilterMode, ISize, Image, ImageInfo, MipmapMode, Paint, Rect,
     SamplingOptions, Surface,
-    gpu::{self, Budgeted, DirectContext, SurfaceOrigin, SyncCpu},
+    gpu::{self, Budgeted, DirectContext, SurfaceOrigin},
     image_filters,
 };
 use windows::Win32::Foundation::HWND;
@@ -15,6 +15,7 @@ use windows::Win32::Graphics::Gdi::*;
 
 use crate::core::smtc::MediaInfo;
 use crate::ui::expanded::music_view::get_cached_media_image_with_key;
+use crate::utils::gpu::render_surface;
 
 thread_local! {
     static MICA_CACHE: RefCell<Option<MicaCache>> = const { RefCell::new(None) };
@@ -46,7 +47,7 @@ pub fn disable_mica(hwnd: HWND) {
             hwnd,
             DWMWA_SYSTEMBACKDROP_TYPE,
             &value as *const _ as *const _,
-            std::mem::size_of::<i32>() as u32,
+            size_of::<i32>() as u32,
         );
         let value: i32 = 0;
         let attr = DWMWINDOWATTRIBUTE(1029);
@@ -54,7 +55,7 @@ pub fn disable_mica(hwnd: HWND) {
             hwnd,
             attr,
             &value as *const _ as *const _,
-            std::mem::size_of::<i32>() as u32,
+            size_of::<i32>() as u32,
         );
     }
 }
@@ -70,6 +71,12 @@ pub fn get_mica_background(
         return None;
     }
 
+    let refresh_interval_ms =
+        if crate::utils::gpu::gpu_profile() == crate::utils::gpu::GpuProfile::Integrated {
+            1500
+        } else {
+            1000
+        };
     let needs_capture = MICA_CACHE.with(|cell| {
         let cache = cell.borrow();
         match cache.as_ref() {
@@ -79,7 +86,7 @@ pub fn get_mica_background(
                     || c.monitor_y != monitor_y
                     || c.monitor_w != monitor_w
                     || c.monitor_h != monitor_h
-                    || c.timestamp.elapsed().as_millis() >= 1000
+                    || c.timestamp.elapsed().as_millis() >= refresh_interval_ms
             }
         }
     });
@@ -221,19 +228,6 @@ fn capture_mica_pixels(
     }
 }
 
-fn render_surface(direct_context: &mut DirectContext, info: &ImageInfo) -> Option<Surface> {
-    gpu::surfaces::render_target(
-        direct_context,
-        Budgeted::Yes,
-        info,
-        None,
-        Some(SurfaceOrigin::TopLeft),
-        None,
-        Some(false),
-        Some(false),
-    )
-}
-
 fn create_mica_surfaces(
     direct_context: &mut DirectContext,
     info: &ImageInfo,
@@ -257,7 +251,7 @@ fn update_mica_cache(
     {
         return None;
     }
-    direct_context.flush_and_submit_surface(&mut cache.source_surface, Some(SyncCpu::Yes));
+    direct_context.flush_and_submit_surface(&mut cache.source_surface, None);
     let source_image = cache.source_surface.image_snapshot();
 
     cache.image = None;
@@ -271,7 +265,7 @@ fn update_mica_cache(
         .blur_surface
         .canvas()
         .draw_image(&source_image, (0, 0), Some(&blur_paint));
-    direct_context.flush_and_submit_surface(&mut cache.blur_surface, Some(SyncCpu::Yes));
+    direct_context.flush_and_submit_surface(&mut cache.blur_surface, None);
     let image = cache.blur_surface.image_snapshot();
     gpu::images::get_backend_texture_from_image(&image, false)?;
     cache.image = Some(image.clone());
@@ -321,7 +315,7 @@ pub fn get_blurred_cover_background(
             SamplingOptions::new(FilterMode::Linear, MipmapMode::None),
             &paint,
         );
-    direct_context.flush_and_submit_surface(&mut downscaled_surface, Some(SyncCpu::Yes));
+    direct_context.flush_and_submit_surface(&mut downscaled_surface, None);
     let downscaled = downscaled_surface.image_snapshot();
 
     let mut blur_surface = gpu::surfaces::render_target(
@@ -342,7 +336,7 @@ pub fn get_blurred_cover_background(
     blur_surface
         .canvas()
         .draw_image(&downscaled, (0, 0), Some(&blur_paint));
-    direct_context.flush_and_submit_surface(&mut blur_surface, Some(SyncCpu::Yes));
+    direct_context.flush_and_submit_surface(&mut blur_surface, None);
     let blurred_image = blur_surface.image_snapshot();
     gpu::images::get_backend_texture_from_image(&blurred_image, false)?;
 
