@@ -54,3 +54,7 @@ jobs:
             3. Open a new PR with the renamed branch.
 
             Thank you for your understanding! 🙏
+
+      - name: Fail if branch is invalid
+        if: steps.check.outputs.valid == 'false'
+        run: exit 1
