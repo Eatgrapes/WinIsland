@@ -12,5 +12,6 @@ pub mod mouse;
 pub mod physics;
 pub mod scroll;
 pub mod settings_ui;
+pub(crate) mod shape;
 pub mod updater;
 pub mod win32;

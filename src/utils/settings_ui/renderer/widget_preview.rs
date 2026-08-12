@@ -5,6 +5,7 @@ use crate::core::i18n::tr;
 use crate::ui::widget::{draw_mini_card, draw_widget};
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
+use crate::utils::shape::g3_rounded_rect_path;
 
 use super::super::input::{
     WIDGET_ISLAND_PANEL_H, WIDGET_LIBRARY_HEADER_H, WIDGET_PANEL_GAP, WIDGET_PREVIEW_H,
@@ -94,12 +95,11 @@ fn draw_island_background(canvas: &Canvas, rect: Rect, island_style: &str, theme
     let mut shadow = Paint::default();
     shadow.set_anti_alias(true);
     shadow.set_color(Color::from_argb(72, 0, 0, 0));
-    canvas.draw_round_rect(
+    let shadow_path = g3_rounded_rect_path(
         Rect::from_xywh(rect.left, rect.top + 4.0, rect.width(), rect.height()),
         28.0,
-        28.0,
-        &shadow,
     );
+    canvas.draw_path(&shadow_path, &shadow);
 
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
@@ -126,7 +126,8 @@ fn draw_island_background(canvas: &Canvas, rect: Rect, island_style: &str, theme
     } else {
         paint.set_color(Color::from_rgb(10, 10, 10));
     }
-    canvas.draw_round_rect(rect, 28.0, 28.0, &paint);
+    let island_path = g3_rounded_rect_path(rect, 28.0);
+    canvas.draw_path(&island_path, &paint);
 
     paint.set_shader(None);
     paint.set_style(skia_safe::paint::Style::Stroke);
@@ -141,7 +142,7 @@ fn draw_island_background(canvas: &Canvas, rect: Rect, island_style: &str, theme
         theme.text_pri.g(),
         theme.text_pri.b(),
     ));
-    canvas.draw_round_rect(rect, 28.0, 28.0, &paint);
+    canvas.draw_path(&island_path, &paint);
 }
 
 fn draw_grid(

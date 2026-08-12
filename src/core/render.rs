@@ -10,7 +10,8 @@ use crate::core::config::WidgetSlot;
 use crate::core::smtc::MediaInfo;
 use crate::ui::compact::CompactOverlay;
 use crate::ui::expanded::music_view::{default_media_palette, get_media_palette};
-use skia_safe::{ClipOp, Color, Paint, RRect, Rect, Surface, gpu::DirectContext, image_filters};
+use crate::utils::shape::g3_rounded_rect_path;
+use skia_safe::{ClipOp, Color, Paint, Rect, Surface, gpu::DirectContext, image_filters};
 
 pub struct LayoutParams {
     pub current_w: f32,
@@ -134,7 +135,7 @@ pub fn draw_island(
     let stable_offset_y = stable_island_y;
 
     let rect = Rect::from_xywh(offset_x, offset_y, current_w, current_h);
-    let rrect = RRect::new_rect_xy(rect, current_r, current_r);
+    let island_path = g3_rounded_rect_path(rect, current_r);
     let has_blur = sigmas.0 > 0.1 || sigmas.1 > 0.1;
     let blur_filter = if has_blur {
         image_filters::blur(sigmas, None, None, None)
@@ -149,7 +150,7 @@ pub fn draw_island(
         canvas,
         direct_context,
         rect,
-        rrect,
+        island_path: &island_path,
         island_style,
         media,
         win_x,
@@ -165,7 +166,7 @@ pub fn draw_island(
         monitor_h,
     });
     canvas.save();
-    canvas.clip_rrect(rrect, ClipOp::Intersect, true);
+    canvas.clip_path(&island_path, ClipOp::Intersect, true);
 
     let compact_overlay_visible = compact_overlay.is_visible();
     let expanded_alpha_f = if compact_overlay_visible {
@@ -248,17 +249,16 @@ pub fn draw_island(
         } else {
             border_paint.set_color(Color::from_argb(40, 255, 255, 255));
         }
-        let border_rrect = RRect::new_rect_xy(
+        let border_path = g3_rounded_rect_path(
             Rect::from_xywh(
                 offset_x + 0.5,
                 offset_y + 0.5,
-                current_w - 1.0,
-                current_h - 1.0,
+                (current_w - 1.0).max(0.0),
+                (current_h - 1.0).max(0.0),
             ),
-            current_r,
-            current_r,
+            (current_r - 0.5).max(0.0),
         );
-        canvas.draw_rrect(border_rrect, &border_paint);
+        canvas.draw_path(&border_path, &border_paint);
     }
     widget_animating
 }

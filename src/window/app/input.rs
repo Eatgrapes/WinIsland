@@ -7,7 +7,7 @@ use crate::ui::expanded::music_view::{
     trigger_cover_flip, trigger_next_click, trigger_pause_click, trigger_prev_click,
 };
 use crate::ui::widget::widget_grid_layout;
-use crate::utils::mouse::{is_point_in_rect, is_point_in_rounded_rect};
+use crate::utils::mouse::{is_point_in_g3_rounded_rect, is_point_in_rect};
 
 use super::{App, IslandLayout, should_show_widget_view};
 
@@ -42,7 +42,7 @@ impl App {
                 let rel_x = px - self.geom.win_x;
                 let rel_y = py - self.geom.win_y;
                 let layout = self.compute_island_layout();
-                let is_hovering = is_point_in_rounded_rect(
+                let is_hovering = is_point_in_g3_rounded_rect(
                     rel_x as f64,
                     rel_y as f64,
                     layout.current_island_x,
@@ -86,7 +86,7 @@ impl App {
         let offset_x = layout.offset_x;
         let current_island_x = layout.current_island_x;
         let current_island_y = layout.current_island_y;
-        let is_hovering_visible = is_point_in_rounded_rect(
+        let is_hovering_visible = is_point_in_g3_rounded_rect(
             rel_x as f64,
             rel_y as f64,
             current_island_x,

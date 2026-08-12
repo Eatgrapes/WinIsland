@@ -1,6 +1,6 @@
 use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
-    Canvas, ClipOp, Color, FilterMode, MipmapMode, Paint, RRect, Rect, SamplingOptions,
+    Canvas, ClipOp, Color, FilterMode, MipmapMode, Paint, Path, Rect, SamplingOptions,
     gpu::DirectContext,
 };
 
@@ -12,7 +12,7 @@ pub(super) struct BackgroundParams<'a> {
     pub(super) canvas: &'a Canvas,
     pub(super) direct_context: &'a mut DirectContext,
     pub(super) rect: Rect,
-    pub(super) rrect: RRect,
+    pub(super) island_path: &'a Path,
     pub(super) island_style: &'a str,
     pub(super) media: &'a MediaInfo,
     pub(super) win_x: i32,
@@ -33,7 +33,7 @@ pub(super) fn draw_background(params: BackgroundParams<'_>) {
         canvas,
         direct_context,
         rect,
-        rrect,
+        island_path,
         island_style,
         media,
         win_x,
@@ -54,7 +54,7 @@ pub(super) fn draw_background(params: BackgroundParams<'_>) {
     let surface_info = canvas.image_info();
     if island_style == "glass" {
         canvas.save();
-        canvas.clip_rrect(rrect, ClipOp::Intersect, true);
+        canvas.clip_path(island_path, ClipOp::Intersect, true);
         if let Some(bg_img) = get_glass_background(
             direct_context,
             GlassBackgroundParams {
@@ -92,11 +92,11 @@ pub(super) fn draw_background(params: BackgroundParams<'_>) {
             let mut bg_paint = Paint::default();
             bg_paint.set_color(Color::from_argb(205, 32, 32, 36));
             bg_paint.set_anti_alias(true);
-            canvas.draw_rrect(rrect, &bg_paint);
+            canvas.draw_path(island_path, &bg_paint);
         }
     } else if island_style == "mica" {
         canvas.save();
-        canvas.clip_rrect(rrect, ClipOp::Intersect, true);
+        canvas.clip_path(island_path, ClipOp::Intersect, true);
         if let Some(bg_img) =
             get_mica_background(direct_context, monitor_x, monitor_y, monitor_w, monitor_h)
         {
@@ -122,16 +122,16 @@ pub(super) fn draw_background(params: BackgroundParams<'_>) {
             let mut overlay = Paint::default();
             overlay.set_color(Color::from_argb(110, 32, 32, 32));
             overlay.set_anti_alias(true);
-            canvas.draw_rrect(rrect, &overlay);
+            canvas.draw_path(island_path, &overlay);
         } else {
             let mut bg_paint = Paint::default();
             bg_paint.set_color(Color::from_argb(205, 32, 32, 36));
             bg_paint.set_anti_alias(true);
-            canvas.draw_rrect(rrect, &bg_paint);
+            canvas.draw_path(island_path, &bg_paint);
         }
     } else if island_style == "dynamic" {
         canvas.save();
-        canvas.clip_rrect(rrect, ClipOp::Intersect, true);
+        canvas.clip_path(island_path, ClipOp::Intersect, true);
         if let Some(blurred_cover) = get_blurred_cover_background(direct_context, media) {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -218,15 +218,15 @@ pub(super) fn draw_background(params: BackgroundParams<'_>) {
             let mut bg_paint = Paint::default();
             bg_paint.set_color(Color::from_argb(205, 32, 32, 36));
             bg_paint.set_anti_alias(true);
-            canvas.draw_rrect(rrect, &bg_paint);
+            canvas.draw_path(island_path, &bg_paint);
         }
     } else {
         canvas.save();
-        canvas.clip_rrect(rrect, ClipOp::Intersect, true);
+        canvas.clip_path(island_path, ClipOp::Intersect, true);
         let mut bg_paint = Paint::default();
         bg_paint.set_color(bg_color);
         bg_paint.set_anti_alias(true);
-        canvas.draw_rrect(rrect, &bg_paint);
+        canvas.draw_path(island_path, &bg_paint);
     }
     canvas.restore();
 }
