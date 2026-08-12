@@ -8,6 +8,7 @@
 - Fixed some window issues
 - Improved the lyrics system
 - Hid the music page when no music is available
+- Fixed excessive Windows notification database writes when notification display is enabled
 
 ### v1.2.8
 - Fixed the Dynamic Island still auto-hiding in full-screen mode while a live activity (e.g. music) is playing (#125)

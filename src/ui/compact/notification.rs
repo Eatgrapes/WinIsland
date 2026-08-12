@@ -1,7 +1,8 @@
 use std::borrow::Cow;
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
@@ -25,7 +26,10 @@ const ENTER_DURATION: Duration = Duration::from_millis(220);
 const FADE_DURATION: Duration = Duration::from_millis(280);
 const DETAIL_LINE_GAP: f32 = 21.0;
 const MAX_ICON_BYTES: u64 = 2 * 1024 * 1024;
-const POLL_INTERVAL: Duration = Duration::from_millis(500);
+const DATABASE_CHECK_INTERVAL: Duration = Duration::from_millis(100);
+const DATABASE_CHANGE_DEBOUNCE: Duration = Duration::from_millis(150);
+const DATABASE_SETTLE_INTERVAL: Duration = Duration::from_millis(300);
+const FALLBACK_POLL_INTERVAL: Duration = Duration::from_secs(30);
 const RETRY_INTERVAL: Duration = Duration::from_secs(5);
 
 pub(super) struct NotificationPayload {
@@ -61,6 +65,72 @@ enum NotificationPollResult {
 }
 
 #[derive(Default)]
+struct NotificationDatabaseWatch {
+    path: Option<PathBuf>,
+    modified: Option<SystemTime>,
+    check_after: Option<Instant>,
+    query_after: Option<Instant>,
+    settle_until: Option<Instant>,
+}
+
+impl NotificationDatabaseWatch {
+    fn start(&mut self, now: Instant) {
+        self.path = notification_database_path();
+        self.modified = self.read_modified();
+        self.check_after = Some(now + DATABASE_CHECK_INTERVAL);
+        self.query_after = None;
+        self.settle_until = None;
+    }
+
+    fn update(&mut self, now: Instant) -> bool {
+        if self
+            .check_after
+            .is_some_and(|check_after| now < check_after)
+        {
+            return false;
+        }
+        self.check_after = Some(now + DATABASE_CHECK_INTERVAL);
+        let modified = self.read_modified();
+        let changed = modified != self.modified;
+        self.modified = modified;
+
+        if let Some(settle_until) = self.settle_until {
+            if changed {
+                self.settle_until = Some(now + DATABASE_SETTLE_INTERVAL);
+            } else if now >= settle_until {
+                self.settle_until = None;
+            }
+            self.query_after = None;
+            return false;
+        }
+        if changed {
+            self.query_after = Some(now + DATABASE_CHANGE_DEBOUNCE);
+        }
+        let due = self
+            .query_after
+            .is_some_and(|query_after| now >= query_after);
+        if due {
+            self.query_after = None;
+        }
+        due
+    }
+
+    fn settle_after_query(&mut self, now: Instant) {
+        self.modified = self.read_modified();
+        self.check_after = Some(now + DATABASE_CHECK_INTERVAL);
+        self.query_after = None;
+        self.settle_until = Some(now + DATABASE_SETTLE_INTERVAL);
+    }
+
+    fn read_modified(&self) -> Option<SystemTime> {
+        self.path
+            .as_ref()
+            .and_then(|path| std::fs::metadata(path).ok())
+            .and_then(|metadata| metadata.modified().ok())
+    }
+}
+
+#[derive(Default)]
 pub(super) struct NotificationMonitor {
     listener: Option<UserNotificationListener>,
     latest_notification_id: Arc<Mutex<Option<u32>>>,
@@ -68,7 +138,9 @@ pub(super) struct NotificationMonitor {
     poll_receiver: Option<Receiver<NotificationPollResult>>,
     access_attempted: bool,
     retry_after: Option<Instant>,
-    poll_after: Option<Instant>,
+    history_poll_after: Option<Instant>,
+    fallback_poll_after: Option<Instant>,
+    database_watch: NotificationDatabaseWatch,
     last_polled_notification_id: Option<u32>,
     poll_initialized: bool,
 }
@@ -158,9 +230,12 @@ impl NotificationMonitor {
     }
 
     fn start_monitor(&mut self, listener: UserNotificationListener) {
+        let now = Instant::now();
         self.listener = Some(listener);
         self.retry_after = None;
-        self.poll_after = Some(Instant::now());
+        self.history_poll_after = Some(now);
+        self.fallback_poll_after = Some(now + FALLBACK_POLL_INTERVAL);
+        self.database_watch.start(now);
         self.last_polled_notification_id = None;
         self.poll_initialized = false;
     }
@@ -173,38 +248,44 @@ impl NotificationMonitor {
         match result {
             Some(Ok(NotificationPollResult::Latest(notification_id))) => {
                 self.poll_receiver = None;
-                self.poll_after = Some(Instant::now() + POLL_INTERVAL);
+                self.finish_history_poll(Instant::now());
                 self.update_polled_notification(notification_id);
             }
             Some(Ok(NotificationPollResult::Failed(error))) => {
                 self.poll_receiver = None;
-                self.poll_after = Some(Instant::now() + RETRY_INTERVAL);
+                self.retry_history_poll(Instant::now());
                 log::warn!("Notification history could not be read: {:?}", error);
             }
             Some(Err(mpsc::TryRecvError::Disconnected)) => {
                 self.poll_receiver = None;
-                self.poll_after = Some(Instant::now() + RETRY_INTERVAL);
+                self.retry_history_poll(Instant::now());
                 log::warn!("Notification history request ended unexpectedly");
             }
             Some(Err(mpsc::TryRecvError::Empty)) => return,
             None => {}
         }
 
-        if self.poll_receiver.is_some()
-            || self
-                .poll_after
-                .is_some_and(|poll_after| Instant::now() < poll_after)
-        {
+        let now = Instant::now();
+        let database_due = self.database_watch.update(now);
+        let history_due = self
+            .history_poll_after
+            .is_some_and(|poll_after| now >= poll_after);
+        let fallback_due = self
+            .fallback_poll_after
+            .is_some_and(|poll_after| now >= poll_after);
+        if self.poll_receiver.is_some() || (!history_due && !database_due && !fallback_due) {
             return;
         }
         let Some(listener) = self.listener.as_ref() else {
             return;
         };
         let Ok(operation) = listener.GetNotificationsAsync(NotificationKinds::Toast) else {
-            self.poll_after = Some(Instant::now() + RETRY_INTERVAL);
+            self.retry_history_poll(now);
             log::warn!("Notification history request could not be started");
             return;
         };
+        self.history_poll_after = None;
+        self.fallback_poll_after = None;
         let (sender, receiver) = mpsc::sync_channel(1);
         tokio::task::spawn_blocking(move || {
             let result = operation.join().map(|notifications| {
@@ -232,6 +313,18 @@ impl NotificationMonitor {
         self.poll_receiver = Some(receiver);
     }
 
+    fn finish_history_poll(&mut self, now: Instant) {
+        self.history_poll_after = None;
+        self.fallback_poll_after = Some(now + FALLBACK_POLL_INTERVAL);
+        self.database_watch.settle_after_query(now);
+    }
+
+    fn retry_history_poll(&mut self, now: Instant) {
+        self.history_poll_after = Some(now + RETRY_INTERVAL);
+        self.fallback_poll_after = None;
+        self.database_watch.settle_after_query(now);
+    }
+
     fn update_polled_notification(&mut self, notification_id: Option<u32>) {
         if !self.poll_initialized {
             self.last_polled_notification_id = notification_id;
@@ -257,7 +350,9 @@ impl NotificationMonitor {
         self.listener = None;
         self.access_receiver = None;
         self.poll_receiver = None;
-        self.poll_after = None;
+        self.history_poll_after = None;
+        self.fallback_poll_after = None;
+        self.database_watch = NotificationDatabaseWatch::default();
         self.last_polled_notification_id = None;
         self.poll_initialized = false;
         *self
@@ -289,6 +384,15 @@ impl NotificationMonitor {
             log::debug!("Notification could not be removed: {error:?}");
         }
     }
+}
+
+fn notification_database_path() -> Option<PathBuf> {
+    dirs::data_local_dir().map(|path| {
+        path.join("Microsoft")
+            .join("Windows")
+            .join("Notifications")
+            .join("wpndatabase.db")
+    })
 }
 
 impl Drop for NotificationMonitor {
