@@ -18,6 +18,7 @@ use crate::utils::mouse::{
 use super::{App, HideEdge, RIGHT_DRAG_THRESHOLD};
 
 const INTERACTIVE_FRAME_INTERVAL: Duration = Duration::from_millis(16);
+const PLAYBACK_FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
 const IDLE_FRAME_INTERVAL: Duration = Duration::from_millis(50);
 const HIDDEN_FRAME_INTERVAL: Duration = Duration::from_millis(100);
 const WORKING_SET_TRIM_INTERVAL: Duration = Duration::from_secs(30);
@@ -588,8 +589,10 @@ impl App {
             self.last_working_set_trim = now;
         }
 
-        let frame_interval = if animation_active || playback_active {
+        let frame_interval = if animation_active {
             self.animation_frame_interval
+        } else if playback_active {
+            self.animation_frame_interval.max(PLAYBACK_FRAME_INTERVAL)
         } else if interactive_active {
             INTERACTIVE_FRAME_INTERVAL
         } else if self.is_hidden() {

@@ -654,6 +654,18 @@ pub fn update_host_state(state: HostState) {
     }
 }
 
+pub fn update_host_media(title: &str, artist: &str, is_playing: bool) {
+    if let Ok(mut runtime) = runtime().lock() {
+        if runtime.host_state.media_title != title {
+            title.clone_into(&mut runtime.host_state.media_title);
+        }
+        if runtime.host_state.media_artist != artist {
+            artist.clone_into(&mut runtime.host_state.media_artist);
+        }
+        runtime.host_state.is_playing = is_playing;
+    }
+}
+
 pub fn update_host_theme(is_light: bool) {
     if let Ok(mut runtime) = runtime().lock() {
         runtime.host_state.theme = if is_light {

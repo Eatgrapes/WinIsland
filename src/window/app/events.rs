@@ -196,17 +196,10 @@ impl App {
                         let media_info = seeking_media_info.as_ref().unwrap_or(media_info);
                         let music_active = !media_info.title.is_empty()
                             && (plugin_media_active || self.config.smtc_enabled);
-                        crate::plugin::manager::update_host_state(
-                            crate::plugin::types::HostState {
-                                media_title: media_info.title.clone(),
-                                media_artist: media_info.artist.clone(),
-                                is_playing: media_info.is_playing,
-                                theme: if self.is_light_theme {
-                                    "light".to_string()
-                                } else {
-                                    "dark".to_string()
-                                },
-                            },
+                        crate::plugin::manager::update_host_media(
+                            &media_info.title,
+                            &media_info.artist,
+                            media_info.is_playing,
                         );
                         self.audio.set_gate_override(music_active && !is_hidden);
                         self.ctx_mgr.set_smtc_active(music_active);

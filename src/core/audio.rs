@@ -1,7 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SampleFormat, Stream, StreamConfig};
 use realfft::RealFftPlanner;
-use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
@@ -20,6 +19,8 @@ use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFOR
 use windows::core::{Interface, PWSTR};
 
 const FFT_LEN: usize = 1024;
+const PROCESS_CAPTURE_BYTES_PER_FRAME: usize = 8;
+const PROCESS_CAPTURE_BUFFER_LIMIT: usize = 48_000 * PROCESS_CAPTURE_BYTES_PER_FRAME;
 
 struct AtomicF32(AtomicU32);
 
@@ -606,7 +607,7 @@ fn capture_process_audio(
     audio_client.start_stream()?;
     context.set_process_capture_active(true);
 
-    let mut bytes = VecDeque::new();
+    let mut bytes = Vec::new();
     let result = (|| {
         while !context.cancel.is_cancelled()
             && context.is_current()
@@ -614,11 +615,20 @@ fn capture_process_audio(
         {
             let _ = event.wait_for_event(100);
             let mut captured = false;
-            while capture_client.get_next_packet_size()?.unwrap_or(0) > 0 {
-                capture_client.read_from_device_to_deque(&mut bytes)?;
-                if analysis_enabled(&context.gate, &context.gate_override) {
-                    let samples = bytes.make_contiguous();
-                    for sample in samples.chunks_exact(4) {
+            while let Some(frame_count) = capture_client
+                .get_next_packet_size()?
+                .filter(|frame_count| *frame_count > 0)
+            {
+                bytes.resize(frame_count as usize * PROCESS_CAPTURE_BYTES_PER_FRAME, 0);
+                let (frames_read, _) = capture_client.read_from_device(&mut bytes)?;
+                let bytes_read = frames_read as usize * PROCESS_CAPTURE_BYTES_PER_FRAME;
+                captured = true;
+                let newer_packet_pending = capture_client
+                    .get_next_packet_size()?
+                    .is_some_and(|frame_count| frame_count > 0);
+                if !newer_packet_pending && analysis_enabled(&context.gate, &context.gate_override)
+                {
+                    for sample in bytes[..bytes_read].chunks_exact(4) {
                         analyzer.push_sample(
                             f32::from_le_bytes([sample[0], sample[1], sample[2], sample[3]]),
                             &context.spectrum,
@@ -626,11 +636,12 @@ fn capture_process_audio(
                             &context.gate_override,
                         );
                     }
-                } else {
+                } else if !newer_packet_pending {
                     reset_spectrum(analyzer, &context.spectrum);
                 }
-                bytes.clear();
-                captured = true;
+            }
+            if bytes.capacity() > PROCESS_CAPTURE_BUFFER_LIMIT {
+                bytes = Vec::with_capacity(PROCESS_CAPTURE_BUFFER_LIMIT);
             }
             if !captured && analysis_enabled(&context.gate, &context.gate_override) {
                 for _ in 0..FFT_LEN {

@@ -89,11 +89,10 @@ pub(super) fn fetch_properties(
             info.last_thumbnail_fetch = Instant::now();
             should_fetch_lyrics = true;
             should_fetch_thumbnail = true;
-        } else if (info.is_playing != is_playing
-            && info.thumbnail.is_none()
-            && !new_title.is_empty())
-            || (!new_title.is_empty()
-                && info.last_thumbnail_fetch.elapsed() >= Duration::from_secs(5))
+        } else if info.thumbnail.is_none()
+            && !new_title.is_empty()
+            && (info.is_playing != is_playing
+                || info.last_thumbnail_fetch.elapsed() >= Duration::from_secs(5))
         {
             info.last_thumbnail_fetch = Instant::now();
             should_fetch_thumbnail = true;
