@@ -446,8 +446,7 @@ impl App {
         is_paused: bool,
         dt: f32,
     ) -> f32 {
-        let is_currently_hidden = self.is_hidden() || self.springs.hide.value > 0.1;
-        let target_base_w = if music_active && !self.expanded && !is_currently_hidden {
+        let target_base_w = if music_active && !self.expanded {
             let has_visible_lyrics = self.config.show_lyrics
                 && (!self.lyrics.current_text.is_empty()
                     || (!self.lyrics.old_text.is_empty() && self.lyrics.transition < 1.0));
