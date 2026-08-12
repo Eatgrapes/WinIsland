@@ -49,7 +49,7 @@ impl App {
             window.set_outer_position(PhysicalPosition::new(self.geom.win_x, self.geom.win_y));
         }
         if now.duration_since(self.last_topmost_check) >= Duration::from_secs(1) {
-            Self::enforce_topmost(&window);
+            Self::enforce_overlay_window(&window);
             self.last_topmost_check = now;
         }
         self.handle_tray_events(&window, event_loop);

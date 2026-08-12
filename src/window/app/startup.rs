@@ -1,14 +1,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::WindowsAndMessaging::{
-    WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
-};
 use winit::dpi::PhysicalSize;
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::platform::windows::WindowAttributesExtWindows;
-use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowButtons, WindowLevel};
 
 use crate::core::config::{PADDING, WINDOW_TITLE};
@@ -114,23 +109,8 @@ impl App {
                 "Tray icon created (theme={})",
                 if is_light { "light" } else { "dark" }
             );
-            Self::enforce_topmost(&window);
+            Self::enforce_overlay_window(&window);
             window.set_visible(true);
-            if let Ok(handle) = window.window_handle()
-                && let RawWindowHandle::Win32(win32_handle) = handle.as_raw()
-            {
-                let hwnd = HWND(win32_handle.hwnd.get() as _);
-                crate::utils::win32::modify_window_ex_style(
-                    hwnd,
-                    WS_EX_TOOLWINDOW.0 as isize | WS_EX_NOACTIVATE.0 as isize,
-                    WS_EX_APPWINDOW.0 as isize,
-                );
-                crate::utils::win32::modify_window_style(
-                    hwnd,
-                    0,
-                    WS_MAXIMIZEBOX.0 as isize | WS_THICKFRAME.0 as isize,
-                );
-            }
             window.request_redraw();
         }
     }

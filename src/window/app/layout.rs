@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use windows::Win32::Foundation::HWND;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::platform::windows::WindowExtWindows;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
@@ -81,12 +82,13 @@ impl App {
             Duration::from_nanos(1_000_000_000_000u64 / u64::from(rate));
     }
 
-    pub(super) fn enforce_topmost(window: &Window) {
+    pub(super) fn enforce_overlay_window(window: &Window) {
         if let Ok(handle) = window.window_handle()
             && let RawWindowHandle::Win32(raw) = handle.as_raw()
         {
             let hwnd = HWND(raw.hwnd.get() as *mut core::ffi::c_void);
-            crate::utils::win32::set_window_topmost(hwnd);
+            crate::utils::win32::enforce_overlay_window_styles(hwnd);
+            window.set_skip_taskbar(true);
         }
     }
 

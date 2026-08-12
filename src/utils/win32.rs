@@ -9,7 +9,8 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowW, GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, SW_RESTORE,
     SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow,
-    SetWindowLongPtrW, SetWindowPos, ShowWindow,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_EX_APPWINDOW, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
 };
 use windows::core::PCWSTR;
 
@@ -50,6 +51,9 @@ pub fn modify_window_ex_style(hwnd: HWND, add_flags: isize, remove_flags: isize)
     unsafe {
         let current = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
         let new_style = (current | add_flags) & !remove_flags;
+        if new_style == current {
+            return;
+        }
         let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_style);
         let _ = SetWindowPos(
             hwnd,
@@ -70,8 +74,24 @@ pub fn modify_window_style(hwnd: HWND, add_flags: isize, remove_flags: isize) {
     unsafe {
         let current = GetWindowLongPtrW(hwnd, GWL_STYLE);
         let new_style = (current | add_flags) & !remove_flags;
-        let _ = SetWindowLongPtrW(hwnd, GWL_STYLE, new_style);
+        if new_style != current {
+            let _ = SetWindowLongPtrW(hwnd, GWL_STYLE, new_style);
+        }
     }
+}
+
+pub fn enforce_overlay_window_styles(hwnd: HWND) {
+    modify_window_ex_style(
+        hwnd,
+        WS_EX_TOOLWINDOW.0 as isize | WS_EX_NOACTIVATE.0 as isize,
+        WS_EX_APPWINDOW.0 as isize,
+    );
+    modify_window_style(
+        hwnd,
+        0,
+        WS_MAXIMIZEBOX.0 as isize | WS_THICKFRAME.0 as isize,
+    );
+    set_window_topmost(hwnd);
 }
 
 // SAFETY: SetWindowPos is called on a validated HWND with flags that preserve
