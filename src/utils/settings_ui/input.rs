@@ -2,8 +2,14 @@ use super::items::*;
 use crate::core::config::{AVAILABLE_WIDGETS, WidgetKind, WidgetSlot};
 use crate::ui::widget::{WidgetGridLayout, widget_corner_radius, widget_grid_layout};
 
-pub const WIDGET_PREVIEW_H: f32 = 420.0;
-pub const WIDGET_ISLAND_PANEL_H: f32 = 300.0;
+pub const WIDGET_PREVIEW_H: f32 = 460.0;
+pub const WIDGET_ISLAND_PANEL_H: f32 = 308.0;
+pub const WIDGET_PANEL_GAP: f32 = 12.0;
+pub const WIDGET_EDITOR_HEADER_H: f32 = 56.0;
+pub const WIDGET_LIBRARY_HEADER_H: f32 = 52.0;
+pub const WIDGET_LIBRARY_TILE_W: f32 = 112.0;
+pub const WIDGET_LIBRARY_TILE_H: f32 = 72.0;
+pub const WIDGET_LIBRARY_TILE_GAP: f32 = 10.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClickResult {
@@ -115,15 +121,15 @@ pub fn widget_source_rect(
     row_x: f32,
     source_y: f32,
     index: usize,
-    kind: WidgetKind,
+    _kind: WidgetKind,
 ) -> (f32, f32, f32, f32) {
-    let source_x = row_x + index as f32 * 120.0;
-    let (source_w, source_h) = match kind {
-        WidgetKind::Clock => (108.0, 50.0),
-        WidgetKind::Calendar => (72.0, 72.0),
-        WidgetKind::Settings => (50.0, 50.0),
-    };
-    (source_x, source_y, source_w, source_h)
+    let source_x = row_x + 12.0 + index as f32 * (WIDGET_LIBRARY_TILE_W + WIDGET_LIBRARY_TILE_GAP);
+    (
+        source_x,
+        source_y,
+        WIDGET_LIBRARY_TILE_W,
+        WIDGET_LIBRARY_TILE_H,
+    )
 }
 
 pub fn widget_library_items(
@@ -155,8 +161,9 @@ pub fn widget_grid_geom(
 
     let mut cap_w = expanded_width;
     let mut cap_h = expanded_height;
-    let max_w = preview_w - 24.0;
-    let max_h = WIDGET_ISLAND_PANEL_H - 56.0;
+    let max_w = preview_w - 32.0;
+    let editor_content_h = WIDGET_ISLAND_PANEL_H - WIDGET_EDITOR_HEADER_H - 16.0;
+    let max_h = editor_content_h;
     let mut cap_scale = 1.0;
     if cap_w > max_w || cap_h > max_h {
         let scale_w = max_w / cap_w;
@@ -167,7 +174,7 @@ pub fn widget_grid_geom(
     }
 
     let cap_x = row_x + (preview_w - cap_w) / 2.0;
-    let cap_y = py + (WIDGET_ISLAND_PANEL_H - cap_h) / 2.0;
+    let cap_y = py + WIDGET_EDITOR_HEADER_H + (editor_content_h - cap_h) / 2.0;
 
     let layout = widget_grid_layout(cap_x, cap_y, cap_w, cap_h, cap_scale);
 
@@ -194,9 +201,9 @@ pub fn widget_preview_hit_test(
 ) -> WidgetPreviewHit {
     let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
     let py = item_y + (SettingsItem::WidgetPreview.height() - WIDGET_PREVIEW_H) / 2.0;
-    let library_panel_y = py + WIDGET_ISLAND_PANEL_H + 12.0;
+    let library_panel_y = py + WIDGET_ISLAND_PANEL_H + WIDGET_PANEL_GAP;
 
-    let source_y = library_panel_y + 32.0;
+    let source_y = library_panel_y + WIDGET_LIBRARY_HEADER_H;
     for (idx, kind) in widget_library_items(widget_layout, dragging)
         .iter()
         .enumerate()
@@ -248,15 +255,16 @@ pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f
             }
             SettingsItem::RowFontPicker { reset_label, .. } => {
                 let cy = y + ROW_HEIGHT / 2.0;
-                let sel_w: f32 = 60.0;
+                let sel_w: f32 = 72.0;
                 let sel_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - sel_w;
-                if in_rect(mx, my, sel_x, cy - 13.0, sel_w, 26.0) {
+                let btn_y = cy - POPUP_BTN_H / 2.0;
+                if in_rect(mx, my, sel_x, btn_y, sel_w, POPUP_BTN_H) {
                     return ClickResult::FontSelect(idx);
                 }
                 if reset_label.is_some() {
-                    let rst_w: f32 = 60.0;
+                    let rst_w: f32 = 72.0;
                     let rst_x = sel_x - rst_w - 6.0;
-                    if in_rect(mx, my, rst_x, cy - 13.0, rst_w, 26.0) {
+                    if in_rect(mx, my, rst_x, btn_y, rst_w, POPUP_BTN_H) {
                         return ClickResult::FontReset(idx);
                     }
                 }
@@ -270,15 +278,16 @@ pub fn hit_test(items: &[SettingsItem], mx: f32, my: f32, start_y: f32, width: f
                 let has_path = current_path.as_ref().is_some_and(|p| !p.is_empty());
                 let row_h = if has_path { 64.0 } else { ROW_HEIGHT };
                 let cy = y + row_h / 2.0;
-                let sel_w: f32 = 60.0;
+                let sel_w: f32 = 72.0;
                 let sel_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - sel_w;
-                if in_rect(mx, my, sel_x, cy - 13.0, sel_w, 26.0) {
+                let btn_y = cy - POPUP_BTN_H / 2.0;
+                if in_rect(mx, my, sel_x, btn_y, sel_w, POPUP_BTN_H) {
                     return ClickResult::FolderSelect(idx);
                 }
                 if clear_label.is_some() {
-                    let clr_w: f32 = 60.0;
+                    let clr_w: f32 = 72.0;
                     let clr_x = sel_x - clr_w - 6.0;
-                    if in_rect(mx, my, clr_x, cy - 13.0, clr_w, 26.0) {
+                    if in_rect(mx, my, clr_x, btn_y, clr_w, POPUP_BTN_H) {
                         return ClickResult::FolderClear(idx);
                     }
                 }

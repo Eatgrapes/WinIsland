@@ -1,14 +1,15 @@
+use crate::core::i18n::tr;
 use crate::ui::widget::draw_mini_card;
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::settings_ui::items::*;
 use crate::utils::settings_ui::*;
 use crate::window::d3d::D3DRenderer;
-use skia_safe::{Canvas, Color, Paint, Rect};
+use skia_safe::{Canvas, Color, Contains, Paint, Point, Rect};
 
 use super::{
     PAGE_NAV_GAP, PAGE_NAV_SIZE, PAGE_NAV_X, PAGE_NAV_Y, POPUP_MENU_R, POPUP_OPACITY_KEY,
-    SETTINGS_HEADER_H, SIDEBAR_W, SettingsApp,
+    SETTINGS_HEADER_H, SIDEBAR_W, SettingsApp, WINDOW_RADIUS,
 };
 
 impl SettingsApp {
@@ -43,7 +44,7 @@ impl SettingsApp {
             canvas.scale((scale, scale));
 
             let win_rect = Rect::from_xywh(0.0, 0.0, win_w, win_h);
-            let win_rrect = skia_safe::RRect::new_rect_xy(win_rect, 12.0, 12.0);
+            let win_rrect = skia_safe::RRect::new_rect_xy(win_rect, WINDOW_RADIUS, WINDOW_RADIUS);
 
             canvas.save();
             canvas.clip_rrect(win_rrect, skia_safe::ClipOp::Intersect, true);
@@ -55,6 +56,7 @@ impl SettingsApp {
 
             self.draw_sidebar(direct_context, canvas, &theme);
             self.draw_page_navigation(canvas, &theme);
+            self.draw_page_header(canvas, &theme, win_w);
 
             let content_w = win_w - SIDEBAR_W;
 
@@ -107,6 +109,10 @@ impl SettingsApp {
                 widget_preview_hover_slot: self.widget_preview_hover_slot,
                 active_source_button,
                 active_stepper_value,
+                hover_pos: Some((
+                    self.logical_mouse_pos.0 - SIDEBAR_W,
+                    self.logical_mouse_pos.1 + self.scroll_y,
+                )),
             });
             canvas.restore();
 
@@ -132,7 +138,9 @@ impl SettingsApp {
 
             // Draw a subtle rounded border around the window
             let border_rect = Rect::from_xywh(0.5, 0.5, win_w - 1.0, win_h - 1.0);
-            let border_rrect = skia_safe::RRect::new_rect_xy(border_rect, 11.5, 11.5);
+            let border_radius = WINDOW_RADIUS - 0.5;
+            let border_rrect =
+                skia_safe::RRect::new_rect_xy(border_rect, border_radius, border_radius);
             let mut border_paint = Paint::default();
             border_paint.set_anti_alias(true);
             border_paint.set_style(skia_safe::paint::Style::Stroke);
@@ -214,6 +222,30 @@ impl SettingsApp {
         let back_center_x = PAGE_NAV_X + PAGE_NAV_SIZE / 2.0;
         let forward_center_x = back_center_x + PAGE_NAV_SIZE + PAGE_NAV_GAP;
         let center_y = PAGE_NAV_Y + PAGE_NAV_SIZE / 2.0;
+        let (mouse_x, mouse_y) = self.logical_mouse_pos;
+
+        for (x, enabled) in [
+            (PAGE_NAV_X, self.can_navigate_back()),
+            (
+                PAGE_NAV_X + PAGE_NAV_SIZE + PAGE_NAV_GAP,
+                self.can_navigate_forward(),
+            ),
+        ] {
+            if enabled
+                && Rect::from_xywh(x, PAGE_NAV_Y, PAGE_NAV_SIZE, PAGE_NAV_SIZE)
+                    .contains(Point::new(mouse_x, mouse_y))
+            {
+                let mut hover = Paint::default();
+                hover.set_anti_alias(true);
+                hover.set_color(theme.sidebar_hover);
+                canvas.draw_round_rect(
+                    Rect::from_xywh(x, PAGE_NAV_Y, PAGE_NAV_SIZE, PAGE_NAV_SIZE),
+                    7.0,
+                    7.0,
+                    &hover,
+                );
+            }
+        }
 
         paint.set_color(if self.can_navigate_back() {
             theme.text_pri
@@ -248,6 +280,36 @@ impl SettingsApp {
         )) {
             canvas.draw_path(&path, &paint);
         }
+    }
+
+    fn draw_page_header(&self, canvas: &Canvas, theme: &SettingsTheme, win_w: f32) {
+        let title = match self.active_page {
+            0 => tr("tab_general"),
+            1 => tr("tab_music"),
+            2 => tr("tab_widgets"),
+            _ => tr("tab_about"),
+        };
+        let fm = FontManager::global();
+        let mut paint = Paint::default();
+        paint.set_anti_alias(true);
+        paint.set_color(theme.text_pri);
+        fm.draw_text_cached(DrawTextCachedParams {
+            canvas,
+            text: &title,
+            x: PAGE_NAV_X + PAGE_NAV_SIZE * 2.0 + PAGE_NAV_GAP + 14.0,
+            y: 39.0,
+            size: 17.0,
+            bold: true,
+            paint: &paint,
+        });
+
+        paint.set_color(theme.separator);
+        paint.set_stroke_width(0.5);
+        canvas.draw_line(
+            (SIDEBAR_W, SETTINGS_HEADER_H - 0.5),
+            (win_w, SETTINGS_HEADER_H - 0.5),
+            &paint,
+        );
     }
 
     pub(crate) fn draw_popup(&self, canvas: &Canvas, theme: &SettingsTheme) {

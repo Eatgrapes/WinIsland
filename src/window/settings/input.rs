@@ -5,7 +5,8 @@ use winit::keyboard::{Key, NamedKey};
 use super::pages::PageInput;
 use super::{
     NumberInput, NumberInputHandler, PAGE_NAV_GAP, PAGE_NAV_SIZE, PAGE_NAV_X, PAGE_NAV_Y,
-    POPUP_OPACITY_KEY, PageNavigation, SETTINGS_HEADER_H, SIDEBAR_ROW_H, SIDEBAR_W, SettingsApp,
+    POPUP_OPACITY_KEY, PageNavigation, SETTINGS_HEADER_H, SIDEBAR_ROW_H, SIDEBAR_START_Y,
+    SIDEBAR_W, SettingsApp,
 };
 
 impl SettingsApp {
@@ -33,9 +34,8 @@ impl SettingsApp {
         }
 
         if mouse_x < SIDEBAR_W {
-            let start_y = 60.0;
             for page in 0..4 {
-                let row_y = start_y + page as f32 * (SIDEBAR_ROW_H + 2.0);
+                let row_y = SIDEBAR_START_Y + page as f32 * (SIDEBAR_ROW_H + 2.0);
                 if mouse_y >= row_y
                     && mouse_y <= row_y + SIDEBAR_ROW_H
                     && (SIDEBAR_PAD..=SIDEBAR_W - SIDEBAR_PAD).contains(&mouse_x)
@@ -93,13 +93,6 @@ impl SettingsApp {
 
     pub(super) fn get_hover_state(&mut self) -> bool {
         let (mouse_x, mouse_y) = self.logical_mouse_pos;
-        let over_window_control = [(20.0_f32, 24.0_f32), (40.0, 24.0), (60.0, 24.0)]
-            .iter()
-            .any(|&(x, y)| (mouse_x - x).powi(2) + (mouse_y - y).powi(2) <= 36.0);
-        if over_window_control {
-            return true;
-        }
-
         if let Some(direction) = self.page_navigation_at(mouse_x, mouse_y) {
             let is_enabled = match direction {
                 PageNavigation::Back => self.can_navigate_back(),
@@ -122,9 +115,8 @@ impl SettingsApp {
         }
 
         if mouse_x < SIDEBAR_W {
-            let start_y = 60.0;
             for page in 0..4 {
-                let row_y = start_y + page as f32 * (SIDEBAR_ROW_H + 2.0);
+                let row_y = SIDEBAR_START_Y + page as f32 * (SIDEBAR_ROW_H + 2.0);
                 if mouse_y >= row_y
                     && mouse_y <= row_y + SIDEBAR_ROW_H
                     && (SIDEBAR_PAD..=SIDEBAR_W - SIDEBAR_PAD).contains(&mouse_x)

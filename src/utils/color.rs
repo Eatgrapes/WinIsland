@@ -1,17 +1,17 @@
 use skia_safe::Color;
 
-pub const COLOR_CARD_HIGHLIGHT: Color = Color::from_rgb(63, 63, 66);
+pub const COLOR_CARD_HIGHLIGHT: Color = Color::from_rgb(72, 72, 74);
 pub const COLOR_ACCENT: Color = Color::from_rgb(10, 132, 255);
-pub const COLOR_TEXT_PRI: Color = Color::WHITE;
-pub const COLOR_TEXT_SEC: Color = Color::from_rgb(142, 142, 147);
+pub const COLOR_TEXT_PRI: Color = Color::from_rgb(245, 245, 247);
+pub const COLOR_TEXT_SEC: Color = Color::from_rgb(174, 174, 178);
 pub const COLOR_DANGER: Color = Color::from_rgb(230, 55, 45);
-pub const COLOR_DISABLED: Color = Color::from_rgb(60, 60, 60);
+pub const COLOR_DISABLED: Color = Color::from_rgb(99, 99, 102);
 
-pub const COLOR_WIN_BG: Color = Color::from_rgb(30, 30, 30);
-pub const COLOR_SIDEBAR_BG: Color = Color::from_rgb(42, 42, 42);
-pub const COLOR_GROUP_BG: Color = Color::from_rgb(48, 48, 50);
+pub const COLOR_WIN_BG: Color = Color::from_rgb(28, 28, 30);
+pub const COLOR_SIDEBAR_BG: Color = Color::from_rgb(36, 36, 38);
+pub const COLOR_GROUP_BG: Color = Color::from_rgb(44, 44, 46);
 pub const COLOR_TOGGLE_ON: Color = Color::from_rgb(48, 209, 88);
-pub const COLOR_TOGGLE_OFF: Color = Color::from_rgb(57, 57, 61);
+pub const COLOR_TOGGLE_OFF: Color = Color::from_rgb(99, 99, 102);
 
 pub fn color_sidebar_hover() -> Color {
     Color::from_argb(20, 255, 255, 255)
@@ -38,6 +38,12 @@ pub struct SettingsTheme {
     pub separator: Color,
     pub popup_bg: Color,
     pub popup_border: Color,
+    pub control_bg: Color,
+    pub control_hover: Color,
+    pub control_disabled: Color,
+    pub control_border: Color,
+    pub group_border: Color,
+    pub shadow: Color,
 }
 
 pub fn dark_settings_theme() -> SettingsTheme {
@@ -58,19 +64,25 @@ pub fn dark_settings_theme() -> SettingsTheme {
         separator: color_separator(),
         popup_bg: Color::from_rgb(50, 50, 52),
         popup_border: Color::from_argb(40, 255, 255, 255),
+        control_bg: Color::from_rgb(58, 58, 60),
+        control_hover: Color::from_rgb(72, 72, 74),
+        control_disabled: Color::from_rgb(48, 48, 50),
+        control_border: Color::from_argb(36, 255, 255, 255),
+        group_border: Color::from_argb(24, 255, 255, 255),
+        shadow: Color::from_argb(45, 0, 0, 0),
     }
 }
 
 pub fn light_settings_theme() -> SettingsTheme {
     SettingsTheme {
-        win_bg: Color::from_rgb(242, 242, 247),
-        sidebar_bg: Color::from_rgb(232, 232, 237),
+        win_bg: Color::from_rgb(246, 246, 248),
+        sidebar_bg: Color::from_rgb(235, 235, 238),
         group_bg: Color::from_rgb(255, 255, 255),
-        card_highlight: Color::from_rgb(235, 235, 240),
-        text_pri: Color::from_rgb(0, 0, 0),
-        text_sec: Color::from_rgb(99, 99, 102),
-        disabled: Color::from_rgb(194, 194, 199),
-        accent: Color::from_rgb(0, 100, 220),
+        card_highlight: Color::from_rgb(229, 229, 234),
+        text_pri: Color::from_rgb(28, 28, 30),
+        text_sec: Color::from_rgb(92, 92, 97),
+        disabled: Color::from_rgb(142, 142, 147),
+        accent: Color::from_rgb(0, 122, 255),
         danger: Color::from_rgb(255, 59, 48),
         toggle_on: Color::from_rgb(52, 199, 89),
         toggle_off: Color::from_rgb(178, 178, 183),
@@ -79,5 +91,11 @@ pub fn light_settings_theme() -> SettingsTheme {
         separator: Color::from_argb(26, 0, 0, 0),
         popup_bg: Color::from_rgb(255, 255, 255),
         popup_border: Color::from_argb(40, 0, 0, 0),
+        control_bg: Color::from_rgb(255, 255, 255),
+        control_hover: Color::from_rgb(238, 238, 242),
+        control_disabled: Color::from_rgb(238, 238, 242),
+        control_border: Color::from_argb(34, 0, 0, 0),
+        group_border: Color::from_argb(18, 0, 0, 0),
+        shadow: Color::from_argb(18, 0, 0, 0),
     }
 }

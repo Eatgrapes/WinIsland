@@ -26,15 +26,31 @@ pub mod sidebar;
 
 pub(crate) use popup::PopupState;
 
-pub(crate) const WIN_W: f32 = 666.0;
-pub(crate) const WIN_H: f32 = 666.0;
-pub(crate) const SIDEBAR_W: f32 = 180.0;
-pub(crate) const SIDEBAR_ROW_H: f32 = 32.0;
-pub(crate) const PAGE_NAV_X: f32 = SIDEBAR_W + 20.0;
-pub(crate) const PAGE_NAV_Y: f32 = 12.0;
+pub(crate) const WIN_W: f32 = 760.0;
+pub(crate) const WIN_H: f32 = 680.0;
+pub(crate) const SIDEBAR_W: f32 = 184.0;
+pub(crate) const SIDEBAR_ROW_H: f32 = 34.0;
+pub(crate) const SIDEBAR_START_Y: f32 = 64.0;
+pub(crate) const PAGE_NAV_X: f32 = SIDEBAR_W + 18.0;
+pub(crate) const PAGE_NAV_Y: f32 = 18.0;
 pub(crate) const PAGE_NAV_SIZE: f32 = 28.0;
 pub(crate) const PAGE_NAV_GAP: f32 = 4.0;
-pub(crate) const SETTINGS_HEADER_H: f32 = 50.0;
+pub(crate) const SETTINGS_HEADER_H: f32 = 64.0;
+pub(crate) const WINDOW_RADIUS: f32 = 16.0;
+pub(crate) const WINDOW_CONTROL_CENTERS: [(f32, f32); 3] =
+    [(20.0, 20.0), (40.0, 20.0), (60.0, 20.0)];
+pub(crate) const WINDOW_CONTROL_RADIUS: f32 = 6.0;
+const WINDOW_CONTROL_HIT_RADIUS: f32 = 8.0;
+
+pub(crate) fn window_control_at(x: f32, y: f32) -> Option<usize> {
+    WINDOW_CONTROL_CENTERS.iter().position(|&(cx, cy)| {
+        (x - cx).powi(2) + (y - cy).powi(2) <= WINDOW_CONTROL_HIT_RADIUS.powi(2)
+    })
+}
+
+pub(crate) fn window_controls_hovered(x: f32, y: f32) -> bool {
+    (10.0..=70.0).contains(&x) && (10.0..=30.0).contains(&y)
+}
 
 #[derive(Clone, Copy)]
 pub(crate) enum PageNavigation {
@@ -394,8 +410,7 @@ impl SettingsApp {
                     || (new_pos.1 - self.last_hover_mouse_pos.1).abs() > 0.5;
                 self.logical_mouse_pos = new_pos;
 
-                let dots_hovered =
-                    (10.0..=70.0).contains(&new_pos.0) && (14.0..=34.0).contains(&new_pos.1);
+                let dots_hovered = window_controls_hovered(new_pos.0, new_pos.1);
                 if dots_hovered != self.dots_hovered {
                     self.dots_hovered = dots_hovered;
                     if let Some(win) = &self.window {
@@ -449,9 +464,8 @@ impl SettingsApp {
                     let (mx, my) = self.logical_mouse_pos;
                     let mut new_hover: i32 = -1;
                     if mx < SIDEBAR_W {
-                        let start_y = 60.0;
                         for i in 0..4 {
-                            let row_y = start_y + i as f32 * (SIDEBAR_ROW_H + 2.0);
+                            let row_y = SIDEBAR_START_Y + i as f32 * (SIDEBAR_ROW_H + 2.0);
                             if my >= row_y
                                 && my <= row_y + SIDEBAR_ROW_H
                                 && (SIDEBAR_PAD..=SIDEBAR_W - SIDEBAR_PAD).contains(&mx)
@@ -520,31 +534,30 @@ impl SettingsApp {
                 ..
             } => {
                 let (mx, my) = self.logical_mouse_pos;
-                let is_on_red = (mx - 20.0).powi(2) + (my - 24.0).powi(2) <= 36.0;
-                let is_on_yellow = (mx - 40.0).powi(2) + (my - 24.0).powi(2) <= 36.0;
-                let is_on_green = (mx - 60.0).powi(2) + (my - 24.0).powi(2) <= 36.0;
-
-                if is_on_red {
-                    self.close_requested = true;
-                } else if is_on_yellow {
-                    if let Some(win) = &self.window {
-                        win.set_minimized(true);
+                match window_control_at(mx, my) {
+                    Some(0) => self.close_requested = true,
+                    Some(1) => {
+                        if let Some(win) = &self.window {
+                            win.set_minimized(true);
+                        }
                     }
-                } else if !is_on_green {
-                    let is_in_sidebar_title = mx < SIDEBAR_W && my < 60.0;
-                    let is_in_content_title = mx >= SIDEBAR_W
-                        && my < SETTINGS_HEADER_H
-                        && self.page_navigation_at(mx, my).is_none();
-                    if (is_in_sidebar_title || is_in_content_title) && self.popup.is_none() {
-                        if let Some(win) = &self.window {
-                            let _ = win.drag_window();
+                    Some(2) => {}
+                    _ => {
+                        let is_in_sidebar_title = mx < SIDEBAR_W && my < 60.0;
+                        let is_in_content_title = mx >= SIDEBAR_W
+                            && my < SETTINGS_HEADER_H
+                            && self.page_navigation_at(mx, my).is_none();
+                        if (is_in_sidebar_title || is_in_content_title) && self.popup.is_none() {
+                            if let Some(win) = &self.window {
+                                let _ = win.drag_window();
+                            }
+                        } else if self.handle_widget_drag_press() {
+                            if let Some(win) = &self.window {
+                                win.request_redraw();
+                            }
+                        } else {
+                            self.handle_click(event_loop);
                         }
-                    } else if self.handle_widget_drag_press() {
-                        if let Some(win) = &self.window {
-                            win.request_redraw();
-                        }
-                    } else {
-                        self.handle_click(event_loop);
                     }
                 }
             }

@@ -69,9 +69,6 @@ impl SettingsApp {
             },
             EffectsAction::CustomFont,
         );
-        page.push(SettingsItem::FontPreview {
-            has_custom_font: self.config.custom_font_path.is_some(),
-        });
         page.push(SettingsItem::GroupEnd);
         page
     }

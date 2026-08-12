@@ -3,6 +3,7 @@
 ### v1.2.9
 - Fixed notification text and app icon display issues (#129)
 - Optimised GPU performance utilisation (#136)
+- Improved the settings interface and widget layout editor
 
 ### v1.2.8
 - Fixed the Dynamic Island still auto-hiding in full-screen mode while a live activity (e.g. music) is playing (#125)

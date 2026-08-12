@@ -1,6 +1,5 @@
-use skia_safe::{Canvas, Color, FontStyle, Paint, Rect};
+use skia_safe::{Canvas, Color, Contains, FontStyle, Paint, Point, Rect};
 
-use crate::core::i18n::tr;
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, DrawTextInRectParams, FontManager};
 
@@ -16,11 +15,17 @@ struct ItemCtx<'a> {
     width: f32,
     visible_min_y: f32,
     visible_max_y: f32,
+    hover_pos: Option<(f32, f32)>,
 }
 
 impl ItemCtx<'_> {
     fn row_visible(&self, y: f32, height: f32) -> bool {
         y + height >= self.visible_min_y && y <= self.visible_max_y
+    }
+
+    fn hovered(&self, rect: Rect) -> bool {
+        self.hover_pos
+            .is_some_and(|(x, y)| rect.contains(Point::new(x, y)))
     }
 }
 
@@ -72,8 +77,74 @@ fn draw_row_stepper(
     let btn_dec_x = value_x - STEPPER_GAP - STEPPER_BTN_SIZE;
     let btn_y = cy - STEPPER_BTN_SIZE / 2.0;
     if visible {
-        draw_stepper_btn(canvas, btn_dec_x, btn_y, "-", enabled, theme);
-        draw_stepper_btn(canvas, btn_inc_x, btn_y, "+", enabled, theme);
+        let control_x = btn_dec_x;
+        let control_w = STEPPER_BTN_SIZE * 2.0 + STEPPER_VALUE_W;
+        let mut control = Paint::default();
+        control.set_anti_alias(true);
+        control.set_color(if enabled {
+            theme.control_bg
+        } else {
+            theme.control_disabled
+        });
+        canvas.draw_round_rect(
+            Rect::from_xywh(control_x, btn_y, control_w, STEPPER_BTN_SIZE),
+            POPUP_BTN_R,
+            POPUP_BTN_R,
+            &control,
+        );
+        control.set_style(skia_safe::paint::Style::Stroke);
+        control.set_stroke_width(0.75);
+        control.set_color(theme.control_border);
+        canvas.draw_round_rect(
+            Rect::from_xywh(
+                control_x + 0.375,
+                btn_y + 0.375,
+                control_w - 0.75,
+                STEPPER_BTN_SIZE - 0.75,
+            ),
+            POPUP_BTN_R,
+            POPUP_BTN_R,
+            &control,
+        );
+        control.set_color(theme.separator);
+        canvas.draw_line(
+            (value_x, btn_y + 4.0),
+            (value_x, btn_y + STEPPER_BTN_SIZE - 4.0),
+            &control,
+        );
+        canvas.draw_line(
+            (btn_inc_x, btn_y + 4.0),
+            (btn_inc_x, btn_y + STEPPER_BTN_SIZE - 4.0),
+            &control,
+        );
+        draw_stepper_btn(
+            canvas,
+            btn_dec_x,
+            btn_y,
+            "−",
+            enabled,
+            theme,
+            ctx.hovered(Rect::from_xywh(
+                btn_dec_x,
+                btn_y,
+                STEPPER_BTN_SIZE,
+                STEPPER_BTN_SIZE,
+            )),
+        );
+        draw_stepper_btn(
+            canvas,
+            btn_inc_x,
+            btn_y,
+            "+",
+            enabled,
+            theme,
+            ctx.hovered(Rect::from_xywh(
+                btn_inc_x,
+                btn_y,
+                STEPPER_BTN_SIZE,
+                STEPPER_BTN_SIZE,
+            )),
+        );
     }
 
     let val_center = value_x + STEPPER_VALUE_W / 2.0;
@@ -220,31 +291,38 @@ fn draw_row_font_picker(
             paint: &paint,
         });
 
-        let sel_w: f32 = 60.0;
+        let sel_w: f32 = 72.0;
         let sel_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - sel_w;
+        let btn_y = cy - POPUP_BTN_H / 2.0;
         draw_pill_btn(PillBtnParams {
             canvas,
             x: sel_x,
-            y: cy - 13.0,
+            y: btn_y,
             w: sel_w,
-            h: 26.0,
+            h: POPUP_BTN_H,
             label: btn_label,
             text_color: theme.text_pri,
             bg_color: theme.card_highlight,
+            hover_bg_color: theme.control_hover,
+            border_color: theme.control_border,
+            hovered: ctx.hovered(Rect::from_xywh(sel_x, btn_y, sel_w, POPUP_BTN_H)),
         });
 
         if let Some(rl) = reset_label {
-            let rst_w: f32 = 60.0;
+            let rst_w: f32 = 72.0;
             let rst_x = sel_x - rst_w - 6.0;
             draw_pill_btn(PillBtnParams {
                 canvas,
                 x: rst_x,
-                y: cy - 13.0,
+                y: btn_y,
                 w: rst_w,
-                h: 26.0,
+                h: POPUP_BTN_H,
                 label: rl,
                 text_color: theme.danger,
                 bg_color: theme.card_highlight,
+                hover_bg_color: theme.control_hover,
+                border_color: theme.control_border,
+                hovered: ctx.hovered(Rect::from_xywh(rst_x, btn_y, rst_w, POPUP_BTN_H)),
             });
         }
     }
@@ -320,28 +398,32 @@ fn draw_row_folder_picker(
             theme.disabled
         };
 
-        let sel_w: f32 = 60.0;
+        let sel_w: f32 = 72.0;
         let sel_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - sel_w;
+        let btn_y = cy - POPUP_BTN_H / 2.0;
         draw_pill_btn(PillBtnParams {
             canvas,
             x: sel_x,
-            y: cy - 13.0,
+            y: btn_y,
             w: sel_w,
-            h: 26.0,
+            h: POPUP_BTN_H,
             label: btn_label,
             text_color: label_color,
             bg_color,
+            hover_bg_color: theme.control_hover,
+            border_color: theme.control_border,
+            hovered: enabled && ctx.hovered(Rect::from_xywh(sel_x, btn_y, sel_w, POPUP_BTN_H)),
         });
 
         if let Some(cl) = clear_label {
-            let clr_w: f32 = 60.0;
+            let clr_w: f32 = 72.0;
             let clr_x = sel_x - clr_w - 6.0;
             draw_pill_btn(PillBtnParams {
                 canvas,
                 x: clr_x,
-                y: cy - 13.0,
+                y: btn_y,
                 w: clr_w,
-                h: 26.0,
+                h: POPUP_BTN_H,
                 label: cl,
                 text_color: if enabled {
                     theme.danger
@@ -349,6 +431,9 @@ fn draw_row_folder_picker(
                     theme.text_sec
                 },
                 bg_color,
+                hover_bg_color: theme.control_hover,
+                border_color: theme.control_border,
+                hovered: enabled && ctx.hovered(Rect::from_xywh(clr_x, btn_y, clr_w, POPUP_BTN_H)),
             });
         }
     }
@@ -408,9 +493,13 @@ fn draw_row_source_select(
         let mut p = Paint::default();
         p.set_anti_alias(true);
         p.set_color(if enabled {
-            theme.card_highlight
+            if ctx.hovered(Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H)) {
+                theme.control_hover
+            } else {
+                theme.control_bg
+            }
         } else {
-            theme.disabled
+            theme.control_disabled
         });
         canvas.draw_round_rect(
             Rect::from_xywh(btn_x, btn_y, POPUP_BTN_W, POPUP_BTN_H),
@@ -418,6 +507,25 @@ fn draw_row_source_select(
             POPUP_BTN_R,
             &p,
         );
+        p.set_color(if is_open {
+            theme.accent
+        } else {
+            theme.control_border
+        });
+        p.set_style(skia_safe::paint::Style::Stroke);
+        p.set_stroke_width(if is_open { 1.25 } else { 0.75 });
+        canvas.draw_round_rect(
+            Rect::from_xywh(
+                btn_x + 0.5,
+                btn_y + 0.5,
+                POPUP_BTN_W - 1.0,
+                POPUP_BTN_H - 1.0,
+            ),
+            POPUP_BTN_R,
+            POPUP_BTN_R,
+            &p,
+        );
+        p.set_style(skia_safe::paint::Style::Fill);
 
         p.set_color(if enabled {
             theme.text_pri
@@ -507,9 +615,9 @@ fn draw_row_button(
             theme.text_sec
         };
         let bg_color = if enabled {
-            theme.card_highlight
+            theme.control_bg
         } else {
-            theme.disabled
+            theme.control_disabled
         };
 
         let btn_x = CONTENT_PADDING + content_w - GROUP_INNER_PAD - POPUP_BTN_W;
@@ -522,6 +630,15 @@ fn draw_row_button(
             label: btn_label,
             text_color: label_color,
             bg_color,
+            hover_bg_color: theme.control_hover,
+            border_color: theme.control_border,
+            hovered: enabled
+                && ctx.hovered(Rect::from_xywh(
+                    btn_x,
+                    cy - POPUP_BTN_H / 2.0,
+                    POPUP_BTN_W,
+                    POPUP_BTN_H,
+                )),
         });
     }
 
@@ -678,90 +795,6 @@ fn draw_center_text(ctx: &ItemCtx, y: f32, height: f32, text: &str, size: f32, c
     });
 }
 
-fn draw_font_preview(ctx: &ItemCtx, y: f32, has_custom_font: bool) {
-    let canvas = ctx.canvas;
-    let theme = ctx.theme;
-    let content_w = ctx.content_w;
-    let fm = FontManager::global();
-    let preview_h = 50.0;
-    let top_pad = (70.0 - preview_h) / 2.0;
-    let py = y + top_pad;
-    if !ctx.row_visible(py, preview_h) {
-        return;
-    }
-    let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
-    let preview_w = content_w - GROUP_INNER_PAD * 2.0;
-
-    let mut bg_p = Paint::default();
-    bg_p.set_anti_alias(true);
-    bg_p.set_color(theme.card_highlight);
-    canvas.draw_round_rect(
-        Rect::from_xywh(row_x, py, preview_w, preview_h),
-        8.0,
-        8.0,
-        &bg_p,
-    );
-
-    let mut label_p = Paint::default();
-    label_p.set_anti_alias(true);
-    label_p.set_color(theme.text_sec);
-    fm.draw_text_with_default_font(
-        canvas,
-        &tr("font_preview_default"),
-        (row_x + 8.0, py + 14.0),
-        11.0,
-        false,
-        &label_p,
-    );
-
-    label_p.set_color(theme.text_pri);
-    let default_samples = [tr("font_preview_sample")];
-    for (si, sample) in default_samples.iter().enumerate() {
-        fm.draw_text_with_default_font(
-            canvas,
-            sample,
-            (row_x + 8.0, py + 34.0 + si as f32 * 18.0),
-            14.0,
-            false,
-            &label_p,
-        );
-    }
-
-    if has_custom_font {
-        let div_x = row_x + preview_w / 2.0;
-        let mut div_p = Paint::default();
-        div_p.set_anti_alias(true);
-        div_p.set_color(theme.separator);
-        div_p.set_stroke_width(1.0);
-        div_p.set_style(skia_safe::paint::Style::Stroke);
-        canvas.draw_line((div_x, py + 6.0), (div_x, py + preview_h - 6.0), &div_p);
-
-        label_p.set_color(theme.text_sec);
-        fm.draw_text_cached(DrawTextCachedParams {
-            canvas,
-            text: &tr("font_preview_custom"),
-            x: div_x + 8.0,
-            y: py + 14.0,
-            size: 11.0,
-            bold: false,
-            paint: &label_p,
-        });
-
-        label_p.set_color(theme.accent);
-        let custom_samples = [tr("font_preview_sample")];
-        for (si, sample) in custom_samples.iter().enumerate() {
-            fm.draw_text_with_custom_font(
-                canvas,
-                sample,
-                (div_x + 8.0, py + 34.0 + si as f32 * 18.0),
-                14.0,
-                false,
-                &label_p,
-            );
-        }
-    }
-}
-
 fn advance_group_row(ctx: &ItemCtx, sep_y: f32, groups: &mut GroupRows, visible: bool) {
     if !groups.in_group {
         return;
@@ -813,6 +846,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
         width,
         visible_min_y,
         visible_max_y,
+        hover_pos: params.hover_pos,
     };
 
     let mut i = 0;
@@ -847,11 +881,34 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     .filter(|item| item.is_row())
                     .count();
                 if y + total_h >= visible_min_y && y <= visible_max_y {
+                    let mut shadow = Paint::default();
+                    shadow.set_anti_alias(true);
+                    shadow.set_color(theme.shadow);
+                    canvas.draw_round_rect(
+                        Rect::from_xywh(CONTENT_PADDING, y + 2.0, content_w, total_h),
+                        GROUP_RADIUS,
+                        GROUP_RADIUS,
+                        &shadow,
+                    );
                     let mut bg = Paint::default();
                     bg.set_anti_alias(true);
                     bg.set_color(theme.group_bg);
                     canvas.draw_round_rect(
                         Rect::from_xywh(CONTENT_PADDING, y, content_w, total_h),
+                        GROUP_RADIUS,
+                        GROUP_RADIUS,
+                        &bg,
+                    );
+                    bg.set_style(skia_safe::paint::Style::Stroke);
+                    bg.set_stroke_width(0.75);
+                    bg.set_color(theme.group_border);
+                    canvas.draw_round_rect(
+                        Rect::from_xywh(
+                            CONTENT_PADDING + 0.375,
+                            y + 0.375,
+                            content_w - 0.75,
+                            total_h - 0.75,
+                        ),
                         GROUP_RADIUS,
                         GROUP_RADIUS,
                         &bg,
@@ -948,9 +1005,6 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 draw_center_text(&ctx, y, item.height(), text, *size, *color);
             }
             SettingsItem::Spacer { .. } => {}
-            SettingsItem::FontPreview { has_custom_font } => {
-                draw_font_preview(&ctx, y, *has_custom_font);
-            }
             SettingsItem::WidgetPreview => {
                 draw_widget_preview(WidgetPreviewParams {
                     canvas,

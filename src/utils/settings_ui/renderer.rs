@@ -36,4 +36,5 @@ pub struct DrawItemsParams<'a> {
     pub widget_preview_hover_slot: Option<usize>,
     pub active_source_button: Option<Rect>,
     pub active_stepper_value: Option<ActiveStepperValue<'a>>,
+    pub hover_pos: Option<(f32, f32)>,
 }

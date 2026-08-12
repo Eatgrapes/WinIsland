@@ -14,6 +14,9 @@ pub(super) struct PillBtnParams<'a> {
     pub(super) label: &'a str,
     pub(super) text_color: Color,
     pub(super) bg_color: Color,
+    pub(super) hover_bg_color: Color,
+    pub(super) border_color: Color,
+    pub(super) hovered: bool,
 }
 
 pub(super) fn draw_row_separator(
@@ -61,6 +64,18 @@ pub(super) fn draw_switch(
         &paint,
     );
 
+    let mut border = Paint::default();
+    border.set_anti_alias(true);
+    border.set_style(skia_safe::paint::Style::Stroke);
+    border.set_stroke_width(0.75);
+    border.set_color(theme.control_border);
+    canvas.draw_round_rect(
+        Rect::from_xywh(x + 0.375, y + 0.375, TOGGLE_W - 0.75, TOGGLE_H - 0.75),
+        TOGGLE_R,
+        TOGGLE_R,
+        &border,
+    );
+
     let knob_x = x + TOGGLE_INSET + (pos * (TOGGLE_W - TOGGLE_KNOB - TOGGLE_INSET * 2.0));
     let knob_y = y + TOGGLE_INSET;
 
@@ -90,21 +105,20 @@ pub(super) fn draw_stepper_btn(
     label: &str,
     enabled: bool,
     theme: &SettingsTheme,
+    hovered: bool,
 ) {
     let fm = FontManager::global();
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
-    paint.set_color(if enabled {
-        theme.card_highlight
-    } else {
-        theme.disabled
-    });
-    canvas.draw_round_rect(
-        Rect::from_xywh(x, y, STEPPER_BTN_SIZE, STEPPER_BTN_SIZE),
-        STEPPER_BTN_SIZE / 2.0,
-        STEPPER_BTN_SIZE / 2.0,
-        &paint,
-    );
+    if hovered && enabled {
+        paint.set_color(theme.control_hover);
+        canvas.draw_round_rect(
+            Rect::from_xywh(x, y, STEPPER_BTN_SIZE, STEPPER_BTN_SIZE),
+            POPUP_BTN_R,
+            POPUP_BTN_R,
+            &paint,
+        );
+    }
     paint.set_color(if enabled {
         theme.text_pri
     } else {
@@ -122,13 +136,32 @@ pub(super) fn draw_pill_btn(params: PillBtnParams<'_>) {
     let canvas = params.canvas;
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
-    paint.set_color(params.bg_color);
+    paint.set_color(if params.hovered {
+        params.hover_bg_color
+    } else {
+        params.bg_color
+    });
     canvas.draw_round_rect(
         Rect::from_xywh(params.x, params.y, params.w, params.h),
         POPUP_BTN_R,
         POPUP_BTN_R,
         &paint,
     );
+    paint.set_color(params.border_color);
+    paint.set_style(skia_safe::paint::Style::Stroke);
+    paint.set_stroke_width(0.75);
+    canvas.draw_round_rect(
+        Rect::from_xywh(
+            params.x + 0.375,
+            params.y + 0.375,
+            params.w - 0.75,
+            params.h - 0.75,
+        ),
+        POPUP_BTN_R,
+        POPUP_BTN_R,
+        &paint,
+    );
+    paint.set_style(skia_safe::paint::Style::Fill);
     paint.set_color(params.text_color);
     fm.draw_text_in_rect(DrawTextInRectParams {
         canvas,
