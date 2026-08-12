@@ -12,6 +12,7 @@
 - Fixed occasional GPU and memory usage spikes during music playback
 - Fixed slight text jitter during island animations
 - Fixed exaggerated lyric width rebound after restoring a hidden island
+- Added a resource usage widget for CPU and RAM monitoring
 
 ### v1.2.8
 - Fixed the Dynamic Island still auto-hiding in full-screen mode while a live activity (e.g. music) is playing (#125)

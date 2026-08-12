@@ -1,4 +1,5 @@
 pub mod calendar;
+pub mod resource_usage;
 pub mod settings;
 pub mod time;
 
@@ -132,7 +133,10 @@ pub(crate) fn draw_widget_text_centered(
 }
 
 pub fn widget_animates(kind: WidgetKind) -> bool {
-    matches!(kind, WidgetKind::Clock | WidgetKind::Calendar)
+    matches!(
+        kind,
+        WidgetKind::Clock | WidgetKind::Calendar | WidgetKind::ResourceUsage
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -152,12 +156,34 @@ pub fn draw_widget(
         WidgetKind::Calendar => {
             calendar::draw_calendar_widget(canvas, x, y, w, h, scale, alpha, text_color)
         }
+        WidgetKind::ResourceUsage => {
+            resource_usage::draw_resource_usage_widget(canvas, x, y, w, h, scale, alpha, text_color)
+        }
         WidgetKind::Settings => {
             settings::draw_settings_widget(canvas, x, y, w, h, scale, alpha, text_color)
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn draw_widget_preview(
+    canvas: &Canvas,
+    kind: WidgetKind,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    scale: f32,
+    alpha: u8,
+    text_color: Color,
+) {
+    if kind == WidgetKind::ResourceUsage {
+        resource_usage::draw_resource_usage_preview(canvas, x, y, w, h, scale, alpha, text_color);
+    } else {
+        draw_widget(canvas, kind, x, y, w, h, scale, alpha, text_color);
+    }
+}
+
 pub fn draw_mini_card(canvas: &Canvas, kind: WidgetKind, x: f32, y: f32, w: f32, h: f32) {
-    draw_widget(canvas, kind, x, y, w, h, 1.0, 255, Color::WHITE);
+    draw_widget_preview(canvas, kind, x, y, w, h, 1.0, 255, Color::WHITE);
 }

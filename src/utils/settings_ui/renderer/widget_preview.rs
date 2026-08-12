@@ -2,7 +2,7 @@ use skia_safe::{Canvas, Color, FontStyle, Paint, Point, Rect};
 
 use crate::core::config::{WIDGET_GRID_SLOTS, WidgetKind, WidgetSlot, widget_footprint};
 use crate::core::i18n::tr;
-use crate::ui::widget::{draw_mini_card, draw_widget};
+use crate::ui::widget::{draw_mini_card, draw_widget_preview as draw_widget_card_preview};
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::shape::g3_rounded_rect_path;
@@ -218,6 +218,7 @@ fn draw_library_tile(canvas: &Canvas, kind: WidgetKind, rect: Rect) {
     let (preview_width, preview_height) = match kind {
         WidgetKind::Clock => (98.0, 46.0),
         WidgetKind::Calendar => (60.0, 60.0),
+        WidgetKind::ResourceUsage => (98.0, 46.0),
         WidgetKind::Settings => (54.0, 54.0),
     };
     draw_mini_card(
@@ -310,7 +311,7 @@ pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
             continue;
         }
         let (x, y, width, height) = geometry.footprint_rect(kind, entry.slot);
-        draw_widget(
+        draw_widget_card_preview(
             canvas,
             kind,
             x,

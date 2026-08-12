@@ -88,6 +88,7 @@ impl From<DockPosition> for String {
 pub enum WidgetKind {
     Clock,
     Calendar,
+    ResourceUsage,
     Settings,
 }
 
@@ -96,6 +97,7 @@ impl WidgetKind {
         match self {
             WidgetKind::Clock => (2, 1),
             WidgetKind::Calendar => (2, 2),
+            WidgetKind::ResourceUsage => (2, 1),
             WidgetKind::Settings => (1, 1),
         }
     }
@@ -116,6 +118,7 @@ where
     Ok(raw.and_then(|s| match s.as_str() {
         "clock" => Some(WidgetKind::Clock),
         "calendar" => Some(WidgetKind::Calendar),
+        "resource_usage" => Some(WidgetKind::ResourceUsage),
         "settings" => Some(WidgetKind::Settings),
         _ => None,
     }))
@@ -312,7 +315,11 @@ fn default_update_channel() -> String {
 pub const WIDGET_GRID_COLS: usize = 6;
 pub const WIDGET_GRID_ROWS: usize = 3;
 pub const WIDGET_GRID_SLOTS: usize = WIDGET_GRID_COLS * WIDGET_GRID_ROWS;
-pub const AVAILABLE_WIDGETS: [WidgetKind; 2] = [WidgetKind::Clock, WidgetKind::Calendar];
+pub const AVAILABLE_WIDGETS: [WidgetKind; 3] = [
+    WidgetKind::Clock,
+    WidgetKind::Calendar,
+    WidgetKind::ResourceUsage,
+];
 
 pub fn widget_footprint(widget: WidgetKind, anchor_slot: usize) -> Vec<usize> {
     let (cols, rows) = widget.span();
