@@ -9,7 +9,7 @@ body:
     attributes:
       label: Area
       description: Specify the module or feature to improve
-      placeholder: For example: src/core/render.rs
+      placeholder: "For example: src/core/render.rs"
     validations:
       required: false
 
