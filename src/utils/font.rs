@@ -89,6 +89,7 @@ fn needs_synthetic_bold(tf: &Typeface, style: FontStyle) -> bool {
 fn make_font(tf: Typeface, size: f32, style: FontStyle) -> Font {
     let embolden = needs_synthetic_bold(&tf, style);
     let mut font = Font::from_typeface(tf, size);
+    font.set_subpixel(true);
     if embolden {
         font.set_embolden(true);
     }
@@ -112,6 +113,7 @@ fn get_custom_typeface() -> Option<Typeface> {
 
 fn measure_group(text: &str, typeface: &Typeface, embolden: bool, size: f32) -> f32 {
     let mut font = Font::from_typeface(typeface.clone(), size);
+    font.set_subpixel(true);
     if embolden {
         font.set_embolden(true);
     }
@@ -194,6 +196,7 @@ fn compute_text_groups(text: &str, size: f32, style: FontStyle) -> (f32, TextGro
         });
         let embolden = needs_synthetic_bold(&tf, style);
         let mut font = Font::from_typeface(tf.clone(), size);
+        font.set_subpixel(true);
         if embolden {
             font.set_embolden(true);
         }
@@ -332,15 +335,14 @@ impl FontManager {
                 .or_insert_with(|| compute_text_groups(params.text, params.size, style));
             let (_, groups) = entry;
             let mut x = params.x;
-            let y = params.y.round();
+            let y = params.y;
             for (s, tf, embolden, width) in groups {
                 let mut font = Font::from_typeface(tf.clone(), params.size);
+                font.set_subpixel(true);
                 if *embolden {
                     font.set_embolden(true);
                 }
-                params
-                    .canvas
-                    .draw_str(&**s, (x.round(), y), &font, params.paint);
+                params.canvas.draw_str(&**s, (x, y), &font, params.paint);
                 x += *width;
             }
         });
