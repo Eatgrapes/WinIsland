@@ -88,7 +88,7 @@ body:
     id: notes
     attributes:
       label: Notes
-      description: Optional: provide any other relevant information
+      description: (Optional) provide any other relevant information
       placeholder: Additional information, if any
     validations:
       required: false
