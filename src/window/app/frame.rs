@@ -21,6 +21,7 @@ const INTERACTIVE_FRAME_INTERVAL: Duration = Duration::from_millis(16);
 const IDLE_FRAME_INTERVAL: Duration = Duration::from_millis(50);
 const HIDDEN_FRAME_INTERVAL: Duration = Duration::from_millis(100);
 const WORKING_SET_TRIM_INTERVAL: Duration = Duration::from_secs(30);
+const RENDERER_RECOVERY_INTERVAL: Duration = Duration::from_secs(1);
 
 impl App {
     pub(super) fn on_about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -29,6 +30,10 @@ impl App {
             None => return,
         };
         let now = Instant::now();
+        if crate::window::d3d::take_dwm_composition_changed() {
+            self.invalidate_renderer("DWM composition changed", now);
+        }
+        self.recover_renderer(&window, now, RENDERER_RECOVERY_INTERVAL);
         if now < self.next_frame_deadline {
             event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_deadline));
             return;

@@ -19,6 +19,59 @@ use crate::window::tray::TrayAction;
 use super::App;
 
 impl App {
+    pub(super) fn invalidate_renderer(&mut self, reason: &str, now: Instant) {
+        if self.renderer.take().is_some() {
+            log::warn!("D3D12 renderer invalidated: {reason}");
+        }
+        if let Some(settings) = self.settings.as_mut() {
+            settings.invalidate_renderer_target();
+        }
+        crate::utils::backdrop::clear_mica_cache();
+        crate::utils::backdrop::clear_blurred_cover_cache();
+        crate::utils::glass::clear_glass_cache();
+        crate::ui::expanded::music_view::clear_cover_cache();
+        self.renderer_retry_at = Some(now);
+        self.next_frame_deadline = now;
+    }
+
+    pub(super) fn recover_renderer(
+        &mut self,
+        window: &Window,
+        now: Instant,
+        retry_interval: Duration,
+    ) {
+        let Some(retry_at) = self.renderer_retry_at else {
+            return;
+        };
+        if now < retry_at {
+            self.next_frame_deadline = self.next_frame_deadline.min(retry_at);
+            return;
+        }
+
+        match crate::window::d3d::D3DRenderer::try_new(window, self.geom.os_w, self.geom.os_h) {
+            Ok(mut renderer) => {
+                if let Some(settings) = self.settings.as_mut()
+                    && let Err(error) = settings.recreate_renderer_target(&mut renderer)
+                {
+                    log::warn!("D3D12 settings renderer recovery failed: {error}");
+                    self.renderer_retry_at = Some(now + retry_interval);
+                    self.next_frame_deadline = now + retry_interval;
+                    return;
+                }
+                self.renderer = Some(renderer);
+                self.renderer_retry_at = None;
+                self.last_render_time = now;
+                window.request_redraw();
+                log::info!("D3D12 renderer recovered");
+            }
+            Err(error) => {
+                log::warn!("D3D12 renderer recovery failed: {error}");
+                self.renderer_retry_at = Some(now + retry_interval);
+                self.next_frame_deadline = now + retry_interval;
+            }
+        }
+    }
+
     pub(super) fn set_aumid() {
         if Package::Current().is_ok() {
             return;

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use skia_safe::{
@@ -45,6 +46,16 @@ const INITIALIZATION_RETRY_DELAY: Duration = Duration::from_millis(500);
 const RESOURCE_CLEANUP_INTERVAL: Duration = Duration::from_secs(5);
 const RESOURCE_MAX_IDLE_AGE: Duration = Duration::from_secs(10);
 
+static DWM_COMPOSITION_CHANGED: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn signal_dwm_composition_changed() {
+    DWM_COMPOSITION_CHANGED.store(true, Ordering::Release);
+}
+
+pub(crate) fn take_dwm_composition_changed() -> bool {
+    DWM_COMPOSITION_CHANGED.swap(false, Ordering::AcqRel)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct D3DTargetId(u64);
 
@@ -88,6 +99,10 @@ impl D3DRenderer {
             }
         }
         Err(last_error.unwrap_or_else(|| "D3D12 renderer initialization failed".to_string()))
+    }
+
+    pub(crate) fn try_new(window: &Window, width: u32, height: u32) -> Result<Self, String> {
+        Self::new_once(window, width, height)
     }
 
     fn new_once(window: &Window, width: u32, height: u32) -> Result<Self, String> {

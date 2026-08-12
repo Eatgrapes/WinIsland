@@ -327,6 +327,24 @@ impl SettingsApp {
         self.update_detected_apps();
     }
 
+    pub(crate) fn invalidate_renderer_target(&mut self) {
+        self.renderer_target = None;
+        sidebar::clear_sidebar_icon_cache();
+    }
+
+    pub(crate) fn recreate_renderer_target(
+        &mut self,
+        renderer: &mut D3DRenderer,
+    ) -> Result<(), String> {
+        let Some(window) = self.window.as_ref() else {
+            return Ok(());
+        };
+        let size = window.inner_size();
+        self.renderer_target = Some(renderer.create_target(window, size.width, size.height)?);
+        window.request_redraw();
+        Ok(())
+    }
+
     pub(crate) fn handle_window_event(
         &mut self,
         event_loop: &ActiveEventLoop,

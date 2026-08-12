@@ -93,8 +93,8 @@ impl App {
                     Ok(renderer) => Some(renderer),
                     Err(error) => {
                         log::error!("D3D12 renderer initialization failed: {error}");
-                        event_loop.exit();
-                        return;
+                        self.renderer_retry_at = Some(std::time::Instant::now());
+                        None
                     }
                 };
             let is_light = window.theme() == Some(winit::window::Theme::Light);

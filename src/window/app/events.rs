@@ -270,8 +270,7 @@ impl App {
                             });
                         self.renderer = Some(renderer);
                         if let Err(error) = render_result {
-                            log::error!("D3D12 rendering failed: {error}");
-                            event_loop.exit();
+                            self.invalidate_renderer(&error, Instant::now());
                         }
                     }
                 }

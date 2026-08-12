@@ -13,8 +13,10 @@ use std::mem::ManuallyDrop;
 use windows::Win32::Foundation::ERROR_ALREADY_EXISTS;
 use windows::Win32::Foundation::{CloseHandle, GetLastError};
 use windows::Win32::System::Threading::CreateMutexW;
+use windows::Win32::UI::WindowsAndMessaging::{MSG, WM_DWMCOMPOSITIONCHANGED};
 use windows::core::w;
 use winit::event_loop::EventLoop;
+use winit::platform::windows::EventLoopBuilderExtWindows;
 
 fn main() {
     let _ = logger::init();
@@ -94,7 +96,19 @@ fn main() {
 
     utils::updater::start_update_checker();
 
-    let event_loop = EventLoop::new().unwrap();
+    let mut event_loop_builder = EventLoop::builder();
+    event_loop_builder.with_msg_hook(|message| {
+        if !message.is_null() {
+            // SAFETY: winit invokes the hook with a valid pointer to the MSG currently being
+            // dispatched, and the pointer is only read during this synchronous callback.
+            let message = unsafe { &*message.cast::<MSG>() };
+            if message.message == WM_DWMCOMPOSITIONCHANGED {
+                window::d3d::signal_dwm_composition_changed();
+            }
+        }
+        false
+    });
+    let event_loop = event_loop_builder.build().unwrap();
     plugin::manager::set_event_loop_proxy(event_loop.create_proxy());
     let mut app = App::default();
     event_loop.run_app(&mut app).unwrap();
