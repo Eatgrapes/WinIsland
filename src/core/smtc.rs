@@ -1,14 +1,15 @@
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use skia_safe::Data;
+use tokio::sync::{mpsc, watch};
+use tokio_util::sync::CancellationToken;
+
+use crate::core::lyrics::{LyricLine, LyricsMode, fetch_lyrics};
+
 mod properties;
 mod session;
 mod worker;
-
-use crate::core::lyrics::LyricLine;
-use crate::core::persistence::load_config;
-use skia_safe::Data;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, watch};
-use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Debug)]
 pub struct MediaInfo {
@@ -24,6 +25,7 @@ pub struct MediaInfo {
     pub last_update: Instant,
     pub last_thumbnail_fetch: Instant,
     pub lyrics: Option<Arc<Vec<LyricLine>>>,
+    pub lyrics_fetch_id: u64,
     pub last_smtc_pos: u64,
     pub duration_secs: u64,
     pub duration_ms: u64,
@@ -46,6 +48,7 @@ impl Default for MediaInfo {
             last_update: Instant::now(),
             last_thumbnail_fetch: Instant::now() - Duration::from_secs(10),
             lyrics: None,
+            lyrics_fetch_id: 0,
             last_smtc_pos: 0,
             duration_secs: 0,
             duration_ms: 0,
@@ -114,27 +117,32 @@ pub struct SmtcListener {
     info_rx: watch::Receiver<MediaInfo>,
     seek_tx: mpsc::UnboundedSender<u64>,
     playback_tx: mpsc::UnboundedSender<PlaybackCommand>,
+    lyrics_mode_tx: mpsc::UnboundedSender<LyricsMode>,
     lyrics_source_tx: mpsc::UnboundedSender<String>,
-    lyrics_fallback_tx: mpsc::UnboundedSender<bool>,
     lyrics_local_dir_tx: mpsc::UnboundedSender<Option<String>>,
     allowed_apps_tx: mpsc::UnboundedSender<Vec<String>>,
     cancel_token: CancellationToken,
 }
 
 impl SmtcListener {
-    pub fn new(source: String, fallback: bool, allowed: Vec<String>) -> Self {
+    pub fn new(
+        mode: String,
+        source: String,
+        local_dir: Option<String>,
+        allowed: Vec<String>,
+    ) -> Self {
         let (info_tx, info_rx) = watch::channel(MediaInfo::default());
         let (seek_tx, seek_rx) = mpsc::unbounded_channel();
         let (playback_tx, playback_rx) = mpsc::unbounded_channel();
+        let (lyrics_mode_tx, lyrics_mode_rx) = mpsc::unbounded_channel();
         let (lyrics_source_tx, lyrics_source_rx) = mpsc::unbounded_channel();
-        let (lyrics_fallback_tx, lyrics_fallback_rx) = mpsc::unbounded_channel();
         let (lyrics_local_dir_tx, lyrics_local_dir_rx) = mpsc::unbounded_channel();
         let (allowed_apps_tx, allowed_apps_rx) = mpsc::unbounded_channel();
         let cancel_token = CancellationToken::new();
 
+        let _ = lyrics_mode_tx.send(mode.as_str().into());
         let _ = lyrics_source_tx.send(source);
-        let _ = lyrics_fallback_tx.send(fallback);
-        let _ = lyrics_local_dir_tx.send(load_config().lyrics_local_dir);
+        let _ = lyrics_local_dir_tx.send(local_dir);
         let _ = allowed_apps_tx.send(allowed);
 
         let cancel = cancel_token.clone();
@@ -144,8 +152,8 @@ impl SmtcListener {
                     info_tx,
                     seek_rx,
                     playback_rx,
+                    lyrics_mode_rx,
                     lyrics_source_rx,
-                    lyrics_fallback_rx,
                     lyrics_local_dir_rx,
                     allowed_apps_rx,
                 },
@@ -157,8 +165,8 @@ impl SmtcListener {
             info_rx,
             seek_tx,
             playback_tx,
+            lyrics_mode_tx,
             lyrics_source_tx,
-            lyrics_fallback_tx,
             lyrics_local_dir_tx,
             allowed_apps_tx,
             cancel_token,
@@ -173,8 +181,8 @@ impl SmtcListener {
         let _ = self.lyrics_source_tx.send(source);
     }
 
-    pub fn set_lyrics_fallback(&self, fallback: bool) {
-        let _ = self.lyrics_fallback_tx.send(fallback);
+    pub fn set_lyrics_mode(&self, mode: String) {
+        let _ = self.lyrics_mode_tx.send(mode.as_str().into());
     }
 
     pub fn set_lyrics_local_dir(&self, dir: Option<String>) {
@@ -204,6 +212,51 @@ impl SmtcListener {
     pub fn request_prev(&self) {
         let _ = self.playback_tx.send(PlaybackCommand::Prev);
     }
+}
+
+pub(super) struct LyricsFetchRequest {
+    pub(super) title: String,
+    pub(super) artist: String,
+    pub(super) duration_secs: u64,
+    pub(super) mode: LyricsMode,
+    pub(super) source: String,
+    pub(super) local_dir: Option<String>,
+    pub(super) request_id: u64,
+}
+
+pub(super) fn spawn_lyrics_fetch(info_tx: &watch::Sender<MediaInfo>, request: LyricsFetchRequest) {
+    let info_tx = info_tx.clone();
+    tokio::spawn(async move {
+        let lyrics = fetch_lyrics(
+            &request.title,
+            &request.artist,
+            request.duration_secs,
+            request.mode,
+            &request.source,
+            request.local_dir.as_deref(),
+        )
+        .await;
+        let current = info_tx.borrow();
+        if current.title != request.title
+            || current.artist != request.artist
+            || current.lyrics_fetch_id != request.request_id
+        {
+            return;
+        }
+        drop(current);
+        let mut new_info = info_tx.borrow().clone();
+        new_info.lyrics = lyrics.clone();
+        let _ = info_tx.send(new_info);
+        if let Some(lyrics) = lyrics {
+            log::info!("SMTC: lyrics fetched ({} lines)", lyrics.len());
+        } else {
+            log::warn!(
+                "SMTC: lyrics fetch returned none for '{}' - '{}'",
+                request.title,
+                request.artist
+            );
+        }
+    });
 }
 
 impl Drop for SmtcListener {

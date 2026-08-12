@@ -6,19 +6,18 @@ use windows::Foundation::TypedEventHandler;
 use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 
-use crate::core::lyrics::fetch_lyrics;
+use crate::core::lyrics::LyricsMode;
 
-use super::MediaInfo;
-use super::PlaybackCommand;
 use super::properties::fetch_properties;
 use super::session::{auto_allow_new_apps, get_target_session};
+use super::{LyricsFetchRequest, MediaInfo, PlaybackCommand, spawn_lyrics_fetch};
 
 pub(super) struct WorkerChannels {
     pub(super) info_tx: watch::Sender<MediaInfo>,
     pub(super) seek_rx: mpsc::UnboundedReceiver<u64>,
     pub(super) playback_rx: mpsc::UnboundedReceiver<PlaybackCommand>,
+    pub(super) lyrics_mode_rx: mpsc::UnboundedReceiver<LyricsMode>,
     pub(super) lyrics_source_rx: mpsc::UnboundedReceiver<String>,
-    pub(super) lyrics_fallback_rx: mpsc::UnboundedReceiver<bool>,
     pub(super) lyrics_local_dir_rx: mpsc::UnboundedReceiver<Option<String>>,
     pub(super) allowed_apps_rx: mpsc::UnboundedReceiver<Vec<String>>,
 }
@@ -28,8 +27,8 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
         info_tx,
         mut seek_rx,
         mut playback_rx,
+        mut lyrics_mode_rx,
         mut lyrics_source_rx,
-        mut lyrics_fallback_rx,
         mut lyrics_local_dir_rx,
         mut allowed_apps_rx,
     } = channels;
@@ -73,16 +72,16 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
     });
     let _ = manager.SessionsChanged(&handler);
 
-    let mut current_lyrics_source: String = "163".to_string();
-    let mut current_lyrics_fallback: bool = true;
+    let mut current_lyrics_mode = LyricsMode::Online;
+    let mut current_lyrics_source = "163".to_string();
     let mut current_lyrics_local_dir: Option<String> = None;
     let mut current_allowed_apps: Vec<String> = Vec::new();
 
+    while let Ok(mode) = lyrics_mode_rx.try_recv() {
+        current_lyrics_mode = mode;
+    }
     while let Ok(src) = lyrics_source_rx.try_recv() {
         current_lyrics_source = src;
-    }
-    while let Ok(fb) = lyrics_fallback_rx.try_recv() {
-        current_lyrics_fallback = fb;
     }
     while let Ok(dir) = lyrics_local_dir_rx.try_recv() {
         current_lyrics_local_dir = dir;
@@ -98,8 +97,8 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
         update_media_info(
             &manager,
             &info_tx,
+            current_lyrics_mode,
             &current_lyrics_source,
-            current_lyrics_fallback,
             current_lyrics_local_dir.as_deref(),
             &mut current_allowed_apps,
             true,
@@ -141,68 +140,32 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
             last_manager_refresh = Instant::now();
         }
 
+        let mut lyrics_settings_changed = false;
+        while let Ok(mode) = lyrics_mode_rx.try_recv() {
+            if mode != current_lyrics_mode {
+                current_lyrics_mode = mode;
+                lyrics_settings_changed = true;
+            }
+        }
         while let Ok(src) = lyrics_source_rx.try_recv() {
             if src != current_lyrics_source {
                 current_lyrics_source = src;
-                let info = info_tx.borrow();
-                if !info.title.is_empty() {
-                    let title = info.title.clone();
-                    let artist = info.artist.clone();
-                    let duration = info.duration_secs;
-                    let src = current_lyrics_source.clone();
-                    let fb = current_lyrics_fallback;
-                    let info_tx_clone = info_tx.clone();
-                    let local_dir = current_lyrics_local_dir.clone();
-                    drop(info);
-                    tokio::spawn(async move {
-                        if let Some(lyrics) =
-                            fetch_lyrics(&title, &artist, duration, &src, fb, local_dir.as_deref())
-                                .await
-                        {
-                            let current = info_tx_clone.borrow();
-                            if current.title == title && current.artist == artist {
-                                drop(current);
-                                let mut new_info = info_tx_clone.borrow().clone();
-                                new_info.lyrics = Some(lyrics);
-                                let _ = info_tx_clone.send(new_info);
-                            }
-                        }
-                    });
-                }
+                lyrics_settings_changed = true;
             }
-        }
-        while let Ok(fb) = lyrics_fallback_rx.try_recv() {
-            current_lyrics_fallback = fb;
         }
         while let Ok(dir) = lyrics_local_dir_rx.try_recv() {
             if dir != current_lyrics_local_dir {
                 current_lyrics_local_dir = dir;
-                let info = info_tx.borrow();
-                if !info.title.is_empty() {
-                    let title = info.title.clone();
-                    let artist = info.artist.clone();
-                    let duration = info.duration_secs;
-                    let src = current_lyrics_source.clone();
-                    let fb = current_lyrics_fallback;
-                    let info_tx_clone = info_tx.clone();
-                    let local_dir = current_lyrics_local_dir.clone();
-                    drop(info);
-                    tokio::spawn(async move {
-                        if let Some(lyrics) =
-                            fetch_lyrics(&title, &artist, duration, &src, fb, local_dir.as_deref())
-                                .await
-                        {
-                            let current = info_tx_clone.borrow();
-                            if current.title == title && current.artist == artist {
-                                drop(current);
-                                let mut new_info = info_tx_clone.borrow().clone();
-                                new_info.lyrics = Some(lyrics);
-                                let _ = info_tx_clone.send(new_info);
-                            }
-                        }
-                    });
-                }
+                lyrics_settings_changed = true;
             }
+        }
+        if lyrics_settings_changed {
+            refresh_current_lyrics(
+                &info_tx,
+                current_lyrics_mode,
+                &current_lyrics_source,
+                current_lyrics_local_dir.as_deref(),
+            );
         }
         while let Ok(apps) = allowed_apps_rx.try_recv() {
             current_allowed_apps = apps;
@@ -258,8 +221,8 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
             update_media_info(
                 &current_manager,
                 &info_tx,
+                current_lyrics_mode,
                 &current_lyrics_source,
-                current_lyrics_fallback,
                 current_lyrics_local_dir.as_deref(),
                 &mut current_allowed_apps,
                 true,
@@ -275,8 +238,8 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
             update_media_info(
                 &current_manager,
                 &info_tx,
+                current_lyrics_mode,
                 &current_lyrics_source,
-                current_lyrics_fallback,
                 current_lyrics_local_dir.as_deref(),
                 &mut current_allowed_apps,
                 do_auto_allow,
@@ -294,8 +257,8 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
 fn update_media_info(
     manager: &GlobalSystemMediaTransportControlsSessionManager,
     info_tx: &watch::Sender<MediaInfo>,
+    lyrics_mode: LyricsMode,
     lyrics_source: &str,
-    lyrics_fallback: bool,
     local_dir: Option<&str>,
     allowed_apps: &mut Vec<String>,
     auto_allow: bool,
@@ -308,7 +271,7 @@ fn update_media_info(
 
     if let Some(session) = get_target_session(manager, allowed_apps) {
         *last_session_seen = Instant::now();
-        let _ = fetch_properties(&session, info_tx, lyrics_source, lyrics_fallback, local_dir);
+        let _ = fetch_properties(&session, info_tx, lyrics_mode, lyrics_source, local_dir);
         *last_was_playing = info_tx.borrow().is_playing;
     } else if *last_was_playing {
         let info = info_tx.borrow();
@@ -326,4 +289,35 @@ fn update_media_info(
             log::info!("SMTC: paused session lost for >15s, cleared media info");
         }
     }
+}
+
+fn refresh_current_lyrics(
+    info_tx: &watch::Sender<MediaInfo>,
+    lyrics_mode: LyricsMode,
+    lyrics_source: &str,
+    local_dir: Option<&str>,
+) {
+    let mut info = info_tx.borrow().clone();
+    if info.title.is_empty() {
+        return;
+    }
+    info.lyrics = None;
+    info.lyrics_fetch_id = info.lyrics_fetch_id.wrapping_add(1);
+    let title = info.title.clone();
+    let artist = info.artist.clone();
+    let duration_secs = info.duration_secs;
+    let request_id = info.lyrics_fetch_id;
+    let _ = info_tx.send(info);
+    spawn_lyrics_fetch(
+        info_tx,
+        LyricsFetchRequest {
+            title,
+            artist,
+            duration_secs,
+            mode: lyrics_mode,
+            source: lyrics_source.to_string(),
+            local_dir: local_dir.map(str::to_string),
+            request_id,
+        },
+    );
 }

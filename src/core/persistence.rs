@@ -16,13 +16,26 @@ pub fn load_config() -> AppConfig {
     let mut config: AppConfig = if let Ok(content) = fs::read_to_string(&path)
         && let Ok(mut config) = toml::from_str::<AppConfig>(&content)
     {
-        if let Ok(table) = toml::from_str::<toml::Table>(&content)
-            && let Some(fully_hide) = table.get("fully_hide").and_then(|value| value.as_bool())
-        {
-            if !table.contains_key("hidden_width") && fully_hide {
-                config.hidden_width = MIN_HIDDEN_WIDTH;
+        if let Ok(table) = toml::from_str::<toml::Table>(&content) {
+            if let Some(fully_hide) = table.get("fully_hide").and_then(|value| value.as_bool()) {
+                if !table.contains_key("hidden_width") && fully_hide {
+                    config.hidden_width = MIN_HIDDEN_WIDTH;
+                }
+                migrated = true;
             }
-            migrated = true;
+            if !table.contains_key("lyrics_mode") {
+                config.lyrics_mode = if config
+                    .lyrics_local_dir
+                    .as_deref()
+                    .is_some_and(|dir| !dir.trim().is_empty())
+                {
+                    "lrc"
+                } else {
+                    "online"
+                }
+                .to_string();
+                migrated = true;
+            }
         }
         config
     } else {
@@ -41,6 +54,14 @@ pub fn load_config() -> AppConfig {
         .clamp(MIN_HIDDEN_WIDTH, MAX_HIDDEN_WIDTH);
     if hidden_width != config.hidden_width {
         config.hidden_width = hidden_width;
+        migrated = true;
+    }
+    if !matches!(config.lyrics_mode.as_str(), "online" | "lrc") {
+        config.lyrics_mode = "online".to_string();
+        migrated = true;
+    }
+    if config.lyrics_mode == "lrc" && !config.show_lyrics {
+        config.show_lyrics = true;
         migrated = true;
     }
     if ensure_settings_widget(&mut config.widget_layout) {

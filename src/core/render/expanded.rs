@@ -57,6 +57,7 @@ pub(super) fn draw_expanded_content(params: ExpandedContentParams<'_>) -> bool {
     } = params;
     let mut widget_animating = false;
     if expanded_alpha_f > 0.01 {
+        let music_page_available = music_active;
         let alpha = (expanded_alpha_f * 255.0) as u8;
         canvas.save();
         if let Some(ref filter) = blur_filter {
@@ -65,32 +66,39 @@ pub(super) fn draw_expanded_content(params: ExpandedContentParams<'_>) -> bool {
             canvas.save_layer(&skia_safe::canvas::SaveLayerRec::default().paint(&layer_paint));
         }
 
-        let page_shift = view_offset * current_w;
+        let visible_view_offset = if music_page_available {
+            view_offset
+        } else {
+            1.0
+        };
+        let page_shift = visible_view_offset * current_w;
 
-        canvas.save();
-        canvas.translate((-page_shift, 0.0));
-        let _ = draw_music_page(DrawMusicPageParams {
-            canvas,
-            ox: offset_x,
-            oy: offset_y,
-            w: current_w,
-            h: current_h,
-            alpha,
-            media,
-            music_active,
-            available_controls,
-            view_offset,
-            scale: global_scale,
-            expansion_progress,
-            viz_h_scale: viz_h_scale * global_scale,
-            use_blur,
-            font_size,
-            dt,
-            text_color,
-            text_color_sec,
-            palette,
-        });
-        canvas.restore();
+        if music_page_available {
+            canvas.save();
+            canvas.translate((-page_shift, 0.0));
+            let _ = draw_music_page(DrawMusicPageParams {
+                canvas,
+                ox: offset_x,
+                oy: offset_y,
+                w: current_w,
+                h: current_h,
+                alpha,
+                media,
+                music_active,
+                available_controls,
+                view_offset: visible_view_offset,
+                scale: global_scale,
+                expansion_progress,
+                viz_h_scale: viz_h_scale * global_scale,
+                use_blur,
+                font_size,
+                dt,
+                text_color,
+                text_color_sec,
+                palette,
+            });
+            canvas.restore();
+        }
 
         canvas.save();
         canvas.translate((current_w - page_shift, 0.0));
@@ -108,6 +116,7 @@ pub(super) fn draw_expanded_content(params: ExpandedContentParams<'_>) -> bool {
             dt,
             widget_layout,
             text_color,
+            music_page_available,
         );
         canvas.restore();
 

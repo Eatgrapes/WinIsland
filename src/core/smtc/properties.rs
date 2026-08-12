@@ -1,12 +1,13 @@
-use crate::core::lyrics::fetch_lyrics;
-use skia_safe::Data;
 use std::time::{Duration, Instant};
 
+use skia_safe::Data;
 use tokio::sync::watch;
 use windows::Media::Control::GlobalSystemMediaTransportControlsSession;
 
-use super::MediaInfo;
+use crate::core::lyrics::LyricsMode;
+
 use super::session::is_music_session;
+use super::{LyricsFetchRequest, MediaInfo, spawn_lyrics_fetch};
 
 thread_local! {
     static LAST_TIMELINE_FETCH: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
@@ -18,8 +19,8 @@ thread_local! {
 pub(super) fn fetch_properties(
     session: &GlobalSystemMediaTransportControlsSession,
     info_tx: &watch::Sender<MediaInfo>,
+    lyrics_mode: LyricsMode,
     lyrics_source: &str,
-    lyrics_fallback: bool,
     local_dir: Option<&str>,
 ) -> windows::core::Result<()> {
     if !is_music_session(session) {
@@ -77,6 +78,7 @@ pub(super) fn fetch_properties(
             info.duration_secs = duration_secs;
             info.duration_ms = duration_ms_from_tl;
             info.lyrics = None;
+            info.lyrics_fetch_id = info.lyrics_fetch_id.wrapping_add(1);
             info.thumbnail = None;
             info.thumbnail_hash = 0;
             if smtc_pos > 0 {
@@ -156,14 +158,18 @@ pub(super) fn fetch_properties(
     }
 
     if should_fetch_lyrics {
+        let request_id = info_tx.borrow().lyrics_fetch_id;
         spawn_lyrics_fetch(
             info_tx,
-            new_title.clone(),
-            new_artist.clone(),
-            duration_secs,
-            lyrics_source,
-            lyrics_fallback,
-            local_dir,
+            LyricsFetchRequest {
+                title: new_title.clone(),
+                artist: new_artist.clone(),
+                duration_secs,
+                mode: lyrics_mode,
+                source: lyrics_source.to_string(),
+                local_dir: local_dir.map(str::to_string),
+                request_id,
+            },
         );
     }
     Ok(())
@@ -302,49 +308,5 @@ fn spawn_thumbnail_fetch(
             title,
             artist
         );
-    });
-}
-
-fn spawn_lyrics_fetch(
-    info_tx: &watch::Sender<MediaInfo>,
-    title: String,
-    artist: String,
-    duration_secs: u64,
-    lyrics_source: &str,
-    lyrics_fallback: bool,
-    local_dir: Option<&str>,
-) {
-    let info_tx = info_tx.clone();
-    let src = lyrics_source.to_string();
-    let local_dir = local_dir.map(|s| s.to_string());
-    tokio::spawn(async move {
-        let lyrics = fetch_lyrics(
-            &title,
-            &artist,
-            duration_secs,
-            &src,
-            lyrics_fallback,
-            local_dir.as_deref(),
-        )
-        .await;
-        match lyrics {
-            Some(lyrics) => {
-                log::info!("SMTC: lyrics fetched ({} lines from {})", lyrics.len(), src);
-                let current = info_tx.borrow();
-                if current.title == title && current.artist == artist {
-                    drop(current);
-                    let mut new_info = info_tx.borrow().clone();
-                    new_info.lyrics = Some(lyrics);
-                    let _ = info_tx.send(new_info);
-                }
-            }
-            None => {
-                log::warn!(
-                    "SMTC: lyrics fetch returned none for '{}' - '{}'",
-                    title,
-                    artist
-                );
-            }
-        }
     });
 }

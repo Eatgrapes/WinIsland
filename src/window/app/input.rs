@@ -117,6 +117,7 @@ impl App {
         }
 
         if self.expanded {
+            let music_page_available = self.music_page_available;
             let view_val = self.springs.view.value as f64;
             let w = self.springs.w.value as f64;
             let h = self.springs.h.value as f64;
@@ -252,17 +253,19 @@ impl App {
                     return;
                 }
 
-                let arrow_x = offset_x + 7.5 * scale + w - page_shift;
-                let arrow_y = island_y + h / 2.0;
-                let adx = rel_x as f64 - arrow_x;
-                let ady = rel_y as f64 - arrow_y;
-                if adx * adx + ady * ady <= (12.0 * scale).powi(2) {
-                    self.widget_view = false;
-                    return;
+                if music_page_available {
+                    let arrow_x = offset_x + 7.5 * scale + w - page_shift;
+                    let arrow_y = island_y + h / 2.0;
+                    let adx = rel_x as f64 - arrow_x;
+                    let ady = rel_y as f64 - arrow_y;
+                    if adx * adx + ady * ady <= (12.0 * scale).powi(2) {
+                        self.widget_view = false;
+                        return;
+                    }
                 }
             }
 
-            if view_val < 0.5 {
+            if music_page_available && view_val < 0.5 {
                 let arrow_x = offset_x + w - 7.5 * scale;
                 let arrow_y = island_y + h / 2.0;
                 let adx = rel_x as f64 - arrow_x;
@@ -332,7 +335,7 @@ impl App {
     }
 
     fn expand(&mut self) {
-        let widget_view = should_show_widget_view(self.media_active());
+        let widget_view = should_show_widget_view(self.music_page_available);
         self.widget_view = widget_view;
         self.springs.view.value = f32::from(widget_view);
         self.springs.view.velocity = 0.0;

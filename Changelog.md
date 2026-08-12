@@ -6,6 +6,8 @@
 - Improved the settings interface and widget layout editor
 - Added G3 continuous corners to the Dynamic Island
 - Fixed some window issues
+- Improved the lyrics system
+- Hid the music page when no music is available
 
 ### v1.2.8
 - Fixed the Dynamic Island still auto-hiding in full-screen mode while a live activity (e.g. music) is playing (#125)

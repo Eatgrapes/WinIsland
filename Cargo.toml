@@ -19,6 +19,8 @@ winit = "0.30"
 serde = { version = "1.0", features = ["derive"] }
 toml = "1.1.2"
 dirs = "6.0"
+encoding_rs = "0.8"
+fuzzengine = "0.2.1"
 image = "0.25"
 reqwest = { version = "0.13.4", features = ["json"] }
 serde_json = "1.0.149"
@@ -27,6 +29,7 @@ tokio-util = "0.7"
 rfd = "0.17.2"
 libloading = "0.9"
 log = { version = "0.4", features = ["std"] }
+lrc = "0.2.0"
 winisland-plugin-api = { path = "crates/winisland-plugin-api" }
 zip = "8.6.0"
 serde_yaml = "0.9"

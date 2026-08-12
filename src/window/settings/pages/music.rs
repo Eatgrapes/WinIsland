@@ -8,9 +8,9 @@ use super::{PageInput, SettingsPage};
 #[derive(Clone)]
 enum MusicAction {
     SmtcEnabled,
+    LyricsMode,
     ShowLyrics,
     LyricsSource,
-    LyricsFallback,
     LyricsDelay,
     LyricsScroll,
     LyricsScrollWidth,
@@ -40,82 +40,93 @@ impl SettingsApp {
         });
         page.push(SettingsItem::GroupStart);
         page.push_action(
-            SettingsItem::RowSwitch {
-                label: tr("show_lyrics"),
-                on: show_lyrics,
+            SettingsItem::RowSourceSelect {
+                label: tr("lyrics_mode"),
+                options: vec![
+                    (
+                        tr("lyrics_mode_online"),
+                        self.config.lyrics_mode == "online",
+                    ),
+                    (tr("lyrics_mode_lrc"), self.config.lyrics_mode == "lrc"),
+                ],
                 enabled: true,
             },
-            MusicAction::ShowLyrics,
+            MusicAction::LyricsMode,
         );
-        page.push_action(
-            SettingsItem::RowSourceSelect {
-                label: tr("lyrics_source"),
-                options: vec![
-                    (tr("lyrics_source_163"), self.config.lyrics_source == "163"),
-                    (
-                        tr("lyrics_source_kugou"),
-                        self.config.lyrics_source == "kugou",
-                    ),
-                    (
-                        tr("lyrics_source_lrclib"),
-                        self.config.lyrics_source == "lrclib",
-                    ),
-                ],
-                enabled: show_lyrics,
-            },
-            MusicAction::LyricsSource,
-        );
-        page.push_action(
-            SettingsItem::RowSwitch {
-                label: tr("lyrics_fallback"),
-                on: show_lyrics && self.config.lyrics_fallback,
-                enabled: show_lyrics,
-            },
-            MusicAction::LyricsFallback,
-        );
-        page.push_action(
-            SettingsItem::RowStepper {
-                label: tr("lyrics_delay"),
-                value: format!("{:.1}", self.config.lyrics_delay),
-                enabled: show_lyrics,
-            },
-            MusicAction::LyricsDelay,
-        );
-        page.push_action(
-            SettingsItem::RowSwitch {
-                label: tr("lyrics_scroll"),
-                on: show_lyrics && self.config.lyrics_scroll,
-                enabled: show_lyrics,
-            },
-            MusicAction::LyricsScroll,
-        );
-        page.push_action(
-            SettingsItem::RowStepper {
-                label: tr("lyrics_scroll_max_width"),
-                value: (self.config.lyrics_scroll_max_width as i32).to_string(),
-                enabled: show_lyrics && self.config.lyrics_scroll,
-            },
-            MusicAction::LyricsScrollWidth,
-        );
-        page.push_action(
-            SettingsItem::RowFolderPicker {
-                label: tr("lyrics_local_dir"),
-                btn_label: tr("folder_select"),
-                clear_label: self
-                    .config
-                    .lyrics_local_dir
-                    .as_ref()
-                    .filter(|path| !path.is_empty())
-                    .map(|_| tr("folder_clear")),
-                current_path: self
-                    .config
-                    .lyrics_local_dir
-                    .clone()
-                    .filter(|path| !path.is_empty()),
-                enabled: show_lyrics,
-            },
-            MusicAction::LyricsFolder,
-        );
+        if self.config.lyrics_mode == "lrc" {
+            page.push_action(
+                SettingsItem::RowFolderPicker {
+                    label: tr("lyrics_local_dir"),
+                    btn_label: tr("folder_select"),
+                    clear_label: self
+                        .config
+                        .lyrics_local_dir
+                        .as_ref()
+                        .filter(|path| !path.is_empty())
+                        .map(|_| tr("folder_clear")),
+                    current_path: self
+                        .config
+                        .lyrics_local_dir
+                        .clone()
+                        .filter(|path| !path.is_empty()),
+                    enabled: true,
+                },
+                MusicAction::LyricsFolder,
+            );
+        } else {
+            page.push_action(
+                SettingsItem::RowSwitch {
+                    label: tr("show_lyrics"),
+                    on: show_lyrics,
+                    enabled: true,
+                },
+                MusicAction::ShowLyrics,
+            );
+            page.push_action(
+                SettingsItem::RowSourceSelect {
+                    label: tr("lyrics_source"),
+                    options: vec![
+                        (tr("lyrics_source_163"), self.config.lyrics_source == "163"),
+                        (
+                            tr("lyrics_source_kugou"),
+                            self.config.lyrics_source == "kugou",
+                        ),
+                        (
+                            tr("lyrics_source_lrclib"),
+                            self.config.lyrics_source == "lrclib",
+                        ),
+                    ],
+                    enabled: show_lyrics,
+                },
+                MusicAction::LyricsSource,
+            );
+            page.push_action(
+                SettingsItem::RowStepper {
+                    label: tr("lyrics_delay"),
+                    value: format!("{:.1}", self.config.lyrics_delay),
+                    enabled: show_lyrics,
+                },
+                MusicAction::LyricsDelay,
+            );
+            page.push_action(
+                SettingsItem::RowSwitch {
+                    label: tr("lyrics_scroll"),
+                    on: show_lyrics && self.config.lyrics_scroll,
+                    enabled: show_lyrics,
+                },
+                MusicAction::LyricsScroll,
+            );
+            if show_lyrics && self.config.lyrics_scroll {
+                page.push_action(
+                    SettingsItem::RowStepper {
+                        label: tr("lyrics_scroll_max_width"),
+                        value: (self.config.lyrics_scroll_max_width as i32).to_string(),
+                        enabled: show_lyrics,
+                    },
+                    MusicAction::LyricsScrollWidth,
+                );
+            }
+        }
         page.push(SettingsItem::GroupEnd);
         page.push(SettingsItem::SectionHeader {
             label: tr("media_apps"),
@@ -180,10 +191,6 @@ impl SettingsApp {
                 self.config.show_lyrics = !self.config.show_lyrics;
                 true
             }
-            (MusicAction::LyricsFallback, ClickResult::Switch(_)) => {
-                self.config.lyrics_fallback = !self.config.lyrics_fallback;
-                true
-            }
             (MusicAction::LyricsScroll, ClickResult::Switch(_)) => {
                 self.config.lyrics_scroll = !self.config.lyrics_scroll;
                 true
@@ -240,8 +247,7 @@ impl SettingsApp {
             return;
         }
 
-        let (MusicAction::LyricsSource, ClickResult::SourceButton(item_index)) = (action, result)
-        else {
+        let ClickResult::SourceButton(item_index) = result else {
             return;
         };
         let scale = self
@@ -249,22 +255,35 @@ impl SettingsApp {
             .as_ref()
             .map(|window| window.scale_factor() as f32)
             .unwrap_or(1.0);
-        let popup = PopupState::new(
-            select_lyrics_source,
-            input.popup_button_rect(&page, item_index, self.scroll_y),
-            vec![
-                tr("lyrics_source_163"),
-                tr("lyrics_source_kugou"),
-                tr("lyrics_source_lrclib"),
-            ],
-            vec!["163".to_string(), "kugou".to_string(), "lrclib".to_string()],
-            ["163", "kugou", "lrclib"]
-                .iter()
-                .position(|source| *source == self.config.lyrics_source)
-                .unwrap_or_default(),
-            self.win_w / scale,
-            self.win_h / scale,
-        );
+        let button_rect = input.popup_button_rect(&page, item_index, self.scroll_y);
+        let popup = match action {
+            MusicAction::LyricsMode => PopupState::new(
+                select_lyrics_mode,
+                button_rect,
+                vec![tr("lyrics_mode_online"), tr("lyrics_mode_lrc")],
+                vec!["online".to_string(), "lrc".to_string()],
+                usize::from(self.config.lyrics_mode == "lrc"),
+                self.win_w / scale,
+                self.win_h / scale,
+            ),
+            MusicAction::LyricsSource => PopupState::new(
+                select_lyrics_source,
+                button_rect,
+                vec![
+                    tr("lyrics_source_163"),
+                    tr("lyrics_source_kugou"),
+                    tr("lyrics_source_lrclib"),
+                ],
+                vec!["163".to_string(), "kugou".to_string(), "lrclib".to_string()],
+                ["163", "kugou", "lrclib"]
+                    .iter()
+                    .position(|source| *source == self.config.lyrics_source)
+                    .unwrap_or_default(),
+                self.win_w / scale,
+                self.win_h / scale,
+            ),
+            _ => return,
+        };
         self.show_popup(popup);
     }
 }
@@ -287,6 +306,13 @@ fn step_f64(value: f64, direction: StepDirection, amount: f64, min: f64, max: f6
 
 fn select_lyrics_source(app: &mut SettingsApp, value: &str) {
     app.config.lyrics_source = value.to_string();
+}
+
+fn select_lyrics_mode(app: &mut SettingsApp, value: &str) {
+    app.config.lyrics_mode = value.to_string();
+    if value == "lrc" {
+        app.config.show_lyrics = true;
+    }
 }
 
 fn set_lyrics_delay(app: &mut SettingsApp, value: &str) {

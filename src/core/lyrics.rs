@@ -1,8 +1,16 @@
-use crate::core::config::{APP_HOMEPAGE, APP_VERSION};
-use base64::{Engine, engine::general_purpose::STANDARD};
-use serde_json::Value;
 use std::collections::BTreeMap;
+use std::fs;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
+
+use base64::{Engine, engine::general_purpose::STANDARD};
+use encoding_rs::GBK;
+use fuzzengine::{PreprocessingOptions, partial_ratio, partial_token_set_ratio};
+use lrc::Lyrics;
+use serde_json::Value;
+
+use crate::core::config::{APP_HOMEPAGE, APP_VERSION};
 
 /// Check whether a search query is related to a song name.
 fn query_matches_song(query: &str, song_name: &str) -> bool {
@@ -52,36 +60,39 @@ pub struct LyricLine {
     pub text: String,
 }
 
-/// Try to read a matching `.lrc` file from `local_dir`.
-///
-/// Lookup order:
-///   1. `{artist} - {title}.lrc`
-///   2. `{title}.lrc`
-///
-/// Both are matched case-insensitively on the filesystem (Windows).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum LyricsMode {
+    #[default]
+    Online,
+    Lrc,
+}
+
+impl From<&str> for LyricsMode {
+    fn from(value: &str) -> Self {
+        match value {
+            "lrc" => Self::Lrc,
+            _ => Self::Online,
+        }
+    }
+}
+
+const MAX_LOCAL_LRC_FILES: usize = 2048;
+
 fn fetch_lyrics_local(title: &str, artist: &str, local_dir: &str) -> Option<Arc<Vec<LyricLine>>> {
-    let san = |s: &str| -> String {
-        s.chars()
-            .filter(|c| !matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
-            .collect()
-    };
-    let title_san = san(title);
-    let artist_san = san(artist);
+    let title_key = MatchKey::new(title);
+    if title_key.compact.is_empty() {
+        return None;
+    }
+    let artist_key = MatchKey::new(artist);
+    let local_dir = Path::new(local_dir);
+    if !local_dir.is_dir() {
+        return None;
+    }
 
-    let candidates = if artist_san.is_empty() {
-        vec![format!("{}.lrc", title_san)]
-    } else {
-        vec![
-            format!("{} - {}.lrc", artist_san, title_san),
-            format!("{}.lrc", title_san),
-        ]
-    };
-
-    for file_name in &candidates {
-        let path = std::path::Path::new(local_dir).join(file_name);
-        if path.exists()
-            && let Ok(content) = std::fs::read_to_string(&path)
-        {
+    let mut candidates = collect_lrc_candidates(local_dir, &title_key, &artist_key);
+    candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    for (_, path) in candidates {
+        if let Some(content) = read_lrc_text(&path) {
             let lines = parse_lyrics(&content, "");
             if !lines.is_empty() {
                 return Some(Arc::new(lines));
@@ -91,44 +102,331 @@ fn fetch_lyrics_local(title: &str, artist: &str, local_dir: &str) -> Option<Arc<
     None
 }
 
+#[derive(Clone)]
+struct MatchKey {
+    normalized: String,
+    compact: String,
+    simplified_compact: String,
+}
+
+impl MatchKey {
+    fn new(value: &str) -> Self {
+        let normalized = normalize_match_text(value, false);
+        let simplified = normalize_match_text(value, true);
+        Self {
+            compact: compact(&normalized),
+            simplified_compact: compact(&simplified),
+            normalized,
+        }
+    }
+
+    fn variants(&self) -> impl Iterator<Item = &str> {
+        [self.compact.as_str(), self.simplified_compact.as_str()]
+            .into_iter()
+            .filter(|value| !value.is_empty())
+    }
+
+    fn matches(&self, other: &Self) -> bool {
+        self.variants()
+            .any(|left| other.variants().any(|right| left == right))
+    }
+}
+
+fn collect_lrc_candidates(
+    local_dir: &Path,
+    title: &MatchKey,
+    artist: &MatchKey,
+) -> Vec<(u16, PathBuf)> {
+    let Ok(entries) = fs::read_dir(local_dir) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .take(MAX_LOCAL_LRC_FILES)
+        .filter_map(|entry| {
+            let path = entry.path();
+            if !path.is_file()
+                || !path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("lrc"))
+            {
+                return None;
+            }
+            let stem = path.file_stem()?.to_str()?;
+            let filename_score = score_lrc_match(&MatchKey::new(stem), title, artist);
+            let metadata_score = read_lrc_text_prefix(&path)
+                .map(|content| score_lrc_metadata(&content, title, artist))
+                .unwrap_or_default();
+            let score = filename_score.max(metadata_score);
+            (score >= 80).then_some((score, path))
+        })
+        .collect()
+}
+
+fn score_lrc_match(candidate: &MatchKey, title: &MatchKey, artist: &MatchKey) -> u16 {
+    if candidate.matches(title) {
+        return 110;
+    }
+    if candidate.variants().any(|candidate| {
+        title.variants().any(|title| {
+            artist.variants().any(|artist| {
+                !artist.is_empty()
+                    && (candidate == format!("{artist}{title}")
+                        || candidate == format!("{title}{artist}"))
+            })
+        })
+    }) {
+        return 120;
+    }
+    if let Some(score) = fuzzy_title_score(candidate, title, artist) {
+        return score;
+    }
+    if title.simplified_compact.chars().count() < 3 {
+        return 0;
+    }
+    let contains_title = candidate
+        .variants()
+        .any(|candidate| title.variants().any(|title| candidate.contains(title)));
+    if !contains_title {
+        return 0;
+    }
+    let contains_artist = artist.variants().any(|artist| {
+        candidate
+            .variants()
+            .any(|candidate| candidate.contains(artist))
+    });
+    if contains_artist { 100 } else { 80 }
+}
+
+fn fuzzy_title_score(candidate: &MatchKey, title: &MatchKey, artist: &MatchKey) -> Option<u16> {
+    let options = PreprocessingOptions {
+        force_ascii: false,
+        strip: true,
+    };
+    let mut queries = vec![title.simplified_compact.as_str()];
+    let title_without_artist = remove_component(&title.simplified_compact, artist);
+    if title_without_artist != title.simplified_compact && !title_without_artist.is_empty() {
+        queries.push(&title_without_artist);
+    }
+
+    for query in queries {
+        let query_len = query.chars().count();
+        let score = partial_ratio(query, &candidate.simplified_compact, &options);
+        if query_len >= 8 && score >= 0.90 {
+            return Some(100);
+        }
+        if query_len >= 4 && score >= 0.98 {
+            return Some(90);
+        }
+    }
+
+    let common_len =
+        longest_common_substring_len(&candidate.simplified_compact, &title.simplified_compact);
+    let shorter_len = candidate
+        .simplified_compact
+        .chars()
+        .count()
+        .min(title.simplified_compact.chars().count());
+    if common_len >= 8 && common_len * 100 >= shorter_len * 50 {
+        return Some(95);
+    }
+
+    let (shared_tokens, shared_chars) =
+        shared_token_signal(&candidate.normalized, &title.normalized);
+    if shared_tokens >= 2
+        && shared_chars >= 10
+        && partial_token_set_ratio(&candidate.normalized, &title.normalized, &options) >= 0.90
+    {
+        return Some(90);
+    }
+    None
+}
+
+fn remove_component(value: &str, component: &MatchKey) -> String {
+    component
+        .variants()
+        .filter(|component| component.chars().count() >= 3)
+        .fold(value.to_string(), |value, component| {
+            value.replace(component, "")
+        })
+}
+
+fn longest_common_substring_len(left: &str, right: &str) -> usize {
+    let left: Vec<char> = left.chars().collect();
+    let right: Vec<char> = right.chars().collect();
+    let mut previous = vec![0usize; right.len() + 1];
+    let mut longest = 0;
+    for left_char in left {
+        let mut current = vec![0usize; right.len() + 1];
+        for (index, right_char) in right.iter().enumerate() {
+            if left_char == *right_char {
+                current[index + 1] = previous[index] + 1;
+                longest = longest.max(current[index + 1]);
+            }
+        }
+        previous = current;
+    }
+    longest
+}
+
+fn shared_token_signal(left: &str, right: &str) -> (usize, usize) {
+    let left_tokens: Vec<&str> = left.split_whitespace().collect();
+    let mut shared_tokens = 0;
+    let mut shared_chars = 0;
+    for token in right.split_whitespace() {
+        if token.chars().count() >= 3 && left_tokens.contains(&token) {
+            shared_tokens += 1;
+            shared_chars += token.chars().count();
+        }
+    }
+    (shared_tokens, shared_chars)
+}
+
+fn score_lrc_metadata(content: &str, title: &MatchKey, artist: &MatchKey) -> u16 {
+    let mut metadata_title = None;
+    let mut metadata_artist = None;
+    for line in content.lines().take(80) {
+        let line = line.trim().trim_start_matches('\u{feff}');
+        if let Some(value) = lrc_metadata_value(line, "ti") {
+            metadata_title = Some(MatchKey::new(value));
+        } else if let Some(value) = lrc_metadata_value(line, "ar") {
+            metadata_artist = Some(MatchKey::new(value));
+        }
+    }
+    if !metadata_title
+        .as_ref()
+        .is_some_and(|metadata| metadata.matches(title))
+    {
+        return 0;
+    }
+    if metadata_artist
+        .as_ref()
+        .is_some_and(|metadata| metadata.matches(artist))
+    {
+        140
+    } else {
+        115
+    }
+}
+
+fn lrc_metadata_value<'a>(line: &'a str, tag: &str) -> Option<&'a str> {
+    let prefix = format!("[{tag}:");
+    line.get(..prefix.len())?
+        .eq_ignore_ascii_case(&prefix)
+        .then(|| line.get(prefix.len()..)?.strip_suffix(']'))
+        .flatten()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn normalize_match_text(value: &str, simplify: bool) -> String {
+    let mut output = String::new();
+    let mut bracket_depth = 0u32;
+    let mut previous_space = true;
+    for character in value.trim().to_lowercase().chars() {
+        if simplify && matches!(character, '(' | '[' | '{' | '（' | '【') {
+            bracket_depth += 1;
+            continue;
+        }
+        if simplify && matches!(character, ')' | ']' | '}' | '）' | '】') {
+            bracket_depth = bracket_depth.saturating_sub(1);
+            continue;
+        }
+        if bracket_depth > 0 {
+            continue;
+        }
+        if character.is_alphanumeric() {
+            output.push(character);
+            previous_space = false;
+        } else if !previous_space {
+            output.push(' ');
+            previous_space = true;
+        }
+    }
+    let normalized = output.trim().to_string();
+    if !simplify {
+        return normalized;
+    }
+    let words: Vec<&str> = normalized.split_whitespace().collect();
+    let end = words
+        .iter()
+        .position(|word| matches!(*word, "feat" | "featuring" | "ft"))
+        .unwrap_or(words.len());
+    words[..end].join(" ")
+}
+
+fn compact(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
+}
+
+fn read_lrc_text_prefix(path: &Path) -> Option<String> {
+    let mut file = fs::File::open(path).ok()?;
+    let mut bytes = Vec::with_capacity(16 * 1024);
+    file.by_ref().take(16 * 1024).read_to_end(&mut bytes).ok()?;
+    Some(decode_lrc_text(&bytes))
+}
+
+fn read_lrc_text(path: &Path) -> Option<String> {
+    fs::read(path).ok().map(|bytes| decode_lrc_text(&bytes))
+}
+
+fn decode_lrc_text(bytes: &[u8]) -> String {
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return text.trim_start_matches('\u{feff}').to_string();
+    }
+    if let Some(bytes) = bytes.strip_prefix(&[0xff, 0xfe]) {
+        let utf16 = bytes
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect::<Vec<_>>();
+        return String::from_utf16_lossy(&utf16);
+    }
+    if let Some(bytes) = bytes.strip_prefix(&[0xfe, 0xff]) {
+        let utf16 = bytes
+            .chunks_exact(2)
+            .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+            .collect::<Vec<_>>();
+        return String::from_utf16_lossy(&utf16);
+    }
+    let (text, _, _) = GBK.decode(bytes);
+    text.into_owned()
+}
+
 pub async fn fetch_lyrics(
     title: &str,
     artist: &str,
     duration_secs: u64,
+    mode: LyricsMode,
     source: &str,
-    fallback: bool,
     local_dir: Option<&str>,
 ) -> Option<Arc<Vec<LyricLine>>> {
     if title.is_empty() {
         return None;
     }
 
-    // 1. Local .lrc file takes priority
-    if let Some(dir) = local_dir
-        && !dir.is_empty()
-        && let Some(lyrics) = fetch_lyrics_local(title, artist, dir)
-    {
-        return Some(lyrics);
+    if mode == LyricsMode::Lrc {
+        let dir = local_dir.filter(|dir| !dir.trim().is_empty())?;
+        let title = title.to_string();
+        let artist = artist.to_string();
+        let dir = dir.to_string();
+        return tokio::task::spawn_blocking(move || fetch_lyrics_local(&title, &artist, &dir))
+            .await
+            .ok()
+            .flatten();
     }
 
-    // 2. Without an artist the online search is unreliable — it may match a
-    //    totally unrelated song (e.g. a browser video title hitting a random
-    //    NetEase hit). Only try the selected source once, skip fallback.
-    if artist.trim().is_empty() {
-        return fetch_online_lyrics(source, title, "", duration_secs).await;
-    }
-
-    // 3. Online sources
     if let Some(lyrics) = fetch_online_lyrics(source, title, artist, duration_secs).await {
         return Some(lyrics);
     }
-    if fallback {
-        for fallback_source in fallback_sources(source) {
-            if let Some(lyrics) =
-                fetch_online_lyrics(fallback_source, title, artist, duration_secs).await
-            {
-                return Some(lyrics);
-            }
+    for fallback_source in fallback_sources(source) {
+        if let Some(lyrics) =
+            fetch_online_lyrics(fallback_source, title, artist, duration_secs).await
+        {
+            return Some(lyrics);
         }
     }
     None
@@ -415,85 +713,86 @@ fn artist_matches(artist: &str, singer: &str) -> bool {
 fn parse_lyrics(lrc: &str, tlrc: &str) -> Vec<LyricLine> {
     let mut map: BTreeMap<u64, String> = BTreeMap::new();
 
-    let mut process_content = |content: &str| {
-        for line in content.lines() {
-            let line = line.trim();
-            if !line.starts_with('[') {
+    let mut process_content = |content: &str, keep_empty: bool| {
+        let normalized = normalize_lrc_timestamps(content);
+        let Ok(lyrics) = Lyrics::from_str(&normalized) else {
+            return;
+        };
+        for (timestamp, text) in lyrics.get_timed_lines() {
+            let text = text.trim();
+            if text.is_empty() && !keep_empty {
                 continue;
             }
-
-            let parts: Vec<&str> = line.split(']').collect();
-            if parts.len() < 2 {
+            let timestamp = timestamp.get_timestamp();
+            if timestamp < 0 {
                 continue;
             }
-
-            let text = parts[parts.len() - 1].trim().to_string();
-            if text.is_empty() && content == lrc {
-                // Keep empty lines from main lrc to allow clearing screen
-            } else if text.is_empty() {
-                continue;
-            }
-
-            for time_part in &parts[..parts.len() - 1] {
-                let time_str = time_part.trim_start_matches('[');
-                if let Some(ms) = parse_time(time_str) {
-                    map.entry(ms)
-                        .and_modify(|e| {
-                            if e.is_empty() && !text.is_empty() {
-                                *e = text.clone();
-                            }
-                        })
-                        .or_insert(text.clone());
-                }
-            }
+            map.entry(timestamp as u64)
+                .and_modify(|current| {
+                    if current.is_empty() && !text.is_empty() {
+                        *current = text.to_string();
+                    }
+                })
+                .or_insert_with(|| text.to_string());
         }
     };
 
-    process_content(lrc);
-    process_content(tlrc);
+    process_content(lrc, true);
+    process_content(tlrc, false);
 
     map.into_iter()
         .map(|(time_ms, text)| LyricLine { time_ms, text })
         .collect()
 }
 
-fn parse_time(time_str: &str) -> Option<u64> {
-    let parts: Vec<&str> = time_str.split(':').collect();
-    if parts.len() < 2 {
-        return None;
-    }
+fn normalize_lrc_timestamps(content: &str) -> String {
+    let bytes = content.as_bytes();
+    let mut output = String::with_capacity(content.len());
+    let mut copied_until = 0;
+    let mut index = 0;
 
-    let mins = parts[0].parse::<u64>().ok()?;
-
-    let rest = parts[1];
-    let (secs_str, ms_str) = if let Some(dot_idx) = rest.find('.') {
-        (&rest[..dot_idx], Some(&rest[dot_idx + 1..]))
-    } else if let Some(colon_idx) = rest.find(':') {
-        (&rest[..colon_idx], Some(&rest[colon_idx + 1..]))
-    } else if parts.len() > 2 {
-        (parts[1], Some(parts[2]))
-    } else {
-        (rest, None)
-    };
-
-    let secs = secs_str.parse::<u64>().ok()?;
-    let mut ms = 0;
-    if let Some(ms_raw) = ms_str {
-        let mut raw = ms_raw.to_string();
-        raw.retain(|c| c.is_ascii_digit());
-        if !raw.is_empty() {
-            ms = raw.parse::<u64>().ok().unwrap_or(0);
-            if raw.len() == 2 {
-                ms *= 10;
-            } else if raw.len() == 1 {
-                ms *= 100;
-            } else if raw.len() > 3 {
-                ms /= 10u64.pow((raw.len() - 3) as u32);
-            }
+    while index < bytes.len() {
+        if bytes[index] != b'[' && bytes[index] != b'<' {
+            index += 1;
+            continue;
         }
+        let tag_start = index;
+        index += 1;
+        while index < bytes.len() && bytes[index].is_ascii_digit() {
+            index += 1;
+        }
+        if index == tag_start + 1 || bytes.get(index) != Some(&b':') {
+            continue;
+        }
+        index += 1;
+        let seconds_start = index;
+        while index < bytes.len() && bytes[index].is_ascii_digit() {
+            index += 1;
+        }
+        if index == seconds_start || bytes.get(index) != Some(&b'.') {
+            continue;
+        }
+        index += 1;
+        let fraction_start = index;
+        while index < bytes.len() && bytes[index].is_ascii_digit() {
+            index += 1;
+        }
+        if index - fraction_start <= 2 || !matches!(bytes.get(index), Some(b']') | Some(b'>')) {
+            continue;
+        }
+
+        output.push_str(&content[copied_until..fraction_start]);
+        output.push(char::from(bytes[fraction_start]));
+        output.push(char::from(bytes[fraction_start + 1]));
+        copied_until = index;
     }
 
-    Some(mins * 60000 + secs * 1000 + ms)
+    if copied_until == 0 {
+        content.to_string()
+    } else {
+        output.push_str(&content[copied_until..]);
+        output
+    }
 }
 
 fn url_encode(input: &str) -> String {

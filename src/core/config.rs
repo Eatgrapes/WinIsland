@@ -137,6 +137,8 @@ pub struct AppConfig {
     pub smtc_known_apps: Vec<String>,
     #[serde(default = "default_show_lyrics")]
     pub show_lyrics: bool,
+    #[serde(default = "default_lyrics_mode")]
+    pub lyrics_mode: String,
     #[serde(default = "default_lyrics_local_dir")]
     pub lyrics_local_dir: Option<String>,
     #[serde(default = "default_custom_font")]
@@ -157,8 +159,6 @@ pub struct AppConfig {
     pub language: String,
     #[serde(default = "default_lyrics_source")]
     pub lyrics_source: String,
-    #[serde(default = "default_lyrics_fallback")]
-    pub lyrics_fallback: bool,
     #[serde(default = "default_lyrics_delay")]
     pub lyrics_delay: f64,
     #[serde(default = "default_lyrics_scroll")]
@@ -213,6 +213,10 @@ fn default_show_lyrics() -> bool {
     true
 }
 
+fn default_lyrics_mode() -> String {
+    "online".to_string()
+}
+
 fn default_smtc_known_apps() -> Vec<String> {
     Vec::new()
 }
@@ -255,10 +259,6 @@ fn default_language() -> String {
 
 fn default_lyrics_source() -> String {
     "163".to_string()
-}
-
-fn default_lyrics_fallback() -> bool {
-    true
 }
 
 fn default_lyrics_delay() -> f64 {
@@ -467,6 +467,7 @@ impl Default for AppConfig {
             smtc_apps: Vec::new(),
             smtc_known_apps: default_smtc_known_apps(),
             show_lyrics: default_show_lyrics(),
+            lyrics_mode: default_lyrics_mode(),
             lyrics_local_dir: default_lyrics_local_dir(),
             custom_font_path: default_custom_font(),
             auto_start: default_auto_start(),
@@ -477,7 +478,6 @@ impl Default for AppConfig {
             update_check_interval: default_update_check_interval(),
             language: default_language(),
             lyrics_source: default_lyrics_source(),
-            lyrics_fallback: default_lyrics_fallback(),
             lyrics_delay: default_lyrics_delay(),
             lyrics_scroll: default_lyrics_scroll(),
             lyrics_scroll_max_width: default_lyrics_scroll_max_width(),

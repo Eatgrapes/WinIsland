@@ -19,6 +19,7 @@ pub fn draw_widget_page(
     _dt: f32,
     widget_layout: &[WidgetSlot],
     text_color: Color,
+    show_page_switcher: bool,
 ) -> bool {
     let mut animating = false;
 
@@ -46,7 +47,7 @@ pub fn draw_widget_page(
         }
     }
 
-    if alpha > 0 {
+    if show_page_switcher && alpha > 0 {
         draw_arrow_left(
             canvas,
             ox + 7.5 * scale,

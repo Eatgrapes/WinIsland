@@ -242,9 +242,9 @@ impl App {
                     {
                         self.migrate_legacy_dock_position(monitor.position(), monitor.size());
                     }
+                    self.smtc.set_lyrics_mode(self.config.lyrics_mode.clone());
                     self.smtc
                         .set_lyrics_source(self.config.lyrics_source.clone());
-                    self.smtc.set_lyrics_fallback(self.config.lyrics_fallback);
                     self.smtc
                         .set_lyrics_local_dir(self.config.lyrics_local_dir.clone());
                     self.smtc.set_allowed_apps(self.config.smtc_apps.clone());

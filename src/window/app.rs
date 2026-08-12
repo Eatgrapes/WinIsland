@@ -38,8 +38,8 @@ enum HideEdge {
     Right,
 }
 
-fn should_show_widget_view(has_media: bool) -> bool {
-    !has_media
+fn should_show_widget_view(music_page_available: bool) -> bool {
+    !music_page_available
 }
 
 struct PluginMediaSource {
@@ -59,6 +59,7 @@ pub struct App {
     config: AppConfig,
     expanded: bool,
     widget_view: bool,
+    music_page_available: bool,
     visible: bool,
     springs: IslandSprings,
     geom: WindowGeometry,
@@ -116,12 +117,14 @@ impl Default for App {
             config: config.clone(),
             expanded: false,
             widget_view: false,
+            music_page_available: false,
             visible: true,
             springs: IslandSprings::new(&config),
             geom: WindowGeometry::default(),
             smtc: SmtcListener::new(
+                config.lyrics_mode.clone(),
                 config.lyrics_source.clone(),
-                config.lyrics_fallback,
+                config.lyrics_local_dir.clone(),
                 config.smtc_apps.clone(),
             ),
             audio: AudioProcessor::new(),

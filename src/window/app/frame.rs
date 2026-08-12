@@ -275,8 +275,17 @@ impl App {
         }
         self.audio.set_target_app_id(self.audio_target_app_id());
         let music_active = self.media_active();
+        let media_is_playing = music_active && self.current_media_info().is_playing;
+        let music_became_available = music_active && !self.music_page_available;
+        self.music_page_available = music_active;
+        if !self.music_page_available && self.expanded {
+            self.widget_view = true;
+            self.springs.view.value = 1.0;
+            self.springs.view.velocity = 0.0;
+        } else if music_became_available && self.expanded {
+            self.widget_view = false;
+        }
         let media = self.current_media_info();
-        let media_is_playing = music_active && media.is_playing;
         let title = media.title.clone();
         let artist = media.artist.clone();
         let album = media.album.clone();
@@ -527,7 +536,11 @@ impl App {
         } else {
             (lyric_target_w, default_target_h, default_target_r)
         };
-        let target_view = if self.widget_view { 1.0 } else { 0.0 };
+        let target_view = if self.widget_view || !self.music_page_available {
+            1.0
+        } else {
+            0.0
+        };
         self.springs.w.update_dt(target_w, 0.10, 0.68, dt);
         self.springs.h.update_dt(target_h, 0.10, 0.68, dt);
         self.springs.r.update_dt(target_r, 0.10, 0.68, dt);
