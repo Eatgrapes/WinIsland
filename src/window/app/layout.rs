@@ -446,7 +446,7 @@ impl App {
         is_paused: bool,
         dt: f32,
     ) -> f32 {
-        let target_base_w = if music_active && !self.expanded {
+        let target_base_w = if music_active && !self.expanded && !self.is_width_hiding() {
             let has_visible_lyrics = self.config.show_lyrics
                 && (!self.lyrics.current_text.is_empty()
                     || (!self.lyrics.old_text.is_empty() && self.lyrics.transition < 1.0));

@@ -86,6 +86,8 @@ pub struct App {
     last_config_modified: Option<SystemTime>,
     next_frame_deadline: Instant,
     animation_frame_interval: Duration,
+    width_hiding_last_frame: bool,
+    restoring_hide_width: bool,
     seek: SeekDrag,
     is_fullscreen_suppressed: bool,
     is_cursor_suppressed: bool,
@@ -152,6 +154,8 @@ impl Default for App {
             last_config_modified,
             next_frame_deadline: Instant::now(),
             animation_frame_interval: DEFAULT_ANIMATION_FRAME_INTERVAL,
+            width_hiding_last_frame: false,
+            restoring_hide_width: false,
             seek: SeekDrag::default(),
             is_fullscreen_suppressed: false,
             is_cursor_suppressed: false,
@@ -385,6 +389,10 @@ impl App {
 
     fn is_hidden(&self) -> bool {
         self.hide.is_hidden()
+    }
+
+    fn is_width_hiding(&self) -> bool {
+        self.is_hidden() || (self.is_dragging && self.hide.origin.is_some())
     }
 
     fn reveal_island(&mut self) {

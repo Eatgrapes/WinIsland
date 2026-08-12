@@ -542,7 +542,25 @@ impl App {
         } else {
             0.0
         };
-        self.springs.w.update_dt(target_w, 0.10, 0.68, dt);
+        let width_hiding = self.is_width_hiding();
+        if self.width_hiding_last_frame && !width_hiding {
+            self.restoring_hide_width = true;
+        } else if width_hiding {
+            self.restoring_hide_width = false;
+        }
+        self.width_hiding_last_frame = width_hiding;
+
+        if self.restoring_hide_width {
+            let progress = 1.0 - 0.78_f32.powf(dt);
+            self.springs.w.value += (target_w - self.springs.w.value) * progress;
+            self.springs.w.velocity = 0.0;
+            if (target_w - self.springs.w.value).abs() <= 0.25 * self.config.global_scale {
+                self.springs.w.value = target_w;
+                self.restoring_hide_width = false;
+            }
+        } else {
+            self.springs.w.update_dt(target_w, 0.10, 0.68, dt);
+        }
         self.springs.h.update_dt(target_h, 0.10, 0.68, dt);
         self.springs.r.update_dt(target_r, 0.10, 0.68, dt);
         self.springs.view.update_dt(target_view, 0.12, 0.68, dt);
