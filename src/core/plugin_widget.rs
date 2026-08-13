@@ -1,13 +1,30 @@
+use crate::core::config::PluginWidgetId;
 use crate::plugin::types::WidgetDrawFnV1;
 
+#[derive(Clone)]
 pub struct PluginWidget {
     pub id: u64,
+    pub plugin_id: String,
+    pub key: Option<String>,
     pub span_cols: u32,
     pub span_rows: u32,
     pub title: String,
     pub body: String,
     pub on_draw: Option<WidgetDrawFnV1>,
     pub callback_data: usize,
+}
+
+impl PluginWidget {
+    pub fn layout_id(&self) -> Option<PluginWidgetId> {
+        Some(PluginWidgetId {
+            plugin_id: self.plugin_id.clone(),
+            widget_key: self.key.clone()?,
+        })
+    }
+
+    pub fn span(&self) -> (usize, usize) {
+        (self.span_cols as usize, self.span_rows as usize)
+    }
 }
 
 pub struct WidgetManager {
@@ -41,5 +58,13 @@ impl WidgetManager {
 
     pub fn widgets(&self) -> &[PluginWidget] {
         &self.plugin_widgets
+    }
+
+    pub fn configurable_widgets(&self) -> Vec<PluginWidget> {
+        self.plugin_widgets
+            .iter()
+            .filter(|widget| widget.key.is_some())
+            .cloned()
+            .collect()
     }
 }

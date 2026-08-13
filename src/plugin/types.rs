@@ -97,12 +97,15 @@ pub fn context_from_ffi(
 }
 
 pub fn widget_from_ffi(
-    _owner: PluginToken,
+    plugin_id: &str,
     id: ResourceId,
     value: &WidgetDataV1,
 ) -> crate::core::plugin_widget::PluginWidget {
+    let key = read_c_str(&value.key);
     crate::core::plugin_widget::PluginWidget {
         id,
+        plugin_id: plugin_id.to_string(),
+        key: (!key.is_empty()).then_some(key),
         span_cols: value.span_cols,
         span_rows: value.span_rows,
         title: read_c_str(&value.title),

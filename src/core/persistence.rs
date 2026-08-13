@@ -1,4 +1,6 @@
-use crate::core::config::{AppConfig, MAX_HIDDEN_WIDTH, MIN_HIDDEN_WIDTH, ensure_settings_widget};
+use crate::core::config::{
+    AppConfig, MAX_HIDDEN_WIDTH, MIN_HIDDEN_WIDTH, WIDGET_GRID_SLOTS, ensure_settings_widget,
+};
 use std::fs;
 use std::path::PathBuf;
 pub fn get_config_path() -> PathBuf {
@@ -65,6 +67,25 @@ pub fn load_config() -> AppConfig {
         migrated = true;
     }
     if ensure_settings_widget(&mut config.widget_layout) {
+        migrated = true;
+    }
+    let plugin_layout_len = config.plugin_widget_layout.len();
+    config.plugin_widget_layout.retain(|entry| {
+        entry.slot < WIDGET_GRID_SLOTS
+            && entry.plugin_id.len() <= 255
+            && entry.widget_key.len() <= 63
+            && !entry.plugin_id.is_empty()
+            && !entry.widget_key.is_empty()
+            && entry
+                .plugin_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+            && entry
+                .widget_key
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    });
+    if config.plugin_widget_layout.len() != plugin_layout_len {
         migrated = true;
     }
     if migrated {

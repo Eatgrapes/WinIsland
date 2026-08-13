@@ -88,6 +88,7 @@ struct ResourceOwner {
 }
 
 struct PluginRegistration {
+    id: String,
     capabilities: u64,
     stopping: bool,
 }
@@ -110,6 +111,7 @@ struct RuntimeState {
     media_sequence: u64,
     media_dirty: bool,
     widget_events: HashMap<ResourceId, WidgetEvent>,
+    widget_keys: HashMap<(PluginToken, String), ResourceId>,
     host_state: HostState,
 }
 
@@ -266,6 +268,44 @@ unsafe fn read_struct<T: Copy>(value: *const T) -> Result<T, &'static str> {
     Ok(unsafe { std::ptr::read_unaligned(value) })
 }
 
+unsafe fn read_widget_data(value: *const WidgetDataV1) -> Result<WidgetDataV1, &'static str> {
+    if value.is_null() {
+        return Err("input pointer is null");
+    }
+    // SAFETY: Plugin widget inputs start with a readable struct_size field.
+    let struct_size = unsafe { std::ptr::read_unaligned(value.cast::<u32>()) } as usize;
+    let legacy_size = std::mem::offset_of!(WidgetDataV1, key);
+    if struct_size < legacy_size {
+        return Err("input struct is truncated");
+    }
+    let mut data = std::mem::MaybeUninit::<WidgetDataV1>::zeroed();
+    // SAFETY: The trusted plugin reports at least the legacy prefix length. Copying only the
+    // smaller of its version and the host version preserves compatibility with both layouts.
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            value.cast::<u8>(),
+            data.as_mut_ptr().cast::<u8>(),
+            struct_size.min(std::mem::size_of::<WidgetDataV1>()),
+        );
+        Ok(data.assume_init())
+    }
+}
+
+fn validate_widget_key(key: &[u8; 64]) -> Result<Option<String>, &'static str> {
+    let end = key.iter().position(|byte| *byte == 0).unwrap_or(key.len());
+    if end == 0 {
+        return Ok(None);
+    }
+    if end == key.len()
+        || !key[..end]
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-' || *byte == b'_')
+    {
+        return Err("widget key must match [a-zA-Z0-9_-]{1,63}");
+    }
+    Ok(Some(String::from_utf8_lossy(&key[..end]).into_owned()))
+}
+
 unsafe fn read_utf8(value: Utf8SliceV1, max_len: u32) -> Result<String, &'static str> {
     if value.len > max_len {
         return Err("UTF-8 value exceeds the size limit");
@@ -291,7 +331,7 @@ unsafe extern "C" fn context_create(
     if out_id.is_null() {
         return PluginResultC::err("resource output pointer is null");
     }
-    // SAFETY: Validation is performed by read_struct before the value is used.
+    // SAFETY: read_widget_data validates and copies the versioned widget structure.
     let data = match unsafe { read_struct(data) } {
         Ok(data) => data,
         Err(error) => return PluginResultC::err(error),
@@ -340,7 +380,7 @@ unsafe extern "C" fn context_update(
     id: ResourceId,
     data: *const ContextDataV1,
 ) -> PluginResultC {
-    // SAFETY: Validation is performed by read_struct before the value is used.
+    // SAFETY: read_widget_data validates and copies the versioned widget structure.
     let data = match unsafe { read_struct(data) } {
         Ok(data) => data,
         Err(error) => return PluginResultC::err(error),
@@ -1039,7 +1079,7 @@ unsafe extern "C" fn widget_create(
         return PluginResultC::err("widget output pointer is null");
     }
     // SAFETY: Validation is performed by read_struct before the value is used.
-    let data = match unsafe { read_struct(data) } {
+    let data = match unsafe { read_widget_data(data) } {
         Ok(data) => data,
         Err(error) => return PluginResultC::err(error),
     };
@@ -1066,8 +1106,22 @@ unsafe extern "C" fn widget_create(
     if resource_count(&state, token, ResourceKind::Widget) >= MAX_WIDGETS_PER_PLUGIN {
         return PluginResultC::err("widget resource limit reached");
     }
+    let plugin_id = match state.plugins.get(&token) {
+        Some(plugin) => plugin.id.clone(),
+        None => return PluginResultC::err("invalid plugin token"),
+    };
+    let key = match validate_widget_key(&data.key) {
+        Ok(key) => key,
+        Err(error) => return PluginResultC::err(error),
+    };
+    if key
+        .as_ref()
+        .is_some_and(|key| state.widget_keys.contains_key(&(token, key.to_string())))
+    {
+        return PluginResultC::err("widget key is already registered by this plugin");
+    }
     let id = next_id(&NEXT_RESOURCE_ID);
-    let widget = widget_from_ffi(token, id, &data);
+    let widget = widget_from_ffi(&plugin_id, id, &data);
     let size_bytes = widget.title.len() + widget.body.len();
     state.resources.insert(
         id,
@@ -1077,6 +1131,9 @@ unsafe extern "C" fn widget_create(
             size_bytes,
         },
     );
+    if let Some(key) = key {
+        state.widget_keys.insert((token, key), id);
+    }
     state.widget_events.insert(id, WidgetEvent::Upsert(widget));
     // SAFETY: out_id was checked non-null and belongs to the caller.
     unsafe { out_id.write(id) };
@@ -1091,7 +1148,7 @@ unsafe extern "C" fn widget_update(
     data: *const WidgetDataV1,
 ) -> PluginResultC {
     // SAFETY: Validation is performed by read_struct before the value is used.
-    let data = match unsafe { read_struct(data) } {
+    let data = match unsafe { read_widget_data(data) } {
         Ok(data) => data,
         Err(error) => return PluginResultC::err(error),
     };
@@ -1108,8 +1165,6 @@ unsafe extern "C" fn widget_update(
     if data.on_draw.is_none() {
         return PluginResultC::err("widget render callback is required");
     }
-    let widget = widget_from_ffi(token, id, &data);
-    let size_bytes = widget.title.len() + widget.body.len();
     let mut state = match runtime().lock() {
         Ok(state) => state,
         Err(_) => return PluginResultC::err("plugin runtime lock is poisoned"),
@@ -1117,6 +1172,25 @@ unsafe extern "C" fn widget_update(
     if let Err(error) = require_resource(&state, token, id, ResourceKind::Widget) {
         return PluginResultC::err(error);
     }
+    let key = match validate_widget_key(&data.key) {
+        Ok(key) => key,
+        Err(error) => return PluginResultC::err(error),
+    };
+    let existing_key = state
+        .widget_keys
+        .iter()
+        .find_map(|((owner, key), resource)| {
+            (*owner == token && *resource == id).then_some(key.as_str())
+        });
+    if existing_key != key.as_deref() {
+        return PluginResultC::err("widget key cannot change after creation");
+    }
+    let plugin_id = match state.plugins.get(&token) {
+        Some(plugin) => plugin.id.clone(),
+        None => return PluginResultC::err("invalid plugin token"),
+    };
+    let widget = widget_from_ffi(&plugin_id, id, &data);
+    let size_bytes = widget.title.len() + widget.body.len();
     if let Some(owner) = state.resources.get_mut(&id) {
         owner.size_bytes = size_bytes;
     }
@@ -1135,6 +1209,9 @@ unsafe extern "C" fn widget_release(token: PluginToken, id: ResourceId) -> Plugi
         return PluginResultC::err(error);
     }
     state.resources.remove(&id);
+    state
+        .widget_keys
+        .retain(|_, resource_id| *resource_id != id);
     state.widget_events.remove(&id);
     state.widget_events.insert(id, WidgetEvent::Remove(id));
     drop(state);
@@ -1202,15 +1279,16 @@ pub fn drain_pending_contexts(manager: &mut crate::core::context::ContextManager
     }
 }
 
-pub fn drain_widget_events(manager: &mut crate::core::plugin_widget::WidgetManager) {
+pub fn drain_widget_events(manager: &mut crate::core::plugin_widget::WidgetManager) -> bool {
     let events = match runtime().lock() {
         Ok(mut runtime) => runtime
             .widget_events
             .drain()
             .map(|(_, event)| event)
             .collect::<Vec<_>>(),
-        Err(_) => return,
+        Err(_) => return false,
     };
+    let changed = !events.is_empty();
     for event in events {
         match event {
             WidgetEvent::Upsert(widget) => manager.upsert_widget(widget),
@@ -1219,6 +1297,7 @@ pub fn drain_widget_events(manager: &mut crate::core::plugin_widget::WidgetManag
             }
         }
     }
+    changed
 }
 
 pub fn drain_media_source_event() -> Option<MediaSourceEvent> {
@@ -1295,13 +1374,18 @@ pub fn dispatch_media_command(
     Ok(())
 }
 
-fn register_plugin(token: PluginToken, capabilities: u64) -> Result<(), PluginError> {
+fn register_plugin(
+    token: PluginToken,
+    plugin_id: &str,
+    capabilities: u64,
+) -> Result<(), PluginError> {
     let mut runtime = runtime()
         .lock()
         .map_err(|_| PluginError::ExecutionError("plugin runtime lock is poisoned".to_string()))?;
     runtime.plugins.insert(
         token,
         PluginRegistration {
+            id: plugin_id.to_string(),
             capabilities,
             stopping: false,
         },
@@ -1351,6 +1435,7 @@ fn revoke_plugin(token: PluginToken) {
             return;
         };
         runtime.plugins.remove(&token);
+        runtime.widget_keys.retain(|(owner, _), _| *owner != token);
         let resources = runtime
             .resources
             .iter()
@@ -1456,7 +1541,7 @@ impl PluginManager {
         }
 
         let token = next_id(&NEXT_PLUGIN_TOKEN);
-        register_plugin(token, plugin.capabilities())?;
+        register_plugin(token, &plugin_id, plugin.capabilities())?;
         if let Err(error) = plugin.initialize(token, host_api()) {
             if let Err(shutdown_error) = begin_plugin_shutdown(token) {
                 entries.push(plugin);

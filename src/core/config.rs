@@ -110,6 +110,28 @@ pub struct WidgetSlot {
     pub widget: Option<WidgetKind>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct PluginWidgetId {
+    pub plugin_id: String,
+    pub widget_key: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct PluginWidgetSlot {
+    pub plugin_id: String,
+    pub widget_key: String,
+    pub slot: usize,
+}
+
+impl PluginWidgetSlot {
+    pub fn id(&self) -> PluginWidgetId {
+        PluginWidgetId {
+            plugin_id: self.plugin_id.clone(),
+            widget_key: self.widget_key.clone(),
+        }
+    }
+}
+
 fn deserialize_widget_kind<'de, D>(deserializer: D) -> Result<Option<WidgetKind>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -198,6 +220,8 @@ pub struct AppConfig {
     pub notification_display: bool,
     #[serde(default = "default_widget_layout")]
     pub widget_layout: Vec<WidgetSlot>,
+    #[serde(default)]
+    pub plugin_widget_layout: Vec<PluginWidgetSlot>,
 }
 
 fn default_right_click_drag() -> bool {
@@ -492,6 +516,149 @@ pub fn clear_widget_slot(layout: &mut [WidgetSlot], target_slot: usize) {
     clear_cells(layout, &[target_slot]);
 }
 
+pub fn plugin_widget_slot<'a>(
+    layout: &'a [PluginWidgetSlot],
+    id: &PluginWidgetId,
+) -> Option<&'a PluginWidgetSlot> {
+    layout
+        .iter()
+        .find(|entry| entry.plugin_id == id.plugin_id && entry.widget_key == id.widget_key)
+}
+
+pub fn clear_plugin_widget(layout: &mut Vec<PluginWidgetSlot>, id: &PluginWidgetId) {
+    layout.retain(|entry| entry.plugin_id != id.plugin_id || entry.widget_key != id.widget_key);
+}
+
+pub fn plugin_widget_covering_slot<'a>(
+    layout: &'a [PluginWidgetSlot],
+    widgets: &'a [crate::core::plugin_widget::PluginWidget],
+    target_slot: usize,
+) -> Option<(
+    &'a PluginWidgetSlot,
+    &'a crate::core::plugin_widget::PluginWidget,
+)> {
+    layout.iter().find_map(|entry| {
+        let widget = widgets.iter().find(|widget| {
+            widget.plugin_id == entry.plugin_id
+                && widget.key.as_deref() == Some(entry.widget_key.as_str())
+        })?;
+        span_cells(entry.slot, widget.span())
+            .contains(&target_slot)
+            .then_some((entry, widget))
+    })
+}
+
+pub fn clear_plugin_widgets_in_cells(
+    layout: &mut Vec<PluginWidgetSlot>,
+    widgets: &[crate::core::plugin_widget::PluginWidget],
+    cells: &[usize],
+) {
+    layout.retain(|entry| {
+        let Some(widget) = widgets.iter().find(|widget| {
+            widget.plugin_id == entry.plugin_id
+                && widget.key.as_deref() == Some(entry.widget_key.as_str())
+        }) else {
+            return true;
+        };
+        !span_cells(entry.slot, widget.span())
+            .iter()
+            .any(|cell| cells.contains(cell))
+    });
+}
+
+pub fn normalize_active_plugin_widget_layout(
+    widget_layout: &[WidgetSlot],
+    plugin_layout: &mut Vec<PluginWidgetSlot>,
+    widgets: &[crate::core::plugin_widget::PluginWidget],
+) -> bool {
+    let original = plugin_layout.clone();
+    let mut occupied = [false; WIDGET_GRID_SLOTS];
+    for entry in widget_layout {
+        if let Some(widget) = entry.widget {
+            for cell in widget_footprint(widget, entry.slot) {
+                occupied[cell] = true;
+            }
+        }
+    }
+    let mut normalized = Vec::with_capacity(plugin_layout.len());
+    for entry in plugin_layout.drain(..) {
+        let Some(widget) = widgets.iter().find(|widget| {
+            widget.plugin_id == entry.plugin_id
+                && widget.key.as_deref() == Some(entry.widget_key.as_str())
+        }) else {
+            normalized.push(entry);
+            continue;
+        };
+        let duplicate = normalized.iter().any(|existing: &PluginWidgetSlot| {
+            existing.plugin_id == entry.plugin_id && existing.widget_key == entry.widget_key
+        });
+        let cells = span_cells(entry.slot, widget.span());
+        if duplicate || cells.is_empty() || cells.iter().any(|cell| occupied[*cell]) {
+            continue;
+        }
+        for cell in cells {
+            occupied[cell] = true;
+        }
+        normalized.push(entry);
+    }
+    let changed = normalized != original;
+    *plugin_layout = normalized;
+    changed
+}
+
+pub fn place_plugin_widget(
+    widget_layout: &mut Vec<WidgetSlot>,
+    plugin_layout: &mut Vec<PluginWidgetSlot>,
+    widgets: &[crate::core::plugin_widget::PluginWidget],
+    id: &PluginWidgetId,
+    target_slot: usize,
+) -> bool {
+    let Some(widget) = widgets
+        .iter()
+        .find(|widget| widget.layout_id().as_ref() == Some(id))
+    else {
+        return false;
+    };
+    ensure_settings_widget(widget_layout);
+    let cells = span_cells(target_slot, widget.span());
+    if cells.is_empty()
+        || widget_layout
+            .iter()
+            .any(|entry| entry.widget == Some(WidgetKind::Settings) && cells.contains(&entry.slot))
+    {
+        return false;
+    }
+    clear_plugin_widget(plugin_layout, id);
+    clear_cells(widget_layout, &cells);
+    clear_plugin_widgets_in_cells(plugin_layout, widgets, &cells);
+    plugin_layout.push(PluginWidgetSlot {
+        plugin_id: id.plugin_id.clone(),
+        widget_key: id.widget_key.clone(),
+        slot: cells[0],
+    });
+    true
+}
+
+pub fn place_builtin_widget(
+    widget_layout: &mut Vec<WidgetSlot>,
+    plugin_layout: &mut Vec<PluginWidgetSlot>,
+    widgets: &[crate::core::plugin_widget::PluginWidget],
+    widget: WidgetKind,
+    target_slot: usize,
+) {
+    ensure_settings_widget(widget_layout);
+    let cells = widget_footprint(widget, target_slot);
+    let settings_slot = widget_layout
+        .iter()
+        .find(|entry| entry.widget == Some(WidgetKind::Settings))
+        .map(|entry| entry.slot);
+    if widget != WidgetKind::Settings && settings_slot.is_some_and(|slot| cells.contains(&slot)) {
+        return;
+    }
+    place_widget_in_layout(widget_layout, widget, target_slot);
+    clear_plugin_widgets_in_cells(plugin_layout, widgets, &cells);
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -533,6 +700,7 @@ impl Default for AppConfig {
             right_click_drag: default_right_click_drag(),
             notification_display: default_notification_display(),
             widget_layout: default_widget_layout(),
+            plugin_widget_layout: Vec::new(),
         }
     }
 }
