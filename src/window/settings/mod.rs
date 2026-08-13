@@ -164,7 +164,6 @@ pub struct SettingsApp {
     pub(crate) plugin_detail_closing: bool,
     pub(crate) plugin_detail_scroll: f32,
     pub(crate) plugin_detail_max_scroll: f32,
-    pub(crate) plugin_drop_hovered: bool,
     pub(crate) plugin_status: Option<(String, bool)>,
     plugin_request: Option<PluginSettingsRequest>,
     close_requested: bool,
@@ -214,7 +213,6 @@ impl SettingsApp {
             plugin_detail_closing: false,
             plugin_detail_scroll: 0.0,
             plugin_detail_max_scroll: 0.0,
-            plugin_drop_hovered: false,
             plugin_status: None,
             plugin_request: None,
             close_requested: false,
@@ -588,31 +586,12 @@ impl SettingsApp {
                     }
                 }
             }
-            WindowEvent::HoveredFile(path) => {
-                let hovered = self.active_page == 3
-                    && path
-                        .extension()
-                        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"));
-                if hovered != self.plugin_drop_hovered {
-                    self.plugin_drop_hovered = hovered;
-                    if let Some(win) = &self.window {
-                        win.request_redraw();
-                    }
-                }
-            }
-            WindowEvent::HoveredFileCancelled => {
-                self.plugin_drop_hovered = false;
-                if let Some(win) = &self.window {
-                    win.request_redraw();
-                }
-            }
             WindowEvent::DroppedFile(path)
                 if self.active_page == 3
                     && path
                         .extension()
                         .is_some_and(|extension| extension.eq_ignore_ascii_case("zip")) =>
             {
-                self.plugin_drop_hovered = false;
                 self.plugin_status = Some((crate::core::i18n::tr("plugin_installing"), false));
                 self.plugin_request = Some(PluginSettingsRequest::Install(path));
                 self.mark_items_dirty();

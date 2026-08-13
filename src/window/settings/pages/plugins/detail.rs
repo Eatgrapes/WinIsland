@@ -12,8 +12,15 @@ use super::super::super::{
     PLUGIN_DETAIL_KEY, PluginSettingsRequest, SETTINGS_HEADER_H, SIDEBAR_W, SettingsApp,
 };
 use super::{
-    DETAIL_ICON_SIZE, DETAIL_W, draw_centered_text, draw_plugin_icon, draw_toggle, markdown,
+    DETAIL_ICON_SIZE, DETAIL_W, draw_centered_text, draw_plugin_icon, draw_toggle, ellipsize_text,
+    markdown,
 };
+
+const DETAIL_PADDING: f32 = 20.0;
+const DETAIL_HEADER_Y: f32 = 80.0;
+const DETAIL_DESCRIPTION_Y: f32 = 170.0;
+const GITHUB_BUTTON_W: f32 = 116.0;
+const GITHUB_BUTTON_H: f32 = 28.0;
 
 impl SettingsApp {
     pub(crate) fn plugin_detail_contains(&self, mouse_x: f32) -> bool {
@@ -48,10 +55,6 @@ impl SettingsApp {
         let panel_x = win_w - DETAIL_W * self.anim.get(PLUGIN_DETAIL_KEY);
         let (mouse_x, mouse_y) = self.logical_mouse_pos;
         if mouse_x < panel_x {
-            self.close_plugin_detail();
-            return true;
-        }
-        if close_rect(panel_x).contains(Point::new(mouse_x, mouse_y)) {
             self.close_plugin_detail();
             return true;
         }
@@ -98,9 +101,6 @@ impl SettingsApp {
             .unwrap_or(1.0);
         let panel_x = self.win_w / scale - DETAIL_W * self.anim.get(PLUGIN_DETAIL_KEY);
         let (mouse_x, mouse_y) = self.logical_mouse_pos;
-        if close_rect(panel_x).contains(Point::new(mouse_x, mouse_y)) {
-            return true;
-        }
         let content_y = mouse_y + self.plugin_detail_scroll;
         if toggle_rect(panel_x).contains(Point::new(mouse_x, content_y))
             || (safe_github_url(&plugin.github_link)
@@ -152,95 +152,101 @@ impl SettingsApp {
         let fm = FontManager::global();
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
-        let mut y = 82.0;
+        let y = DETAIL_HEADER_Y;
         draw_plugin_icon(
             direct_context,
             canvas,
             plugin,
-            Rect::from_xywh(panel_x + 20.0, y, DETAIL_ICON_SIZE, DETAIL_ICON_SIZE),
+            Rect::from_xywh(
+                panel_x + DETAIL_PADDING,
+                y,
+                DETAIL_ICON_SIZE,
+                DETAIL_ICON_SIZE,
+            ),
+        );
+        let info_x = panel_x + DETAIL_PADDING + DETAIL_ICON_SIZE + 14.0;
+        let toggle_x = panel_x + DETAIL_W - DETAIL_PADDING - 36.0;
+        let name = ellipsize_text(
+            fm,
+            &plugin.name,
+            17.0,
+            skia_safe::FontStyle::bold(),
+            (toggle_x - info_x - 10.0).max(30.0),
         );
         paint.set_color(theme.text_pri);
         fm.draw_text_cached(DrawTextCachedParams {
             canvas,
-            text: &plugin.name,
-            x: panel_x + 108.0,
-            y: y + 25.0,
-            size: 18.0,
+            text: &name,
+            x: info_x,
+            y: y + 22.0,
+            size: 17.0,
             bold: true,
             paint: &paint,
         });
         paint.set_color(theme.text_sec);
+        let subtitle = format!("{} · v{}", plugin.author, plugin.version);
+        let subtitle = ellipsize_text(
+            fm,
+            &subtitle,
+            11.5,
+            skia_safe::FontStyle::normal(),
+            DETAIL_W - (info_x - panel_x) - DETAIL_PADDING,
+        );
         fm.draw_text_cached(DrawTextCachedParams {
             canvas,
-            text: &format!("{} · v{}", plugin.author, plugin.version),
-            x: panel_x + 108.0,
-            y: y + 49.0,
-            size: 12.0,
+            text: &subtitle,
+            x: info_x,
+            y: y + 43.0,
+            size: 11.5,
             bold: false,
             paint: &paint,
         });
-        draw_toggle(
-            canvas,
-            theme,
-            plugin.enabled,
-            panel_x + DETAIL_W - 56.0,
-            y + 28.0,
-        );
+        draw_toggle(canvas, theme, plugin.enabled, toggle_x, y + 2.0);
 
-        y += 94.0;
+        if safe_github_url(&plugin.github_link) {
+            let button = github_rect(panel_x, plugin);
+            paint.set_color(theme.control_bg);
+            canvas.draw_round_rect(button, GITHUB_BUTTON_H / 2.0, GITHUB_BUTTON_H / 2.0, &paint);
+            paint.set_color(theme.accent);
+            let label = ellipsize_text(
+                fm,
+                &tr("plugin_open_github"),
+                11.0,
+                skia_safe::FontStyle::bold(),
+                GITHUB_BUTTON_W - 20.0,
+            );
+            draw_centered_text(
+                canvas,
+                fm,
+                &label,
+                button.center_x(),
+                button.top + 18.0,
+                11.0,
+                true,
+                &paint,
+            );
+        }
+
+        let mut y = DETAIL_DESCRIPTION_Y;
         let description = markdown::render(markdown::MarkdownRenderParams {
             canvas,
             markdown: &plugin.description,
-            origin: (panel_x + 20.0, y),
-            width: DETAIL_W - 40.0,
+            origin: (panel_x + DETAIL_PADDING, y),
+            width: DETAIL_W - DETAIL_PADDING * 2.0,
             visible_range: (
                 self.plugin_detail_scroll + SETTINGS_HEADER_H,
                 self.plugin_detail_scroll + win_h,
             ),
             colors: markdown_colors(theme),
         });
-        y += description.height + 18.0;
-
-        if safe_github_url(&plugin.github_link) {
-            paint.set_color(theme.control_bg);
-            canvas.draw_round_rect(
-                Rect::from_xywh(panel_x + 20.0, y, DETAIL_W - 40.0, 38.0),
-                9.0,
-                9.0,
-                &paint,
-            );
-            paint.set_color(theme.accent);
-            draw_centered_text(
-                canvas,
-                fm,
-                &tr("plugin_open_github"),
-                panel_x + DETAIL_W / 2.0,
-                y + 24.0,
-                12.0,
-                true,
-                &paint,
-            );
-            y += 56.0;
-        }
-
-        paint.set_color(theme.text_pri);
-        fm.draw_text_cached(DrawTextCachedParams {
-            canvas,
-            text: &tr("plugin_readme"),
-            x: panel_x + 20.0,
-            y: y + 20.0,
-            size: 14.0,
-            bold: true,
-            paint: &paint,
-        });
-        y += 34.0;
+        y += description.height + 14.0;
         let fallback = tr("plugin_readme_empty");
         let readme = plugin.readme.as_deref().unwrap_or(&fallback);
         let readme = markdown::render(markdown::MarkdownRenderParams {
             canvas,
             markdown: readme,
-            origin: (panel_x + 20.0, y),
-            width: DETAIL_W - 40.0,
+            origin: (panel_x + DETAIL_PADDING, y),
+            width: DETAIL_W - DETAIL_PADDING * 2.0,
             visible_range: (
                 self.plugin_detail_scroll + SETTINGS_HEADER_H,
                 self.plugin_detail_scroll + win_h,
@@ -284,17 +290,8 @@ fn draw_panel_header(canvas: &Canvas, theme: &SettingsTheme, panel_x: f32) {
     paint.set_color(theme.text_pri);
     fm.draw_text_cached(DrawTextCachedParams {
         canvas,
-        text: "‹",
-        x: panel_x + 20.0,
-        y: 39.0,
-        size: 28.0,
-        bold: false,
-        paint: &paint,
-    });
-    fm.draw_text_cached(DrawTextCachedParams {
-        canvas,
         text: &tr("plugin_details"),
-        x: panel_x + 54.0,
+        x: panel_x + DETAIL_PADDING,
         y: 37.0,
         size: 15.0,
         bold: true,
@@ -302,34 +299,28 @@ fn draw_panel_header(canvas: &Canvas, theme: &SettingsTheme, panel_x: f32) {
     });
 }
 
-fn close_rect(panel_x: f32) -> Rect {
-    Rect::from_xywh(panel_x + 14.0, 16.0, 32.0, 32.0)
-}
-
 fn toggle_rect(panel_x: f32) -> Rect {
-    Rect::from_xywh(panel_x + DETAIL_W - 62.0, 82.0, 44.0, 72.0)
-}
-
-fn github_rect(panel_x: f32, plugin: &InstalledPlugin) -> Rect {
     Rect::from_xywh(
-        panel_x + 20.0,
-        plugin_github_y(plugin),
-        DETAIL_W - 40.0,
-        38.0,
+        panel_x + DETAIL_W - DETAIL_PADDING - 42.0,
+        DETAIL_HEADER_Y - 4.0,
+        48.0,
+        32.0,
     )
 }
 
-fn plugin_github_y(plugin: &InstalledPlugin) -> f32 {
-    82.0 + 94.0 + markdown::markdown_height(&plugin.description, DETAIL_W - 40.0) + 18.0
+fn github_rect(panel_x: f32, _plugin: &InstalledPlugin) -> Rect {
+    Rect::from_xywh(
+        panel_x + DETAIL_PADDING + DETAIL_ICON_SIZE + 14.0,
+        DETAIL_HEADER_Y + 50.0,
+        GITHUB_BUTTON_W,
+        GITHUB_BUTTON_H,
+    )
 }
 
 fn plugin_readme_y(plugin: &InstalledPlugin) -> f32 {
-    let github_height = if safe_github_url(&plugin.github_link) {
-        56.0
-    } else {
-        0.0
-    };
-    plugin_github_y(plugin) + github_height + 34.0
+    DETAIL_DESCRIPTION_Y
+        + markdown::markdown_height(&plugin.description, DETAIL_W - DETAIL_PADDING * 2.0)
+        + 14.0
 }
 
 fn safe_github_url(url: &str) -> bool {

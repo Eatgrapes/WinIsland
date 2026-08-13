@@ -6,7 +6,9 @@ use crate::plugin::manager::InstalledPlugin;
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::settings_ui::items::{CONTENT_PADDING, SettingsItem};
-use skia_safe::{Canvas, Color, Contains, Data, FontStyle, Image, Paint, Point, Rect};
+use skia_safe::{
+    Canvas, ClipOp, Color, Contains, Data, FontStyle, Image, Paint, Point, RRect, Rect,
+};
 
 use super::super::{
     PLUGIN_DETAIL_KEY, PluginSettingsRequest, SETTINGS_HEADER_H, SIDEBAR_W, SettingsApp,
@@ -15,11 +17,10 @@ use super::super::{
 mod detail;
 mod markdown;
 
-const DROP_ZONE_H: f32 = 112.0;
 const PLUGIN_CARD_H: f32 = 76.0;
 const PLUGIN_CARD_GAP: f32 = 10.0;
 const DETAIL_W: f32 = 350.0;
-const DETAIL_ICON_SIZE: f32 = 72.0;
+const DETAIL_ICON_SIZE: f32 = 64.0;
 
 thread_local! {
     static PLUGIN_ICONS: RefCell<HashMap<String, Image>> = RefCell::new(HashMap::new());
@@ -32,8 +33,7 @@ pub(crate) fn clear_plugin_icon_cache() {
 
 impl SettingsApp {
     pub(crate) fn build_plugin_items(&self) -> Vec<SettingsItem> {
-        let height = DROP_ZONE_H
-            + 52.0
+        let height = 52.0
             + self.plugins.len() as f32 * (PLUGIN_CARD_H + PLUGIN_CARD_GAP)
             + if self.plugin_status.is_some() {
                 62.0
@@ -90,73 +90,9 @@ impl SettingsApp {
     ) {
         let fm = FontManager::global();
         let content_w = width - CONTENT_PADDING * 2.0;
-        let drop = Rect::from_xywh(
-            CONTENT_PADDING,
-            SETTINGS_HEADER_H + 18.0,
-            content_w,
-            DROP_ZONE_H,
-        );
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
-        paint.set_color(if self.plugin_drop_hovered {
-            Color::from_argb(34, theme.accent.r(), theme.accent.g(), theme.accent.b())
-        } else {
-            theme.group_bg
-        });
-        canvas.draw_round_rect(drop, 16.0, 16.0, &paint);
-        paint.set_style(skia_safe::paint::Style::Stroke);
-        paint.set_stroke_width(if self.plugin_drop_hovered { 2.0 } else { 1.0 });
-        paint.set_color(if self.plugin_drop_hovered {
-            theme.accent
-        } else {
-            theme.group_border
-        });
-        canvas.draw_round_rect(
-            Rect::from_xywh(
-                drop.left + 0.5,
-                drop.top + 0.5,
-                drop.width() - 1.0,
-                drop.height() - 1.0,
-            ),
-            15.5,
-            15.5,
-            &paint,
-        );
-
-        paint.set_style(skia_safe::paint::Style::Fill);
-        paint.set_color(if self.plugin_drop_hovered {
-            theme.accent
-        } else {
-            theme.text_pri
-        });
-        let title = if self.plugin_drop_hovered {
-            tr("plugin_drop_release")
-        } else {
-            tr("plugin_drop_title")
-        };
-        draw_centered_text(
-            canvas,
-            fm,
-            &title,
-            drop.center_x(),
-            drop.top + 47.0,
-            15.0,
-            true,
-            &paint,
-        );
-        paint.set_color(theme.text_sec);
-        draw_centered_text(
-            canvas,
-            fm,
-            &tr("plugin_drop_hint"),
-            drop.center_x(),
-            drop.top + 73.0,
-            12.0,
-            false,
-            &paint,
-        );
-
-        let mut y = drop.bottom + 22.0;
+        let mut y = SETTINGS_HEADER_H + 18.0;
         paint.set_color(theme.text_pri);
         fm.draw_text_cached(DrawTextCachedParams {
             canvas,
@@ -218,9 +154,16 @@ impl SettingsApp {
                 Rect::from_xywh(card.left + 12.0, card.top + 12.0, 52.0, 52.0),
             );
             paint.set_color(theme.text_pri);
+            let name = ellipsize_text(
+                fm,
+                &plugin.name,
+                14.0,
+                FontStyle::bold(),
+                (card.width() - 142.0).max(20.0),
+            );
             fm.draw_text_cached(DrawTextCachedParams {
                 canvas,
-                text: &plugin.name,
+                text: &name,
                 x: card.left + 76.0,
                 y: card.top + 29.0,
                 size: 14.0,
@@ -229,6 +172,13 @@ impl SettingsApp {
             });
             paint.set_color(theme.text_sec);
             let subtitle = format!("{} · v{}", plugin.author, plugin.version);
+            let subtitle = ellipsize_text(
+                fm,
+                &subtitle,
+                11.5,
+                FontStyle::normal(),
+                (card.width() - 142.0).max(20.0),
+            );
             fm.draw_text_cached(DrawTextCachedParams {
                 canvas,
                 text: &subtitle,
@@ -257,20 +207,29 @@ impl SettingsApp {
                 theme.accent.b(),
             ));
             canvas.draw_round_rect(status, 12.0, 12.0, &paint);
+            let label = restart.then(|| tr("plugin_restart_now"));
+            let label_w = label.as_ref().map_or(0.0, |label| {
+                fm.measure_text_cached(label, 12.0, FontStyle::bold())
+            });
+            let message = ellipsize_text(
+                fm,
+                message,
+                12.0,
+                FontStyle::normal(),
+                (status.width() - 28.0 - label_w - if *restart { 24.0 } else { 0.0 }).max(20.0),
+            );
             paint.set_color(theme.text_pri);
             fm.draw_text_cached(DrawTextCachedParams {
                 canvas,
-                text: message,
+                text: &message,
                 x: status.left + 14.0,
                 y: status.top + 29.0,
                 size: 12.0,
                 bold: false,
                 paint: &paint,
             });
-            if *restart {
+            if let Some(label) = label {
                 paint.set_color(theme.accent);
-                let label = tr("plugin_restart_now");
-                let label_w = fm.measure_text_cached(&label, 12.0, FontStyle::normal());
                 fm.draw_text_cached(DrawTextCachedParams {
                     canvas,
                     text: &label,
@@ -330,7 +289,7 @@ impl SettingsApp {
             .unwrap_or(1.0);
         let width = self.win_w / scale - SIDEBAR_W;
         let content_w = width - CONTENT_PADDING * 2.0;
-        let mut y = SETTINGS_HEADER_H + 18.0 + DROP_ZONE_H + 56.0;
+        let mut y = SETTINGS_HEADER_H + 52.0;
         for (index, _) in self.plugins.iter().enumerate() {
             let card = Rect::from_xywh(CONTENT_PADDING, y, content_w, PLUGIN_CARD_H);
             if card.contains(Point::new(mx, my)) {
@@ -354,8 +313,7 @@ impl SettingsApp {
         let content_w = width - CONTENT_PADDING * 2.0;
         let y = SETTINGS_HEADER_H
             + 18.0
-            + DROP_ZONE_H
-            + 56.0
+            + 34.0
             + self.plugins.len() as f32 * (PLUGIN_CARD_H + PLUGIN_CARD_GAP)
             + 6.0;
         let (mx, my) = (
@@ -401,7 +359,14 @@ pub(super) fn draw_plugin_icon(
             Some(image)
         })
     }) {
+        let save_count = canvas.save();
+        canvas.clip_rrect(
+            RRect::new_rect_xy(rect, rect.width() * 0.22, rect.height() * 0.22),
+            ClipOp::Intersect,
+            true,
+        );
         canvas.draw_image_rect(image, None, rect, &Paint::default());
+        canvas.restore_to_count(save_count);
         return;
     }
     let mut paint = Paint::default();
@@ -427,6 +392,30 @@ pub(super) fn draw_plugin_icon(
         true,
         &paint,
     );
+}
+
+pub(super) fn ellipsize_text(
+    fm: &FontManager,
+    text: &str,
+    size: f32,
+    style: FontStyle,
+    max_width: f32,
+) -> String {
+    if fm.measure_text_cached(text, size, style) <= max_width {
+        return text.to_string();
+    }
+    let ellipsis = "…";
+    let ellipsis_width = fm.measure_text_cached(ellipsis, size, style);
+    let mut fitted = String::new();
+    for character in text.chars() {
+        fitted.push(character);
+        if fm.measure_text_cached(&fitted, size, style) + ellipsis_width > max_width {
+            fitted.pop();
+            break;
+        }
+    }
+    fitted.push_str(ellipsis);
+    fitted
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -52,6 +52,7 @@ struct InlineStyle {
     italic: bool,
     strike: bool,
     code: bool,
+    code_block: bool,
     link: Option<String>,
 }
 
@@ -105,12 +106,15 @@ enum DrawOp {
         width: f32,
         kind: LineKind,
     },
+    Checkbox {
+        rect: Rect,
+        checked: bool,
+    },
 }
 
 #[derive(Clone, Copy)]
 enum BackgroundKind {
     Code,
-    Quote,
     TableHeader,
 }
 
@@ -346,6 +350,7 @@ impl MarkdownParser {
             && last.style.italic == style.italic
             && last.style.strike == style.strike
             && last.style.code == style.code
+            && last.style.code_block == style.code_block
             && last.style.link == style.link
         {
             last.text.push_str(text);
@@ -448,24 +453,21 @@ impl<'a> LayoutBuilder<'a> {
                 content,
             } => {
                 let indent = *depth as f32 * INDENT;
-                let marker = checked.map_or_else(
-                    || marker.clone(),
-                    |checked| {
-                        if checked {
-                            "☑".to_string()
-                        } else {
-                            "☐".to_string()
-                        }
-                    },
-                );
-                self.ops.push(DrawOp::Text {
-                    text: marker,
-                    x: indent,
-                    baseline: self.y + BODY_SIZE,
-                    size: BODY_SIZE,
-                    style: InlineStyle::default(),
-                    secondary: true,
-                });
+                if let Some(checked) = checked {
+                    self.ops.push(DrawOp::Checkbox {
+                        rect: Rect::from_xywh(indent + 1.0, self.y + 2.0, 10.0, 10.0),
+                        checked: *checked,
+                    });
+                } else {
+                    self.ops.push(DrawOp::Text {
+                        text: marker.clone(),
+                        x: indent + 1.0,
+                        baseline: self.y + BODY_SIZE,
+                        size: BODY_SIZE,
+                        style: InlineStyle::default(),
+                        secondary: true,
+                    });
+                }
                 self.inline(
                     content,
                     indent + INDENT,
@@ -478,18 +480,14 @@ impl<'a> LayoutBuilder<'a> {
             }
             Block::Quote(spans) => {
                 let start = self.y;
-                self.inline(spans, 14.0, self.width - 18.0, BODY_SIZE, false, true);
+                self.inline(spans, 13.0, self.width - 13.0, BODY_SIZE, false, true);
                 let height = (self.y - start).max(LINE_HEIGHT);
-                self.ops.push(DrawOp::Background {
-                    rect: Rect::from_xywh(8.0, start - 3.0, self.width - 8.0, height + 6.0),
-                    kind: BackgroundKind::Quote,
-                });
                 self.ops.push(DrawOp::Line {
                     x1: 2.0,
-                    y1: start - 3.0,
+                    y1: start,
                     x2: 2.0,
-                    y2: start + height + 3.0,
-                    width: 3.0,
+                    y2: start + height,
+                    width: 2.0,
                     kind: LineKind::Quote,
                 });
                 self.y += BLOCK_GAP;
@@ -512,18 +510,22 @@ impl<'a> LayoutBuilder<'a> {
                     self.y += 18.0;
                 }
                 for line in lines {
-                    self.ops.push(DrawOp::Text {
+                    let line = [InlineSpan {
                         text: line.to_string(),
-                        x: CODE_PAD,
-                        baseline: self.y + BODY_SIZE,
-                        size: 11.0,
                         style: InlineStyle {
                             code: true,
+                            code_block: true,
                             ..InlineStyle::default()
                         },
+                    }];
+                    self.inline_at(InlineLayout {
+                        spans: &line,
+                        origin: (CODE_PAD, self.y),
+                        width: self.width - CODE_PAD * 2.0,
+                        size: 11.0,
+                        force_bold: false,
                         secondary: false,
                     });
-                    self.y += 17.0;
                 }
                 self.ops.push(DrawOp::Background {
                     rect: Rect::from_xywh(0.0, start - 5.0, self.width, self.y - start + 10.0),
@@ -672,7 +674,7 @@ impl<'a> LayoutBuilder<'a> {
                 let char_width =
                     self.fm
                         .measure_text_cached(&character.to_string(), size, font_style);
-                if x > start_x && x + run_width + char_width > max_x {
+                if x + run_width + char_width > max_x && (x > start_x || !run.is_empty()) {
                     flush(self, &mut run, &mut run_width, &mut x, baseline);
                     x = start_x;
                     baseline += line_height;
@@ -707,6 +709,12 @@ pub(crate) fn render(params: MarkdownRenderParams<'_>) -> MarkdownRenderResult {
         colors,
     } = params;
     let layout = layout(markdown, width);
+    let save_count = canvas.save();
+    canvas.clip_rect(
+        Rect::from_xywh(x - 3.0, y - 6.0, width + 3.0, layout.height + 12.0),
+        skia_safe::ClipOp::Intersect,
+        true,
+    );
     for op in &layout.ops {
         let DrawOp::Background { rect, kind } = op else {
             continue;
@@ -719,7 +727,6 @@ pub(crate) fn render(params: MarkdownRenderParams<'_>) -> MarkdownRenderResult {
         paint.set_anti_alias(true);
         paint.set_color(match kind {
             BackgroundKind::Code => colors.code_background,
-            BackgroundKind::Quote => colors.quote_background,
             BackgroundKind::TableHeader => colors.quote_background,
         });
         canvas.draw_round_rect(rect, 7.0, 7.0, &paint);
@@ -747,7 +754,7 @@ pub(crate) fn render(params: MarkdownRenderParams<'_>) -> MarkdownRenderResult {
                 } else {
                     colors.text
                 });
-                if style.code {
+                if style.code && !style.code_block {
                     let width = FontManager::global().measure_text_cached(
                         text,
                         *size,
@@ -775,6 +782,40 @@ pub(crate) fn render(params: MarkdownRenderParams<'_>) -> MarkdownRenderResult {
                 draw_text(canvas, text, x + op_x, baseline, *size, style, &paint);
             }
             DrawOp::Background { .. } => {}
+            DrawOp::Checkbox { rect, checked } => {
+                let rect =
+                    Rect::from_xywh(x + rect.left, y + rect.top, rect.width(), rect.height());
+                if rect.bottom < visible_top || rect.top > visible_bottom {
+                    continue;
+                }
+                let mut paint = Paint::default();
+                paint.set_anti_alias(true);
+                paint.set_color(if *checked {
+                    colors.accent
+                } else {
+                    colors.code_background
+                });
+                canvas.draw_round_rect(rect, 2.0, 2.0, &paint);
+                paint.set_style(skia_safe::paint::Style::Stroke);
+                if *checked {
+                    paint.set_color(Color::WHITE);
+                    paint.set_stroke_width(1.4);
+                    canvas.draw_line(
+                        (rect.left + 2.3, rect.top + 5.2),
+                        (rect.left + 4.4, rect.top + 7.2),
+                        &paint,
+                    );
+                    canvas.draw_line(
+                        (rect.left + 4.4, rect.top + 7.2),
+                        (rect.right - 2.0, rect.top + 2.7),
+                        &paint,
+                    );
+                } else {
+                    paint.set_color(colors.separator);
+                    paint.set_stroke_width(1.0);
+                    canvas.draw_round_rect(rect, 2.0, 2.0, &paint);
+                }
+            }
             DrawOp::Line {
                 x1,
                 y1,
@@ -799,6 +840,7 @@ pub(crate) fn render(params: MarkdownRenderParams<'_>) -> MarkdownRenderResult {
             }
         }
     }
+    canvas.restore_to_count(save_count);
     MarkdownRenderResult {
         height: layout.height,
     }

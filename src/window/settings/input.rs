@@ -200,7 +200,6 @@ impl SettingsApp {
         if self.active_page != 3 {
             self.selected_plugin_id = None;
             self.plugin_detail_closing = false;
-            self.plugin_drop_hovered = false;
             self.anim
                 .set_with_speed(super::PLUGIN_DETAIL_KEY, 0.0, 0.28);
         }
@@ -219,7 +218,6 @@ impl SettingsApp {
         if page != 3 {
             self.selected_plugin_id = None;
             self.plugin_detail_closing = false;
-            self.plugin_drop_hovered = false;
             self.anim
                 .set_with_speed(super::PLUGIN_DETAIL_KEY, 0.0, 0.28);
         }
