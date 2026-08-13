@@ -5,8 +5,8 @@ use winit::keyboard::{Key, NamedKey};
 use super::pages::PageInput;
 use super::{
     NumberInput, NumberInputHandler, PAGE_NAV_GAP, PAGE_NAV_SIZE, PAGE_NAV_X, PAGE_NAV_Y,
-    POPUP_OPACITY_KEY, PageNavigation, SETTINGS_HEADER_H, SIDEBAR_ROW_H, SIDEBAR_START_Y,
-    SIDEBAR_W, SettingsApp,
+    POPUP_OPACITY_KEY, PageNavigation, SETTINGS_HEADER_H, SIDEBAR_PAGE_COUNT, SIDEBAR_ROW_H,
+    SIDEBAR_START_Y, SIDEBAR_W, SettingsApp,
 };
 
 impl SettingsApp {
@@ -34,7 +34,7 @@ impl SettingsApp {
         }
 
         if mouse_x < SIDEBAR_W {
-            for page in 0..4 {
+            for page in 0..SIDEBAR_PAGE_COUNT {
                 let row_y = SIDEBAR_START_Y + page as f32 * (SIDEBAR_ROW_H + 2.0);
                 if mouse_y >= row_y
                     && mouse_y <= row_y + SIDEBAR_ROW_H
@@ -76,7 +76,7 @@ impl SettingsApp {
                     window.request_redraw();
                 }
             }
-            3 => self.handle_about_click(input),
+            4 => self.handle_about_click(input),
             _ => {}
         }
     }
@@ -122,7 +122,7 @@ impl SettingsApp {
         }
 
         if mouse_x < SIDEBAR_W {
-            for page in 0..4 {
+            for page in 0..SIDEBAR_PAGE_COUNT {
                 let row_y = SIDEBAR_START_Y + page as f32 * (SIDEBAR_ROW_H + 2.0);
                 if mouse_y >= row_y
                     && mouse_y <= row_y + SIDEBAR_ROW_H

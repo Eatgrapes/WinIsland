@@ -2,6 +2,7 @@
 tab_general=General
 tab_music=Música
 tab_widgets=Widgets
+tab_plugins=Plugins
 tab_about=Acerca de
 widget_preview_title=Vista previa de Widgets
 widget_clock=Reloj

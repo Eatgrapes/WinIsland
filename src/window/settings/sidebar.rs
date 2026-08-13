@@ -14,15 +14,16 @@ use super::{
     WINDOW_CONTROL_CENTERS, WINDOW_CONTROL_RADIUS,
 };
 
-const SIDEBAR_ICON_BYTES: [&[u8]; 4] = [
+const SIDEBAR_ICON_BYTES: [&[u8]; 5] = [
     include_bytes!("../../../resources/in_app/settings/settings.png"),
     include_bytes!("../../../resources/in_app/settings/music.png"),
     include_bytes!("../../../resources/in_app/settings/widget.png"),
+    include_bytes!("../../../resources/in_app/settings/plugin.png"),
     include_bytes!("../../../resources/in_app/settings/about.png"),
 ];
 
 thread_local! {
-    static SIDEBAR_ICONS: RefCell<Option<[Image; 4]>> = const { RefCell::new(None) };
+    static SIDEBAR_ICONS: RefCell<Option<[Image; 5]>> = const { RefCell::new(None) };
 }
 
 fn load_sidebar_icon(direct_context: &mut DirectContext, bytes: &[u8]) -> Image {
@@ -167,6 +168,7 @@ impl SettingsApp {
             tr("tab_general"),
             tr("tab_music"),
             tr("tab_widgets"),
+            tr("tab_plugins"),
             tr("tab_about"),
         ];
         for (i, label) in pages.iter().enumerate() {

@@ -31,6 +31,7 @@ pub(crate) const WIN_H: f32 = 680.0;
 pub(crate) const SIDEBAR_W: f32 = 184.0;
 pub(crate) const SIDEBAR_ROW_H: f32 = 34.0;
 pub(crate) const SIDEBAR_START_Y: f32 = 64.0;
+pub(crate) const SIDEBAR_PAGE_COUNT: usize = 5;
 pub(crate) const PAGE_NAV_X: f32 = SIDEBAR_W + 18.0;
 pub(crate) const PAGE_NAV_Y: f32 = 18.0;
 pub(crate) const PAGE_NAV_SIZE: f32 = 28.0;
@@ -514,19 +515,19 @@ impl SettingsApp {
                     let (mx, my) = self.logical_mouse_pos;
                     let mut new_hover: i32 = -1;
                     if mx < SIDEBAR_W {
-                        for i in 0..4 {
+                        for i in 0..SIDEBAR_PAGE_COUNT {
                             let row_y = SIDEBAR_START_Y + i as f32 * (SIDEBAR_ROW_H + 2.0);
                             if my >= row_y
                                 && my <= row_y + SIDEBAR_ROW_H
                                 && (SIDEBAR_PAD..=SIDEBAR_W - SIDEBAR_PAD).contains(&mx)
                             {
-                                new_hover = i;
+                                new_hover = i as i32;
                             }
                         }
                     }
                     if new_hover != self.sidebar_hover {
                         self.sidebar_hover = new_hover;
-                        for idx in 0..4 {
+                        for idx in 0..SIDEBAR_PAGE_COUNT {
                             if idx == new_hover as usize {
                                 self.anim.set(SIDEBAR_KEY_BASE + idx as u64, 1.0);
                             } else {

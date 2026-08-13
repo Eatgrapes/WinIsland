@@ -283,6 +283,7 @@ impl SettingsApp {
             0 => tr("tab_general"),
             1 => tr("tab_music"),
             2 => tr("tab_widgets"),
+            3 => tr("tab_plugins"),
             _ => tr("tab_about"),
         };
         let fm = FontManager::global();
