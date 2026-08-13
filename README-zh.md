@@ -33,10 +33,10 @@ cargo build --release
 
 如果你有精力或兴趣，欢迎提交 PR。
 
-在提PR前，请先看[Contributing](./Docs/CONTRIBUTING-zh.md)
+在提PR前，请先看[Contributing](CONTRIBUTING-zh.md)
 
 > [!IMPORTANT]
-> 所有未遵守[贡献指南](CONTRIBUTING.md)的PR将会被close
+> 所有未遵守[贡献指南](CONTRIBUTING-zh.md)的PR将会被close
 
 ## 许可证
 本项目遵循 [GNU General Public License v3.0.](LICENSE)
