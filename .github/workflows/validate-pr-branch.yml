@@ -37,7 +37,7 @@ jobs:
           comment: |
             Thanks for your contribution! However, the branch name `${{ github.head_ref }}` does not comply with our naming policy.
 
-            Please refer to our **[CONTRIBUTING.md § 4.1 – Branch Naming](https://github.com/Eatgrapes/WinIsland/blob/master/CONTRIBUTING.md#41-branch-naming)**.
+            Please refer to our **[CONTRIBUTING.md § 4.1 – Branch Naming](https://github.com/WinIslandProject/WinIsland/blob/master/CONTRIBUTING.md#41-branch-naming)**.
 
             **Allowed prefixes:**
             - `feat/` — new feature

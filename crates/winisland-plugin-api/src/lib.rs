@@ -1,6 +1,6 @@
 //! # WinIsland Plugin API
 //!
-//! C ABI types and tooling for developing [WinIsland](https://github.com/Eatgrapes/WinIsland) plugins.
+//! C ABI types and tooling for developing [WinIsland](https://github.com/WinIslandProject/WinIsland) plugins.
 //!
 //! Plugins are trusted native DLLs that communicate with WinIsland through a
 //! versioned C ABI and host service tables.

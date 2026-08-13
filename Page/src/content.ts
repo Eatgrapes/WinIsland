@@ -243,7 +243,7 @@ export const copy = {
 } as const
 
 export const DOWNLOAD_RELEASE =
-  'https://github.com/Eatgrapes/WinIsland/releases/latest/download/WinIsland-Setup.exe'
+  'https://github.com/WinIslandProject/WinIsland/releases/latest/download/WinIsland-Setup.exe'
 export const DOWNLOAD_NIGHTLY =
-  'https://github.com/Eatgrapes/WinIsland/releases/download/nightly/WinIsland-Nightly-Setup.exe'
-export const GITHUB_URL = 'https://github.com/Eatgrapes/WinIsland'
+  'https://github.com/WinIslandProject/WinIsland/releases/download/nightly/WinIsland-Nightly-Setup.exe'
+export const GITHUB_URL = 'https://github.com/WinIslandProject/WinIsland'

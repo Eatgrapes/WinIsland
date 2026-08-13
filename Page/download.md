@@ -6,13 +6,13 @@ You can download either the stable official releases or the nightly builds below
 
 Stable builds that are suitable for most users.
 
-[Download Latest Release Installer](https://github.com/Eatgrapes/WinIsland/releases/latest/download/WinIsland-Setup.exe)
+[Download Latest Release Installer](https://github.com/WinIslandProject/WinIsland/releases/latest/download/WinIsland-Setup.exe)
 
 ## Nightly Builds
 
 Nightly builds are automatically generated every time we update the code. They include the latest features but might be less stable than official releases.
 
-[Download Latest Nightly Installer](https://github.com/Eatgrapes/WinIsland/releases/download/nightly/WinIsland-Nightly-Setup.exe)
+[Download Latest Nightly Installer](https://github.com/WinIslandProject/WinIsland/releases/download/nightly/WinIsland-Nightly-Setup.exe)
 
 ---
 

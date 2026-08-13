@@ -152,7 +152,7 @@ jobs:
   deploy-docs:
     if: >-
       always() &&
-      github.repository == 'Eatgrapes/WinIsland' &&
+      github.repository == 'WinIslandProject/WinIsland' &&
       !contains(github.event.head_commit.message, '[ci-skip]') &&
       needs.build-docs.result == 'success'
     environment:

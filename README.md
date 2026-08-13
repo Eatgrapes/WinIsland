@@ -9,7 +9,7 @@ English | [简体中文](./README-zh.md)
 This is a project that can display **Dynamic Island** on Windows.
 
 ## Download it
-you can in [Release](https://github.com/Eatgrapes/WinIsland/releases) or our [website](https://tanikaze.icu/WinIsland) Download WinIsland
+you can in [Release](https://github.com/WinIslandProject/WinIsland/releases) or our [website](https://tanikaze.icu/WinIsland) Download WinIsland
 
 ## Community
 Join the QQ group: `435799156`
@@ -20,7 +20,7 @@ Join the QQ group: `435799156`
 - **Cargo**
 
 ```cmd
-git clone https://github.com/Eatgrapes/WinIsland.git
+git clone https://github.com/WinIslandProject/WinIsland.git
 
 cd WinIsland
 

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APP_AUTHOR: &str = "Eatgrapes";
-pub const APP_HOMEPAGE: &str = "https://github.com/Eatgrapes/WinIsland";
+pub const APP_HOMEPAGE: &str = "https://github.com/WinIslandProject/WinIsland";
 pub const WINDOW_TITLE: &str = "WinIsland";
 pub const TOP_OFFSET: i32 = 10;
 pub const PADDING: f32 = 80.0;

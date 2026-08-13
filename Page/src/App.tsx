@@ -54,7 +54,7 @@ const DocumentPage = lazy(() => import('./components/DocumentPage'))
 const DOWNLOAD_PROBE_TIMEOUT = 2500
 const DOWNLOAD_PROBES = {
   mirror: 'https://winisland.cn/WinIsland/probe.bin',
-  github: 'https://raw.githubusercontent.com/Eatgrapes/WinIsland/master/README.md',
+  github: 'https://raw.githubusercontent.com/WinIslandProject/WinIsland/master/README.md',
 } as const
 const DOWNLOAD_MIRRORS: Record<string, string> = {
   [DOWNLOAD_RELEASE]: 'https://winisland.cn/WinIsland/download/stable',

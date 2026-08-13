@@ -24,9 +24,8 @@ pub struct VersionInfo {
 }
 
 const UPDATE_URL_JSON: &str =
-    "https://github.com/Eatgrapes/WinIsland/releases/download/nightly/version_info.json";
-const UPDATE_URL_NIGHTLY_INSTALLER: &str =
-    "https://github.com/Eatgrapes/WinIsland/releases/download/nightly/WinIsland-Nightly-Setup.exe";
+    "https://github.com/WinIslandProject/WinIsland/releases/download/nightly/version_info.json";
+const UPDATE_URL_NIGHTLY_INSTALLER: &str = "https://github.com/WinIslandProject/WinIsland/releases/download/nightly/WinIsland-Nightly-Setup.exe";
 
 #[derive(Clone, Copy)]
 enum InstallerChannel {
@@ -252,7 +251,7 @@ async fn do_beta_check(app_dir: &Path, manual: bool) {
 
 async fn do_stable_check(app_dir: &Path, manual: bool) {
     let resp = match HTTP_CLIENT
-        .get("https://github.com/Eatgrapes/WinIsland/releases/latest")
+        .get("https://github.com/WinIslandProject/WinIsland/releases/latest")
         .send()
         .await
     {
@@ -297,7 +296,7 @@ async fn do_stable_check(app_dir: &Path, manual: bool) {
         );
 
         let download_url = format!(
-            "https://github.com/Eatgrapes/WinIsland/releases/download/{}/WinIsland-Setup.exe",
+            "https://github.com/WinIslandProject/WinIsland/releases/download/{}/WinIsland-Setup.exe",
             tag_name
         );
         let local_version_info = VersionInfo {
