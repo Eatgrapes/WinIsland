@@ -20,6 +20,7 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "1.1.2"
 dirs = "6.0"
 encoding_rs = "0.8"
+ed25519-dalek = "2"
 fuzzengine = "0.2.1"
 image = "0.25"
 reqwest = { version = "0.13.4", features = ["json"] }

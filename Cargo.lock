@@ -9,6 +9,7 @@ dependencies = [
  "base64",
  "cpal",
  "dirs",
+ "ed25519-dalek",
  "encoding_rs",
  "fuzzengine",
  "image",
