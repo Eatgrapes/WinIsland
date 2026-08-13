@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use skia_safe::{Canvas, Color, FontStyle, Paint, Rect};
@@ -14,7 +15,7 @@ const CODE_PAD: f32 = 10.0;
 const INDENT: f32 = 18.0;
 
 thread_local! {
-    static LAYOUT_CACHE: RefCell<HashMap<u64, MarkdownLayout>> = RefCell::new(HashMap::new());
+    static LAYOUT_CACHE: RefCell<HashMap<u64, Rc<MarkdownLayout>>> = RefCell::new(HashMap::new());
 }
 
 #[derive(Clone)]
@@ -804,9 +805,10 @@ pub(crate) fn render(params: MarkdownRenderParams<'_>) -> MarkdownRenderResult {
 }
 
 pub(crate) fn links(markdown: &str, x: f32, y: f32, width: f32) -> Vec<MarkdownLink> {
-    layout(markdown, width)
+    let layout = layout(markdown, width);
+    layout
         .links
-        .into_iter()
+        .iter()
         .map(|link| MarkdownLink {
             rect: Rect::from_xywh(
                 x + link.rect.left,
@@ -814,27 +816,27 @@ pub(crate) fn links(markdown: &str, x: f32, y: f32, width: f32) -> Vec<MarkdownL
                 link.rect.width(),
                 link.rect.height(),
             ),
-            url: link.url,
+            url: link.url.clone(),
         })
         .collect()
 }
 
-fn layout(markdown: &str, width: f32) -> MarkdownLayout {
+fn layout(markdown: &str, width: f32) -> Rc<MarkdownLayout> {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     markdown.hash(&mut hasher);
     width.to_bits().hash(&mut hasher);
     let key = hasher.finish();
     LAYOUT_CACHE.with(|cache| {
         if let Some(layout) = cache.borrow().get(&key) {
-            return layout.clone();
+            return Rc::clone(layout);
         }
         let blocks = MarkdownParser::new().parse(markdown);
-        let layout = LayoutBuilder::new(FontManager::global(), width).build(&blocks);
+        let layout = Rc::new(LayoutBuilder::new(FontManager::global(), width).build(&blocks));
         let mut cache = cache.borrow_mut();
         if cache.len() >= 16 {
             cache.clear();
         }
-        cache.insert(key, layout.clone());
+        cache.insert(key, Rc::clone(&layout));
         layout
     })
 }

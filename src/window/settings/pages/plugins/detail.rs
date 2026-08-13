@@ -36,7 +36,7 @@ impl SettingsApp {
     }
 
     pub(super) fn handle_plugin_detail_click(&mut self) -> bool {
-        let Some(plugin) = self.selected_plugin().cloned() else {
+        let Some(plugin) = self.selected_plugin() else {
             return false;
         };
         let scale = self
@@ -59,13 +59,13 @@ impl SettingsApp {
         let content_y = mouse_y + self.plugin_detail_scroll;
         if toggle_rect(panel_x).contains(Point::new(mouse_x, content_y)) {
             self.plugin_request = Some(PluginSettingsRequest::SetEnabled {
-                id: plugin.id,
+                id: plugin.id.clone(),
                 enabled: !plugin.enabled,
             });
             return true;
         }
         if safe_github_url(&plugin.github_link)
-            && github_rect(panel_x, &plugin).contains(Point::new(mouse_x, content_y))
+            && github_rect(panel_x, plugin).contains(Point::new(mouse_x, content_y))
         {
             open_url(&plugin.github_link);
             return true;
@@ -76,7 +76,7 @@ impl SettingsApp {
         if let Some(link) = markdown::links(
             readme,
             panel_x + 20.0,
-            plugin_readme_y(&plugin),
+            plugin_readme_y(plugin),
             DETAIL_W - 40.0,
         )
         .iter()
@@ -129,7 +129,7 @@ impl SettingsApp {
         win_h: f32,
         progress: f32,
     ) {
-        let Some(plugin) = self.selected_plugin().cloned() else {
+        let Some(plugin) = self.selected_plugin() else {
             return;
         };
         let panel_x = win_w - DETAIL_W * progress;
@@ -156,7 +156,7 @@ impl SettingsApp {
         draw_plugin_icon(
             direct_context,
             canvas,
-            &plugin,
+            plugin,
             Rect::from_xywh(panel_x + 20.0, y, DETAIL_ICON_SIZE, DETAIL_ICON_SIZE),
         );
         paint.set_color(theme.text_pri);
