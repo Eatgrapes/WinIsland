@@ -15,6 +15,7 @@ use self::palette::get_palette_from_image;
 use crate::core::smtc::MediaInfo;
 use crate::icons::arrows::draw_arrow_right;
 use crate::icons::controls::{draw_control_triangle, draw_pause_button, draw_play_button};
+use crate::utils::cover::decode_cover_image;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::physics::Spring;
 use crate::utils::scroll::{ScrollDrawParams, ScrollText};
@@ -38,7 +39,7 @@ struct ProgressTextCache {
 }
 
 thread_local! {
-    static IMG_CACHE: RefCell<Option<(u64, Image)>> = const { RefCell::new(None) };
+    static IMG_CACHE: RefCell<Option<(u64, Option<Image>)>> = const { RefCell::new(None) };
     static PROGRESS_SMOOTH: RefCell<f32> = const { RefCell::new(-1.0) };
     static PAUSE_ANIM: RefCell<f32> = const { RefCell::new(0.0) };
     static PAUSE_SPRING: RefCell<Spring> = RefCell::new(Spring::new(1.0));
@@ -93,15 +94,14 @@ pub fn get_cached_media_image_with_key(media: &MediaInfo) -> Option<(Image, u64)
         if let Some((key, img)) = cache_mut.as_ref()
             && *key == cache_key
         {
-            result = Some((img.clone(), *key));
+            result = img.clone().map(|image| (image, *key));
             has_current_image = true;
             return;
         }
-        if let Some(data) = media.thumbnail.as_ref()
-            && let Some(image) = Image::from_encoded(data.clone())
-        {
+        if let Some(data) = media.thumbnail.as_ref() {
+            let image = decode_cover_image(data);
             *cache_mut = Some((cache_key, image.clone()));
-            result = Some((image, cache_key));
+            result = image.map(|image| (image, cache_key));
             has_current_image = true;
         }
     });

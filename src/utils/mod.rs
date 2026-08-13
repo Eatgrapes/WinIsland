@@ -3,6 +3,7 @@ pub mod autostart;
 pub mod backdrop;
 pub mod blur;
 pub mod color;
+pub(crate) mod cover;
 pub(crate) mod event_loop;
 pub mod font;
 pub mod glass;

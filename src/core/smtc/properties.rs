@@ -9,6 +9,9 @@ use crate::core::lyrics::LyricsMode;
 use super::session::is_music_session;
 use super::{LyricsFetchRequest, MediaInfo, spawn_lyrics_fetch};
 
+const MAX_THUMBNAIL_BYTES: u64 = 16 * 1024 * 1024;
+const THUMBNAIL_TOO_LARGE: windows::core::HRESULT = windows::core::HRESULT(-3);
+
 thread_local! {
     static LAST_TIMELINE_FETCH: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
     static LAST_FETCHED_SMTC_POS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
@@ -259,11 +262,18 @@ fn spawn_thumbnail_fetch(
                         "Empty thumbnail",
                     ));
                 }
-                let buffer = windows::Storage::Streams::Buffer::Create(size as u32)?;
+                if size > MAX_THUMBNAIL_BYTES {
+                    return Err(windows::core::Error::new(
+                        THUMBNAIL_TOO_LARGE,
+                        "Thumbnail exceeds 16 MiB",
+                    ));
+                }
+                let size = size as u32;
+                let buffer = windows::Storage::Streams::Buffer::Create(size)?;
                 let res_buffer = stream
                     .ReadAsync(
                         &buffer,
-                        size as u32,
+                        size,
                         windows::Storage::Streams::InputStreamOptions::None,
                     )?
                     .join()?;
@@ -297,6 +307,17 @@ fn spawn_thumbnail_fetch(
                         hash
                     );
                 }
+                return;
+            }
+            if res
+                .as_ref()
+                .is_err_and(|error| error.code() == THUMBNAIL_TOO_LARGE)
+            {
+                log::warn!(
+                    "SMTC: ignored oversized thumbnail for '{}' - '{}'",
+                    title,
+                    artist
+                );
                 return;
             }
             let delay = if attempt < 3 { 300 } else { 500 };

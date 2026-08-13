@@ -40,7 +40,8 @@ pub(super) fn ease_out_back(t: f32) -> f32 {
 }
 
 pub fn trigger_cover_flip() {
-    let old_img = IMG_CACHE.with(|cache| cache.borrow().as_ref().map(|(_, img)| img.clone()));
+    let old_img =
+        IMG_CACHE.with(|cache| cache.borrow().as_ref().and_then(|(_, image)| image.clone()));
     COVER_FLIP_OLD_IMG.with(|cell| {
         *cell.borrow_mut() = old_img;
     });
