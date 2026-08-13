@@ -95,3 +95,19 @@ pub fn context_from_ffi(
         updated_at: std::time::Instant::now(),
     }
 }
+
+pub fn widget_from_ffi(
+    _owner: PluginToken,
+    id: ResourceId,
+    value: &WidgetDataV1,
+) -> crate::core::plugin_widget::PluginWidget {
+    crate::core::plugin_widget::PluginWidget {
+        id,
+        span_cols: value.span_cols,
+        span_rows: value.span_rows,
+        title: read_c_str(&value.title),
+        body: read_c_str(&value.body),
+        on_draw: value.on_draw,
+        callback_data: value.callback_data as usize,
+    }
+}

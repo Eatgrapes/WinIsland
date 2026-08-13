@@ -57,6 +57,7 @@ pub struct StyleParams<'a> {
     pub lyrics_delay: f64,
     pub dt: f32,
     pub widget_layout: &'a [WidgetSlot],
+    pub plugin_widgets: &'a crate::core::plugin_widget::WidgetManager,
 }
 
 use crate::core::context::MiniContent;
@@ -126,6 +127,7 @@ pub fn draw_island(
         lyrics_delay,
         dt,
         widget_layout,
+        plugin_widgets,
     } = style;
     let canvas = surface.canvas();
     canvas.clear(Color::TRANSPARENT);
@@ -211,6 +213,7 @@ pub fn draw_island(
         palette: &palette,
         lyrics_delay,
         widget_layout,
+        plugin_widgets,
     });
     if compact_overlay_visible {
         compact_overlay.draw(canvas, rect, global_scale, 1.0 - hide_progress);

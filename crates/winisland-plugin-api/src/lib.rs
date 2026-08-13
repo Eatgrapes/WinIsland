@@ -11,7 +11,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! winisland-plugin-api = "0.3"
+//! winisland-plugin-api = "0.4"
 //! ```
 //!
 //! Export the ABI v1 descriptor from a `cdylib`. See the crate README for a
@@ -45,6 +45,7 @@
 //! Then run `cargo run --example pack` to produce a `.zip` distributable.
 
 pub mod descriptor;
+pub mod draw;
 pub mod host;
 pub mod types;
 
@@ -56,6 +57,7 @@ pub mod packager;
 // ---------------------------------------------------------------------------
 
 pub use descriptor::*;
+pub use draw::{DrawApiV1, WidgetDrawContextV1, WidgetDrawFnV1};
 pub use host::*;
 pub use types::context::{
     CONTEXT_FLAG_SHOW_COMPACT, ContextDataV1, HostStateV1, MEDIA_COMMAND_NEXT,
@@ -66,6 +68,7 @@ pub use types::context::{
 };
 pub use types::i18n::TranslationPairV1;
 pub use types::metadata::PluginMetadataC;
+pub use types::widget::{WIDGET_FLAG_SHOW_COMPACT, WidgetDataV1};
 pub use types::{
     ByteSliceV1, INVALID_ID, PluginHandle, PluginResultC, PluginToken, ResourceId, Utf8SliceV1,
     str_to_fixed,

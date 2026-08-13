@@ -4,6 +4,7 @@
 - Fixed known bugs
 - Improved the notification system
 - Unified Nightly and Stable installer identities to prevent duplicate installations
+- Added a plugin widget rendering API for third-party widgets on the widget page
 - Improved the update system
 
 ### v1.2.9

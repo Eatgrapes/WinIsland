@@ -1,6 +1,7 @@
 pub mod context;
 pub mod i18n;
 pub mod metadata;
+pub mod widget;
 
 /// Opaque plugin-owned instance handle.
 pub type PluginHandle = *mut std::ffi::c_void;

@@ -4,5 +4,6 @@ pub mod context;
 pub mod i18n;
 pub mod lyrics;
 pub mod persistence;
+pub mod plugin_widget;
 pub mod render;
 pub mod smtc;

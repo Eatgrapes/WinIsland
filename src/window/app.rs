@@ -2,6 +2,7 @@ use crate::core::audio::AudioProcessor;
 use crate::core::config::AppConfig;
 use crate::core::context::ContextManager;
 use crate::core::persistence::{get_config_path, load_config};
+use crate::core::plugin_widget::WidgetManager;
 use crate::core::smtc::{MediaInfo, SmtcListener};
 use crate::plugin::PluginManager;
 use crate::plugin::zip_loader::PluginManifest;
@@ -94,6 +95,7 @@ pub struct App {
     touch_id: Option<u64>,
     touch_pos: PhysicalPosition<f64>,
     ctx_mgr: ContextManager,
+    widget_mgr: WidgetManager,
     plugin_mgr: PluginManager,
     plugin_media_source: Option<PluginMediaSource>,
     is_light_theme: bool,
@@ -162,6 +164,7 @@ impl Default for App {
             touch_id: None,
             touch_pos: PhysicalPosition::new(0.0, 0.0),
             ctx_mgr: ContextManager::new(),
+            widget_mgr: WidgetManager::new(),
             plugin_mgr: PluginManager::default(),
             plugin_media_source: None,
             is_light_theme: false,

@@ -28,6 +28,7 @@ pub(super) struct ExpandedContentParams<'a> {
     pub(super) palette: &'a [Color],
     pub(super) lyrics_delay: f64,
     pub(super) widget_layout: &'a [WidgetSlot],
+    pub(super) plugin_widgets: &'a crate::core::plugin_widget::WidgetManager,
 }
 
 pub(super) fn draw_expanded_content(params: ExpandedContentParams<'_>) -> bool {
@@ -54,6 +55,7 @@ pub(super) fn draw_expanded_content(params: ExpandedContentParams<'_>) -> bool {
         palette,
         lyrics_delay,
         widget_layout,
+        plugin_widgets,
     } = params;
     let mut widget_animating = false;
     if expanded_alpha_f > 0.01 {
@@ -100,27 +102,30 @@ pub(super) fn draw_expanded_content(params: ExpandedContentParams<'_>) -> bool {
             canvas.restore();
         }
 
-        canvas.save();
-        canvas.translate((current_w - page_shift, 0.0));
-        let widget_anim = draw_widget_page(
-            canvas,
-            offset_x,
-            offset_y,
-            current_w,
-            current_h,
-            alpha,
-            global_scale,
-            media,
-            font_size,
-            lyrics_delay,
-            dt,
-            widget_layout,
-            text_color,
-            music_page_available,
-        );
-        canvas.restore();
+        if visible_view_offset > 0.0 {
+            canvas.save();
+            canvas.translate((current_w - page_shift, 0.0));
+            let widget_anim = draw_widget_page(
+                canvas,
+                offset_x,
+                offset_y,
+                current_w,
+                current_h,
+                alpha,
+                global_scale,
+                media,
+                font_size,
+                lyrics_delay,
+                dt,
+                widget_layout,
+                plugin_widgets,
+                text_color,
+                music_page_available,
+            );
+            canvas.restore();
 
-        widget_animating = widget_anim;
+            widget_animating = widget_anim;
+        }
 
         if blur_filter.is_some() {
             canvas.restore();

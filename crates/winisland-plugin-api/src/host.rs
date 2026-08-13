@@ -2,7 +2,7 @@ use std::ffi::c_void;
 
 use crate::{
     ContextDataV1, HostStateV1, MediaSourceDataV1, PluginResultC, PluginToken, ResourceId,
-    TranslationPairV1, Utf8SliceV1,
+    TranslationPairV1, Utf8SliceV1, WidgetDataV1,
 };
 
 pub const INTERFACE_VERSION_1: u32 = 1;
@@ -10,6 +10,7 @@ pub const INTERFACE_CONTEXT: u32 = 1;
 pub const INTERFACE_MEDIA: u32 = 2;
 pub const INTERFACE_I18N: u32 = 3;
 pub const INTERFACE_HOST_STATE: u32 = 4;
+pub const INTERFACE_WIDGET: u32 = 5;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -59,6 +60,16 @@ impl HostApiV1 {
     pub unsafe fn host_state_api(&self) -> Option<HostStateApiV1> {
         // SAFETY: The caller guarantees this host table came from WinIsland.
         unsafe { self.query(INTERFACE_HOST_STATE) }
+    }
+
+    /// Query the ABI v1 widget service table.
+    ///
+    /// # Safety
+    /// `self` and its function pointers must originate from WinIsland and remain
+    /// valid for the duration of this call.
+    pub unsafe fn widget_api(&self) -> Option<WidgetApiV1> {
+        // SAFETY: The caller guarantees this host table came from WinIsland.
+        unsafe { self.query(INTERFACE_WIDGET) }
     }
 
     unsafe fn query<T: Copy>(&self, interface_id: u32) -> Option<T> {
@@ -141,4 +152,17 @@ pub struct HostStateApiV1 {
     pub struct_size: u32,
     pub version: u32,
     pub get: Option<unsafe extern "C" fn(PluginToken, *mut HostStateV1) -> PluginResultC>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct WidgetApiV1 {
+    pub struct_size: u32,
+    pub version: u32,
+    pub create: Option<
+        unsafe extern "C" fn(PluginToken, *const WidgetDataV1, *mut ResourceId) -> PluginResultC,
+    >,
+    pub update:
+        Option<unsafe extern "C" fn(PluginToken, ResourceId, *const WidgetDataV1) -> PluginResultC>,
+    pub release: Option<unsafe extern "C" fn(PluginToken, ResourceId) -> PluginResultC>,
 }
