@@ -30,7 +30,7 @@ pub struct PluginManifest {
 impl PluginManifest {
     /// Build the signing payload: canonical JSON of all fields except `signature`.
     pub fn signing_payload(&self) -> String {
-        let payload = serde_json::json!({
+        let mut payload = serde_json::json!({
             "id": self.id,
             "name": self.name,
             "author": self.author,
@@ -39,10 +39,16 @@ impl PluginManifest {
             "github-link": self.github_link,
             "abi-version": self.abi_version,
             "entry": self.entry,
-            "icon": self.icon,
-            "readme": self.readme,
             "dll_hashes": self.dll_hashes,
         });
+        if let Some(object) = payload.as_object_mut() {
+            if let Some(icon) = &self.icon {
+                object.insert("icon".to_string(), serde_json::json!(icon));
+            }
+            if let Some(readme) = &self.readme {
+                object.insert("readme".to_string(), serde_json::json!(readme));
+            }
+        }
         serde_json::to_string(&payload).unwrap_or_default()
     }
 
