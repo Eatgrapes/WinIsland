@@ -1,6 +1,6 @@
 use skia_safe::{Canvas, Color, ImageFilter, Paint};
 
-use crate::core::config::WidgetSlot;
+use crate::core::config::{PluginWidgetSlot, WidgetSlot};
 use crate::core::smtc::MediaInfo;
 use crate::ui::expanded::music_view::{DrawMusicPageParams, draw_music_page};
 use crate::ui::expanded::widget_view::draw_widget_page;
@@ -28,6 +28,7 @@ pub(super) struct ExpandedContentParams<'a> {
     pub(super) palette: &'a [Color],
     pub(super) lyrics_delay: f64,
     pub(super) widget_layout: &'a [WidgetSlot],
+    pub(super) plugin_widget_layout: &'a [PluginWidgetSlot],
     pub(super) plugin_widgets: &'a crate::core::plugin_widget::WidgetManager,
 }
 
@@ -55,6 +56,7 @@ pub(super) fn draw_expanded_content(params: ExpandedContentParams<'_>) -> bool {
         palette,
         lyrics_delay,
         widget_layout,
+        plugin_widget_layout,
         plugin_widgets,
     } = params;
     let mut widget_animating = false;
@@ -118,6 +120,7 @@ pub(super) fn draw_expanded_content(params: ExpandedContentParams<'_>) -> bool {
                 lyrics_delay,
                 dt,
                 widget_layout,
+                plugin_widget_layout,
                 plugin_widgets,
                 text_color,
                 music_page_available,

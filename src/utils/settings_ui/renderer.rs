@@ -4,8 +4,10 @@ mod widget_preview;
 
 use skia_safe::{Canvas, Rect};
 
-use crate::core::config::{WidgetKind, WidgetSlot};
+use crate::core::config::{PluginWidgetSlot, WidgetSlot};
+use crate::core::plugin_widget::PluginWidget;
 use crate::utils::color::SettingsTheme;
+use crate::utils::settings_ui::input::WidgetSource;
 
 use super::anim::SwitchAnimator;
 use super::items::SettingsItem;
@@ -31,7 +33,9 @@ pub struct DrawItemsParams<'a> {
     pub expanded_width: f32,
     pub expanded_height: f32,
     pub widget_layout: &'a [WidgetSlot],
-    pub widget_dragging: Option<WidgetKind>,
+    pub plugin_widget_layout: &'a [PluginWidgetSlot],
+    pub plugin_widgets: &'a [PluginWidget],
+    pub widget_dragging: Option<&'a WidgetSource>,
     pub widget_drag_hover_slot: Option<usize>,
     pub widget_preview_hover_slot: Option<usize>,
     pub active_source_button: Option<Rect>,

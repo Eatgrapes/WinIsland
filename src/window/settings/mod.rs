@@ -1,4 +1,5 @@
-use crate::core::config::{AppConfig, WidgetKind};
+use crate::core::config::AppConfig;
+use crate::core::plugin_widget::PluginWidget;
 use crate::plugin::manager::InstalledPlugin;
 use crate::plugin::marketplace::{MarketplaceCatalog, MarketplacePlugin};
 use crate::utils::anim::AnimPool;
@@ -173,9 +174,10 @@ pub struct SettingsApp {
     pub(crate) dots_hovered: bool,
     pub(crate) scroll_dragging: bool,
     scroll_drag_offset: f32,
-    pub(crate) widget_dragging: Option<WidgetKind>,
+    pub(crate) widget_dragging: Option<WidgetSource>,
     pub(crate) widget_drag_hover_slot: Option<usize>,
     pub(crate) widget_preview_hover_slot: Option<usize>,
+    pub(crate) plugin_widgets: Vec<PluginWidget>,
     pub(crate) plugins: Vec<InstalledPlugin>,
     pub(crate) plugin_page_tab: PluginPageTab,
     pub(crate) marketplace_state: MarketplaceViewState,
@@ -191,7 +193,11 @@ pub struct SettingsApp {
 }
 
 impl SettingsApp {
-    pub fn new(config: AppConfig, plugins: Vec<InstalledPlugin>) -> Self {
+    pub fn new(
+        config: AppConfig,
+        plugins: Vec<InstalledPlugin>,
+        plugin_widgets: Vec<PluginWidget>,
+    ) -> Self {
         let switch_anim = SwitchAnimator::new(&[]);
         Self {
             window: None,
@@ -229,6 +235,7 @@ impl SettingsApp {
             widget_dragging: None,
             widget_drag_hover_slot: None,
             widget_preview_hover_slot: None,
+            plugin_widgets,
             plugins,
             plugin_page_tab: PluginPageTab::Installed,
             marketplace_state: MarketplaceViewState::NotLoaded,
@@ -907,6 +914,28 @@ impl SettingsApp {
             self.anim.set_with_speed(PLUGIN_DETAIL_KEY, 0.0, 0.28);
         }
         self.mark_items_dirty();
+        if let Some(win) = &self.window {
+            win.request_redraw();
+        }
+    }
+
+    pub(crate) fn set_plugin_widgets(&mut self, plugin_widgets: Vec<PluginWidget>) {
+        self.plugin_widgets = plugin_widgets;
+        let layout_changed = crate::core::config::normalize_active_plugin_widget_layout(
+            &self.config.widget_layout,
+            &mut self.config.plugin_widget_layout,
+            &self.plugin_widgets,
+        );
+        if self.widget_dragging.as_ref().is_some_and(|source| {
+            matches!(source, WidgetSource::Plugin(id) if !self.plugin_widgets.iter().any(|widget| widget.layout_id().as_ref() == Some(id)))
+        }) {
+            self.widget_dragging = None;
+            self.widget_drag_hover_slot = None;
+        }
+        self.mark_items_dirty();
+        if layout_changed {
+            crate::core::persistence::save_config(&self.config);
+        }
         if let Some(win) = &self.window {
             win.request_redraw();
         }

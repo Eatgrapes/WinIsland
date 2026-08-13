@@ -55,9 +55,13 @@ impl App {
             }
             Some(crate::window::settings::PluginSettingsRequest::Uninstall { id }) => {
                 let result = self.plugin_mgr.uninstall_plugin(&id);
+                if result.is_ok() {
+                    crate::plugin::manager::drain_widget_events(&mut self.widget_mgr);
+                }
                 if let Some(settings) = self.settings.as_mut() {
                     match result {
                         Ok(()) => {
+                            settings.set_plugin_widgets(self.widget_mgr.configurable_widgets());
                             settings.set_plugins(self.plugin_mgr.installed_plugins());
                             settings.set_plugin_status(
                                 crate::core::i18n::tr("plugin_uninstalled"),
@@ -291,9 +295,20 @@ impl App {
             return;
         }
 
+        crate::plugin::manager::drain_widget_events(&mut self.widget_mgr);
+        let mut config = load_config();
+        let plugin_widgets = self.widget_mgr.configurable_widgets();
+        if crate::core::config::normalize_active_plugin_widget_layout(
+            &config.widget_layout,
+            &mut config.plugin_widget_layout,
+            &plugin_widgets,
+        ) {
+            crate::core::persistence::save_config(&config);
+        }
         let mut settings = crate::window::settings::SettingsApp::new(
-            load_config(),
+            config,
             self.plugin_mgr.installed_plugins(),
+            plugin_widgets,
         );
         let Some(renderer) = self.renderer.as_mut() else {
             log::error!("Cannot open settings without the shared D3D12 renderer");
