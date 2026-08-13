@@ -2,6 +2,26 @@
 
 This changelog lists published `winisland-plugin-api` releases only. Release notes are added when a version is published; there is no `Unreleased` section.
 
+## 0.4.0 - Aug 13, 2026
+
+Added:
+
+- `CAPABILITY_WIDGET` and the `WidgetApiV1` host service (create, update, release)
+- `WidgetDataV1` — plugin-owned widget resources with grid span and a render callback
+- `WidgetDrawContextV1` / `DrawApiV1` — host-provided drawing operations so plugins can render
+  on the host Skia canvas without linking any graphics library
+- Draw operations: text, text measurement, rect, rounded rect, circle, line, arc, image,
+  and a plugin-local `save` / `restore` / `translate` transform stack
+- `WIDGET_FLAG_SHOW_COMPACT` — reserved flag for future mini-island rendering
+- `HostApiV1::widget_api()` for querying the widget service during `create`
+
+Changed:
+
+- Widgets are rendered synchronously on the render thread in the expanded widget page;
+  coordinates are logical and relative to the widget slot, and the host applies `scale`/`alpha`
+- `callback_data` uses the same opaque `*mut c_void` convention as the Media interface
+- The `DrawApiV1` interface is versioned and validated through `WidgetDrawContextV1::draw_api()`
+
 ## 0.3.0 - Aug 9, 2026
 
 Added:

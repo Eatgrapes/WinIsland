@@ -352,6 +352,38 @@ pub fn widget_covering_slot(
     })
 }
 
+pub fn span_cells(anchor: usize, span: (usize, usize)) -> Vec<usize> {
+    let (cols, rows) = span;
+    if cols == 0 || rows == 0 || cols > WIDGET_GRID_COLS || rows > WIDGET_GRID_ROWS {
+        return Vec::new();
+    }
+    let anchor_col = (anchor % WIDGET_GRID_COLS).min(WIDGET_GRID_COLS - cols);
+    let anchor_row = (anchor / WIDGET_GRID_COLS).min(WIDGET_GRID_ROWS - rows);
+    let mut cells = Vec::with_capacity(cols * rows);
+    for dr in 0..rows {
+        for dc in 0..cols {
+            cells.push((anchor_row + dr) * WIDGET_GRID_COLS + (anchor_col + dc));
+        }
+    }
+    cells
+}
+
+pub fn first_free_anchor(occupied: &[bool], span: (usize, usize)) -> Option<usize> {
+    let (cols, rows) = span;
+    if cols == 0 || rows == 0 || cols > WIDGET_GRID_COLS || rows > WIDGET_GRID_ROWS {
+        return None;
+    }
+    (0..WIDGET_GRID_SLOTS).find_map(|anchor| {
+        let anchor_col = (anchor % WIDGET_GRID_COLS).min(WIDGET_GRID_COLS - cols);
+        let anchor_row = (anchor / WIDGET_GRID_COLS).min(WIDGET_GRID_ROWS - rows);
+        let anchor = anchor_row * WIDGET_GRID_COLS + anchor_col;
+        let free = (0..rows).all(|dr| {
+            (0..cols).all(|dc| !occupied[(anchor_row + dr) * WIDGET_GRID_COLS + (anchor_col + dc)])
+        });
+        free.then_some(anchor)
+    })
+}
+
 pub fn default_widget_layout() -> Vec<WidgetSlot> {
     let mut layout: Vec<WidgetSlot> = (0..WIDGET_GRID_SLOTS)
         .map(|slot| WidgetSlot { slot, widget: None })

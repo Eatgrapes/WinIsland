@@ -9,13 +9,16 @@ use std::sync::{Mutex, OnceLock};
 
 use super::loader::NativePlugin;
 use super::types::{
-    ABI_VERSION_1, CAPABILITY_CONTEXT, CAPABILITY_HOST_STATE, CAPABILITY_I18N, CAPABILITY_MEDIA,
-    ContextApiV1, ContextDataV1, HostApiV1, HostState, HostStateApiV1, HostStateV1, I18nApiV1,
-    INTERFACE_CONTEXT, INTERFACE_HOST_STATE, INTERFACE_I18N, INTERFACE_MEDIA, INTERFACE_VERSION_1,
-    INVALID_ID, MediaApiV1, MediaCommandV1, MediaSourceDataV1, PluginError, PluginResultC,
-    PluginToken, ResourceId, TranslationPairV1, Utf8SliceV1, context_from_ffi, read_c_str,
+    ABI_VERSION_1, ByteSliceV1, CAPABILITY_CONTEXT, CAPABILITY_HOST_STATE, CAPABILITY_I18N,
+    CAPABILITY_MEDIA, CAPABILITY_WIDGET, ContextApiV1, ContextDataV1, DrawApiV1, HostApiV1,
+    HostState, HostStateApiV1, HostStateV1, I18nApiV1, INTERFACE_CONTEXT, INTERFACE_HOST_STATE,
+    INTERFACE_I18N, INTERFACE_MEDIA, INTERFACE_VERSION_1, INTERFACE_WIDGET, INVALID_ID, MediaApiV1,
+    MediaCommandV1, MediaSourceDataV1, PluginError, PluginResultC, PluginToken, ResourceId,
+    TranslationPairV1, Utf8SliceV1, WidgetApiV1, WidgetDataV1, WidgetDrawContextV1,
+    context_from_ffi, read_c_str, widget_from_ffi,
 };
 use super::zip_loader::{self, PluginManifest};
+use skia_safe::{Canvas, Color, ColorType, ISize, ImageInfo, Paint, Rect};
 
 const MAX_COVER_BYTES: u32 = 16 * 1024 * 1024;
 const MAX_CONTEXTS_PER_PLUGIN: usize = 64;
@@ -23,6 +26,7 @@ const MAX_MEDIA_SOURCES_PER_PLUGIN: usize = 4;
 const MAX_MEDIA_BYTES_PER_PLUGIN: usize = 32 * 1024 * 1024;
 const MAX_I18N_BUNDLES_PER_PLUGIN: usize = 16;
 const MAX_I18N_BYTES_PER_PLUGIN: usize = 4 * 1024 * 1024;
+const MAX_WIDGETS_PER_PLUGIN: usize = 8;
 const MAX_TRANSLATION_PAIRS: u32 = 4096;
 const MAX_TRANSLATION_STRING_BYTES: u32 = 64 * 1024;
 const MAX_TRANSLATION_BUNDLE_BYTES: usize = 1024 * 1024;
@@ -50,11 +54,17 @@ enum ContextEvent {
     Remove(ResourceId),
 }
 
+enum WidgetEvent {
+    Upsert(crate::core::plugin_widget::PluginWidget),
+    Remove(ResourceId),
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ResourceKind {
     Context,
     Media,
     I18n,
+    Widget,
 }
 
 struct ResourceOwner {
@@ -85,6 +95,7 @@ struct RuntimeState {
     media: HashMap<ResourceId, MediaResource>,
     media_sequence: u64,
     media_dirty: bool,
+    widget_events: HashMap<ResourceId, WidgetEvent>,
     host_state: HostState,
 }
 
@@ -123,6 +134,28 @@ static HOST_STATE_API: HostStateApiV1 = HostStateApiV1 {
     version: INTERFACE_VERSION_1,
     get: Some(host_state_get),
 };
+static WIDGET_API: WidgetApiV1 = WidgetApiV1 {
+    struct_size: std::mem::size_of::<WidgetApiV1>() as u32,
+    version: INTERFACE_VERSION_1,
+    create: Some(widget_create),
+    update: Some(widget_update),
+    release: Some(widget_release),
+};
+static DRAW_API: DrawApiV1 = DrawApiV1 {
+    struct_size: std::mem::size_of::<DrawApiV1>() as u32,
+    version: INTERFACE_VERSION_1,
+    draw_text: Some(ffi_draw_text),
+    measure_text: Some(ffi_measure_text),
+    draw_rect: Some(ffi_draw_rect),
+    draw_round_rect: Some(ffi_draw_round_rect),
+    draw_circle: Some(ffi_draw_circle),
+    draw_line: Some(ffi_draw_line),
+    draw_arc: Some(ffi_draw_arc),
+    draw_image: Some(ffi_draw_image),
+    save: Some(ffi_save),
+    restore: Some(ffi_restore),
+    translate: Some(ffi_translate),
+};
 
 fn runtime() -> &'static Mutex<RuntimeState> {
     RUNTIME.get_or_init(|| Mutex::new(RuntimeState::default()))
@@ -130,6 +163,10 @@ fn runtime() -> &'static Mutex<RuntimeState> {
 
 pub fn host_api() -> *const HostApiV1 {
     &HOST_API
+}
+
+pub fn draw_api() -> &'static DrawApiV1 {
+    &DRAW_API
 }
 
 unsafe extern "C" fn query_interface(interface_id: u32, version: u32) -> *const c_void {
@@ -141,6 +178,7 @@ unsafe extern "C" fn query_interface(interface_id: u32, version: u32) -> *const 
         INTERFACE_MEDIA => std::ptr::from_ref(&MEDIA_API).cast(),
         INTERFACE_I18N => std::ptr::from_ref(&I18N_API).cast(),
         INTERFACE_HOST_STATE => std::ptr::from_ref(&HOST_STATE_API).cast(),
+        INTERFACE_WIDGET => std::ptr::from_ref(&WIDGET_API).cast(),
         _ => std::ptr::null(),
     }
 }
@@ -628,6 +666,468 @@ unsafe extern "C" fn host_state_get(
     PluginResultC::ok()
 }
 
+fn ctx_ref<'a>(ctx: *const WidgetDrawContextV1) -> Option<&'a WidgetDrawContextV1> {
+    // SAFETY: The context is host-provided and valid for the whole on_draw call.
+    let ctx = unsafe { ctx.as_ref() }?;
+    (ctx.struct_size >= std::mem::size_of::<WidgetDrawContextV1>() as u32
+        && ctx.version == INTERFACE_VERSION_1)
+        .then_some(ctx)
+}
+
+fn ctx_canvas(ctx: &WidgetDrawContextV1) -> Option<&Canvas> {
+    if ctx.canvas_handle.is_null() {
+        return None;
+    }
+    // SAFETY: The host sets canvas_handle before invoking on_draw and the
+    // canvas outlives the whole synchronous callback. Skia canvas operations
+    // take &self, so a shared reference is sufficient.
+    Some(unsafe { &*(ctx.canvas_handle.cast::<Canvas>()) })
+}
+
+const MAX_DRAW_TEXT_BYTES: u32 = 64 * 1024;
+const MAX_DRAW_IMAGE_BYTES: usize = 16 * 1024 * 1024;
+
+thread_local! {
+    static DRAW_TRANSFORMS: RefCell<Vec<(f32, f32)>> = const { RefCell::new(Vec::new()) };
+}
+
+pub fn reset_draw_transform() {
+    DRAW_TRANSFORMS.with(|transforms| {
+        let mut transforms = transforms.borrow_mut();
+        transforms.clear();
+        transforms.push((0.0, 0.0));
+    });
+}
+
+fn draw_transform() -> (f32, f32) {
+    DRAW_TRANSFORMS.with(|transforms| transforms.borrow().last().copied().unwrap_or((0.0, 0.0)))
+}
+
+fn ctx_text<'a>(text: Utf8SliceV1) -> Option<&'a str> {
+    if text.len == 0 {
+        return Some("");
+    }
+    if text.ptr.is_null() || text.len > MAX_DRAW_TEXT_BYTES {
+        return None;
+    }
+    // SAFETY: The plugin guarantees this borrowed range is valid for the call.
+    let bytes = unsafe { std::slice::from_raw_parts(text.ptr, text.len as usize) };
+    std::str::from_utf8(bytes).ok()
+}
+
+fn argb_paint(color: u32, alpha: u8) -> Paint {
+    let a = ((color >> 24) & 0xFF) as u8;
+    let r = ((color >> 16) & 0xFF) as u8;
+    let g = ((color >> 8) & 0xFF) as u8;
+    let b = (color & 0xFF) as u8;
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    paint.set_color(Color::from_argb(
+        (a as u32 * alpha as u32 / 255) as u8,
+        r,
+        g,
+        b,
+    ));
+    paint
+}
+
+fn stroke_paint(color: u32, alpha: u8, width: f32) -> Paint {
+    let mut paint = argb_paint(color, alpha);
+    paint.set_style(skia_safe::paint::Style::Stroke);
+    paint.set_stroke_width(width);
+    paint.set_stroke_cap(skia_safe::paint::Cap::Round);
+    paint
+}
+
+unsafe extern "C" fn ffi_draw_text(
+    ctx: *const WidgetDrawContextV1,
+    x: f32,
+    y: f32,
+    text: Utf8SliceV1,
+    size: f32,
+    bold: u8,
+    color: u32,
+) {
+    let Some(ctx) = ctx_ref(ctx) else {
+        return;
+    };
+    let Some(canvas) = ctx_canvas(ctx) else {
+        return;
+    };
+    let Some(text) = ctx_text(text) else {
+        return;
+    };
+    let (tx, ty) = draw_transform();
+    let size = size.clamp(1.0, 512.0);
+    let font = crate::utils::font::FontManager::global().get_font(size * ctx.scale, bold != 0);
+    let (_, metrics) = font.metrics();
+    let baseline = (y + ty) * ctx.scale - metrics.ascent;
+    let paint = argb_paint(color, ctx.alpha);
+    canvas.draw_str(text, ((x + tx) * ctx.scale, baseline), &font, &paint);
+}
+
+unsafe extern "C" fn ffi_measure_text(
+    ctx: *const WidgetDrawContextV1,
+    text: Utf8SliceV1,
+    size: f32,
+    bold: u8,
+) -> f32 {
+    let Some(ctx) = ctx_ref(ctx) else {
+        return 0.0;
+    };
+    let Some(text) = ctx_text(text) else {
+        return 0.0;
+    };
+    let size = size.clamp(1.0, 512.0);
+    let font = crate::utils::font::FontManager::global().get_font(size * ctx.scale, bold != 0);
+    let (advance, _) = font.measure_str(text, None);
+    if ctx.scale > 0.0 {
+        advance / ctx.scale
+    } else {
+        0.0
+    }
+}
+
+unsafe extern "C" fn ffi_draw_rect(
+    ctx: *const WidgetDrawContextV1,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    color: u32,
+) {
+    let Some(ctx) = ctx_ref(ctx) else {
+        return;
+    };
+    let Some(canvas) = ctx_canvas(ctx) else {
+        return;
+    };
+    let (tx, ty) = draw_transform();
+    canvas.draw_rect(
+        Rect::from_xywh(
+            (x + tx) * ctx.scale,
+            (y + ty) * ctx.scale,
+            w * ctx.scale,
+            h * ctx.scale,
+        ),
+        &argb_paint(color, ctx.alpha),
+    );
+}
+
+unsafe extern "C" fn ffi_draw_round_rect(
+    ctx: *const WidgetDrawContextV1,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    radius: f32,
+    color: u32,
+) {
+    let Some(ctx) = ctx_ref(ctx) else {
+        return;
+    };
+    let Some(canvas) = ctx_canvas(ctx) else {
+        return;
+    };
+    let (tx, ty) = draw_transform();
+    let radius = radius * ctx.scale;
+    canvas.draw_round_rect(
+        Rect::from_xywh(
+            (x + tx) * ctx.scale,
+            (y + ty) * ctx.scale,
+            w * ctx.scale,
+            h * ctx.scale,
+        ),
+        radius,
+        radius,
+        &argb_paint(color, ctx.alpha),
+    );
+}
+
+unsafe extern "C" fn ffi_draw_circle(
+    ctx: *const WidgetDrawContextV1,
+    cx: f32,
+    cy: f32,
+    r: f32,
+    color: u32,
+) {
+    let Some(ctx) = ctx_ref(ctx) else {
+        return;
+    };
+    let Some(canvas) = ctx_canvas(ctx) else {
+        return;
+    };
+    let (tx, ty) = draw_transform();
+    canvas.draw_circle(
+        ((cx + tx) * ctx.scale, (cy + ty) * ctx.scale),
+        r * ctx.scale,
+        &argb_paint(color, ctx.alpha),
+    );
+}
+
+unsafe extern "C" fn ffi_draw_line(
+    ctx: *const WidgetDrawContextV1,
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+    stroke_width: f32,
+    color: u32,
+) {
+    let Some(ctx) = ctx_ref(ctx) else {
+        return;
+    };
+    let Some(canvas) = ctx_canvas(ctx) else {
+        return;
+    };
+    let (tx, ty) = draw_transform();
+    canvas.draw_line(
+        ((x1 + tx) * ctx.scale, (y1 + ty) * ctx.scale),
+        ((x2 + tx) * ctx.scale, (y2 + ty) * ctx.scale),
+        &stroke_paint(color, ctx.alpha, stroke_width * ctx.scale),
+    );
+}
+
+unsafe extern "C" fn ffi_draw_arc(
+    ctx: *const WidgetDrawContextV1,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    start_angle: f32,
+    sweep_angle: f32,
+    stroke_width: f32,
+    color: u32,
+) {
+    let Some(ctx) = ctx_ref(ctx) else {
+        return;
+    };
+    let Some(canvas) = ctx_canvas(ctx) else {
+        return;
+    };
+    let (tx, ty) = draw_transform();
+    canvas.draw_arc(
+        Rect::from_xywh(
+            (x + tx) * ctx.scale,
+            (y + ty) * ctx.scale,
+            w * ctx.scale,
+            h * ctx.scale,
+        ),
+        start_angle,
+        sweep_angle,
+        false,
+        &stroke_paint(color, ctx.alpha, stroke_width * ctx.scale),
+    );
+}
+
+unsafe extern "C" fn ffi_draw_image(
+    ctx: *const WidgetDrawContextV1,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    bitmap: ByteSliceV1,
+    bitmap_width: u32,
+    bitmap_height: u32,
+) {
+    let Some(ctx) = ctx_ref(ctx) else {
+        return;
+    };
+    let Some(canvas) = ctx_canvas(ctx) else {
+        return;
+    };
+    if bitmap.ptr.is_null() || bitmap.len == 0 || bitmap_width == 0 || bitmap_height == 0 {
+        return;
+    }
+    let pixel_bytes = (bitmap_width as usize)
+        .checked_mul(bitmap_height as usize)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .unwrap_or(usize::MAX);
+    if pixel_bytes > bitmap.len as usize || pixel_bytes > MAX_DRAW_IMAGE_BYTES {
+        return;
+    }
+    let info = ImageInfo::new(
+        ISize::new(bitmap_width as i32, bitmap_height as i32),
+        ColorType::RGBA8888,
+        skia_safe::AlphaType::Unpremul,
+        None,
+    );
+    // SAFETY: The plugin guarantees this borrowed range is valid for the call.
+    let pixels = unsafe { std::slice::from_raw_parts(bitmap.ptr, pixel_bytes) };
+    let image = skia_safe::images::raster_from_data(
+        &info,
+        skia_safe::Data::new_copy(pixels),
+        bitmap_width as usize * 4,
+    );
+    let Some(image) = image else {
+        return;
+    };
+    let (tx, ty) = draw_transform();
+    canvas.draw_image_rect(
+        &image,
+        None,
+        Rect::from_xywh(
+            (x + tx) * ctx.scale,
+            (y + ty) * ctx.scale,
+            w * ctx.scale,
+            h * ctx.scale,
+        ),
+        &argb_paint(0xFFFF_FFFF, ctx.alpha),
+    );
+}
+
+unsafe extern "C" fn ffi_save(ctx: *const WidgetDrawContextV1) {
+    let Some(_ctx) = ctx_ref(ctx) else {
+        return;
+    };
+    DRAW_TRANSFORMS.with(|transforms| {
+        let mut transforms = transforms.borrow_mut();
+        if transforms.len() >= 64 {
+            return;
+        }
+        let top = transforms.last().copied().unwrap_or((0.0, 0.0));
+        transforms.push(top);
+    });
+}
+
+unsafe extern "C" fn ffi_restore(ctx: *const WidgetDrawContextV1) {
+    let Some(_ctx) = ctx_ref(ctx) else {
+        return;
+    };
+    DRAW_TRANSFORMS.with(|transforms| {
+        let mut transforms = transforms.borrow_mut();
+        if transforms.len() > 1 {
+            transforms.pop();
+        }
+    });
+}
+
+unsafe extern "C" fn ffi_translate(ctx: *const WidgetDrawContextV1, dx: f32, dy: f32) {
+    let Some(_ctx) = ctx_ref(ctx) else {
+        return;
+    };
+    DRAW_TRANSFORMS.with(|transforms| {
+        let mut transforms = transforms.borrow_mut();
+        if let Some(top) = transforms.last_mut() {
+            *top = (top.0 + dx, top.1 + dy);
+        } else {
+            transforms.push((dx, dy));
+        }
+    });
+}
+
+unsafe extern "C" fn widget_create(
+    token: PluginToken,
+    data: *const WidgetDataV1,
+    out_id: *mut ResourceId,
+) -> PluginResultC {
+    if out_id.is_null() {
+        return PluginResultC::err("widget output pointer is null");
+    }
+    // SAFETY: Validation is performed by read_struct before the value is used.
+    let data = match unsafe { read_struct(data) } {
+        Ok(data) => data,
+        Err(error) => return PluginResultC::err(error),
+    };
+    if data.span_cols == 0
+        || data.span_cols > crate::core::config::WIDGET_GRID_COLS as u32
+        || data.span_rows == 0
+        || data.span_rows > crate::core::config::WIDGET_GRID_ROWS as u32
+    {
+        return PluginResultC::err("widget span is out of range");
+    }
+    if data.flags & !super::types::WIDGET_FLAG_SHOW_COMPACT != 0 {
+        return PluginResultC::err("widget contains unknown flags");
+    }
+    if data.on_draw.is_none() {
+        return PluginResultC::err("widget render callback is required");
+    }
+    let mut state = match runtime().lock() {
+        Ok(state) => state,
+        Err(_) => return PluginResultC::err("plugin runtime lock is poisoned"),
+    };
+    if let Err(error) = require_capability(&state, token, CAPABILITY_WIDGET) {
+        return PluginResultC::err(error);
+    }
+    if resource_count(&state, token, ResourceKind::Widget) >= MAX_WIDGETS_PER_PLUGIN {
+        return PluginResultC::err("widget resource limit reached");
+    }
+    let id = next_id(&NEXT_RESOURCE_ID);
+    let widget = widget_from_ffi(token, id, &data);
+    let size_bytes = widget.title.len() + widget.body.len();
+    state.resources.insert(
+        id,
+        ResourceOwner {
+            plugin: token,
+            kind: ResourceKind::Widget,
+            size_bytes,
+        },
+    );
+    state.widget_events.insert(id, WidgetEvent::Upsert(widget));
+    // SAFETY: out_id was checked non-null and belongs to the caller.
+    unsafe { out_id.write(id) };
+    drop(state);
+    crate::utils::event_loop::wake();
+    PluginResultC::ok()
+}
+
+unsafe extern "C" fn widget_update(
+    token: PluginToken,
+    id: ResourceId,
+    data: *const WidgetDataV1,
+) -> PluginResultC {
+    // SAFETY: Validation is performed by read_struct before the value is used.
+    let data = match unsafe { read_struct(data) } {
+        Ok(data) => data,
+        Err(error) => return PluginResultC::err(error),
+    };
+    if data.span_cols == 0
+        || data.span_cols > crate::core::config::WIDGET_GRID_COLS as u32
+        || data.span_rows == 0
+        || data.span_rows > crate::core::config::WIDGET_GRID_ROWS as u32
+    {
+        return PluginResultC::err("widget span is out of range");
+    }
+    if data.flags & !super::types::WIDGET_FLAG_SHOW_COMPACT != 0 {
+        return PluginResultC::err("widget contains unknown flags");
+    }
+    if data.on_draw.is_none() {
+        return PluginResultC::err("widget render callback is required");
+    }
+    let widget = widget_from_ffi(token, id, &data);
+    let size_bytes = widget.title.len() + widget.body.len();
+    let mut state = match runtime().lock() {
+        Ok(state) => state,
+        Err(_) => return PluginResultC::err("plugin runtime lock is poisoned"),
+    };
+    if let Err(error) = require_resource(&state, token, id, ResourceKind::Widget) {
+        return PluginResultC::err(error);
+    }
+    if let Some(owner) = state.resources.get_mut(&id) {
+        owner.size_bytes = size_bytes;
+    }
+    state.widget_events.insert(id, WidgetEvent::Upsert(widget));
+    drop(state);
+    crate::utils::event_loop::wake();
+    PluginResultC::ok()
+}
+
+unsafe extern "C" fn widget_release(token: PluginToken, id: ResourceId) -> PluginResultC {
+    let mut state = match runtime().lock() {
+        Ok(state) => state,
+        Err(_) => return PluginResultC::err("plugin runtime lock is poisoned"),
+    };
+    if let Err(error) = require_resource(&state, token, id, ResourceKind::Widget) {
+        return PluginResultC::err(error);
+    }
+    state.resources.remove(&id);
+    state.widget_events.remove(&id);
+    state.widget_events.insert(id, WidgetEvent::Remove(id));
+    drop(state);
+    crate::utils::event_loop::wake();
+    PluginResultC::ok()
+}
+
 pub fn update_host_state(state: HostState) {
     if let Ok(mut runtime) = runtime().lock() {
         runtime.host_state = state;
@@ -683,6 +1183,25 @@ pub fn drain_pending_contexts(manager: &mut crate::core::context::ContextManager
             ContextEvent::Upsert(context) => manager.upsert_context(context),
             ContextEvent::Remove(id) => {
                 manager.remove_context(id);
+            }
+        }
+    }
+}
+
+pub fn drain_widget_events(manager: &mut crate::core::plugin_widget::WidgetManager) {
+    let events = match runtime().lock() {
+        Ok(mut runtime) => runtime
+            .widget_events
+            .drain()
+            .map(|(_, event)| event)
+            .collect::<Vec<_>>(),
+        Err(_) => return,
+    };
+    for event in events {
+        match event {
+            WidgetEvent::Upsert(widget) => manager.upsert_widget(widget),
+            WidgetEvent::Remove(id) => {
+                manager.remove_widget(id);
             }
         }
     }
@@ -839,6 +1358,10 @@ fn revoke_plugin(token: PluginToken) {
                     media_removed = true;
                 }
                 ResourceKind::I18n => i18n_resources.push(id),
+                ResourceKind::Widget => {
+                    runtime.widget_events.remove(&id);
+                    runtime.widget_events.insert(id, WidgetEvent::Remove(id));
+                }
             }
         }
         runtime.media_dirty |= media_removed;

@@ -119,7 +119,7 @@ DLL exports: winisland_plugin_entry_v1() -> *const PluginDescriptorV1
 PluginDescriptorV1:
   ABI version + struct size
   metadata: PluginMetadataC (id, name, version, author, description)
-  capability bitset (Context, Media, I18n, HostState)
+  capability bitset (Context, Media, I18n, HostState, Widget)
   create(create_info, out_handle) -> PluginResultC
   shutdown(handle) -> PluginResultC
   destroy(handle)
@@ -128,11 +128,18 @@ PluginCreateInfoV1:
   host-issued PluginToken
   HostApiV1 with query_interface()
 
-Host services issue ResourceId values. Context, Media, and translation resources
-are owned by PluginToken, validated on every operation, and revoked after a
-successful shutdown. Plugins may call host services from worker threads; resource
-changes wake the winit event loop. shutdown must stop and join all plugin threads
-before the DLL can be destroyed and unloaded.
+Host services issue ResourceId values. Context, Media, translation, and Widget
+resources are owned by PluginToken, validated on every operation, and revoked
+after a successful shutdown. Plugins may call host services from worker threads;
+resource changes wake the winit event loop. shutdown must stop and join all plugin
+threads before the DLL can be destroyed and unloaded.
+
+Widget rendering is synchronous and render-thread only: `draw_widget_page`
+(src/ui/expanded/widget_view.rs) places plugin widgets into free grid slots and
+invokes their `on_draw` callback on every frame. The plugin draws exclusively
+through the host-provided `DrawApiV1` drawing operations (src/plugin/manager.rs) — logical
+coordinates relative to the slot, host-applied scale/alpha, and a plugin-local
+transform stack — so plugins never touch the host Skia canvas directly.
 ```
 
 Plugin packages are `.zip` files with a YAML manifest, one declared entry DLL,

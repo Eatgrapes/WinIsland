@@ -26,8 +26,12 @@ impl WidgetGridLayout {
     }
 
     pub fn footprint_rect(&self, widget: WidgetKind, slot: usize) -> (f32, f32, f32, f32) {
-        let (cols, rows) = widget.span();
         let anchor = widget_footprint(widget, slot)[0];
+        self.footprint_rect_span(anchor, widget.span())
+    }
+
+    pub fn footprint_rect_span(&self, anchor: usize, span: (usize, usize)) -> (f32, f32, f32, f32) {
+        let (cols, rows) = span;
         let (x, y, _, _) = self.slot_rect(anchor);
         let w = self.slot_w * cols as f32 + self.gap * (cols as f32 - 1.0);
         let h = self.slot_h * rows as f32 + self.gap * (rows as f32 - 1.0);

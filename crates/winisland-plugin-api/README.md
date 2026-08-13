@@ -2,7 +2,7 @@
 
 Versioned C ABI types and packaging tools for trusted native WinIsland plugins.
 
-Plugins are loaded as in-process Windows DLLs. They are not sandboxed: install only plugins you trust. ABI v1 is published by crate version `0.3` and does not support the old `0.2` vtable ABI.
+Plugins are loaded as in-process Windows DLLs. They are not sandboxed: install only plugins you trust. ABI v1 is published by crate version `0.4` and does not support the old `0.2` vtable ABI.
 
 ## Project setup
 
@@ -20,7 +20,7 @@ name = "hello_winisland_plugin"
 crate-type = ["cdylib"]
 
 [dependencies]
-winisland-plugin-api = "0.3"
+winisland-plugin-api = "0.4"
 ```
 
 ## Minimal context plugin
@@ -145,6 +145,7 @@ Declare each service in `PluginDescriptorV1.capabilities`, then query it from `H
 | `CAPABILITY_MEDIA` | `media_api()` | create, update, release, UI command callback |
 | `CAPABILITY_I18N` | `i18n_api()` | register and release translation bundles |
 | `CAPABILITY_HOST_STATE` | `host_state_api()` | read the current media/theme snapshot |
+| `CAPABILITY_WIDGET` | `widget_api()` | create, update, release, per-frame render callback |
 
 All created resources belong to the host-issued `PluginToken`. A plugin cannot update or release another plugin's resources. WinIsland automatically revokes remaining resources after successful shutdown.
 
@@ -152,13 +153,61 @@ Borrowed slices (`ByteSliceV1`, `Utf8SliceV1`) only need to remain valid until t
 
 Every pointer passed across the ABI must be non-null when required, correctly aligned for its declared type, and readable or writable for the complete call. All public ABI structs use `#[repr(C)]` and start with `struct_size` where versioned extension is supported.
 
+## Widget rendering
+
+Declare `CAPABILITY_WIDGET`, create a `WidgetDataV1` with a render callback, and the host places
+the widget on the expanded island's widget page grid. The host calls `on_draw` synchronously on
+every rendered frame; inside the callback you draw through the host-provided `DrawApiV1` drawing operations —
+no graphics library is linked into the plugin.
+
+```rust
+// In `create`, after querying `widget_api`:
+let create_widget = widget_api.create.ok_or(())?;   // Option<fn> field, same as Media
+
+let mut widget = WidgetDataV1::default();           // span 2x1
+widget.span_cols = 2;
+widget.span_rows = 2;
+widget.on_draw = Some(on_draw);
+
+let mut widget_id = INVALID_ID;
+let result = unsafe { create_widget(info.plugin_token, &widget, &mut widget_id) };
+if result.status != 0 { return result; }
+
+// The render callback is invoked on every frame:
+unsafe extern "C" fn on_draw(callback_data: *mut c_void, ctx: *const WidgetDrawContextV1) {
+    // SAFETY: The context is host-provided and valid for this call.
+    let ctx = unsafe { &*ctx };
+    // SAFETY: The drawing operations originate from the host and are ABI-versioned.
+    let Some(draw) = (unsafe { ctx.draw_api() }) else { return; };
+
+    // SAFETY: All draw calls are synchronous and the context stays valid.
+    unsafe {
+        draw.draw_round_rect.unwrap()(ctx, 0.0, 0.0, ctx.width, ctx.height, 12.0, 0x28FFFFFF);
+        draw.draw_text.unwrap()(ctx, 16.0, 20.0, Utf8SliceV1::borrowed("hello"), 18.0, 1, 0xFFFFFFFF);
+    }
+    let _ = callback_data;
+}
+```
+
+Contract notes:
+
+- Coordinates are **logical** and relative to the widget slot's top-left corner; the host applies
+  the island `scale` and `alpha` automatically. `ctx.width` / `ctx.height` are the logical slot
+  footprint dimensions (span columns/rows plus gaps).
+- `save` / `restore` / `translate` maintain a plugin-local transform stack; they never touch the
+  host canvas state, and unbalanced calls are contained per frame.
+- Colors are `0xAARRGGBB`. `draw_text`'s `y` is the text top (ascent line). `draw_image` takes
+  non-premultiplied RGBA8 pixels and the host applies the context alpha to the whole image.
+- The callback runs on the render thread: keep it short, do not block, and do not retain `ctx`
+  after returning. Release the widget resource in `shutdown` as shown for Context above.
+
 ## Packaging
 
 Enable the optional packager:
 
 ```toml
 [dev-dependencies]
-winisland-plugin-api = { version = "0.3", features = ["packager"] }
+winisland-plugin-api = { version = "0.4", features = ["packager"] }
 
 [[example]]
 name = "pack"

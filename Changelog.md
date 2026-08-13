@@ -3,6 +3,7 @@
 ### v1.3.0
 - Improved the notification system
 - Unified Nightly and Stable installer identities to prevent duplicate installations
+- Added a plugin widget rendering API for third-party widgets on the widget page
 
 ### v1.2.9
 - Fixed notification text and app icon display issues (#129)
