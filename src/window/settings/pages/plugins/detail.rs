@@ -88,7 +88,36 @@ impl SettingsApp {
     }
 
     pub(super) fn plugin_detail_hovered(&self) -> bool {
-        self.plugin_detail_contains(self.logical_mouse_pos.0)
+        let Some(plugin) = self.selected_plugin() else {
+            return false;
+        };
+        let scale = self
+            .window
+            .as_ref()
+            .map(|window| window.scale_factor() as f32)
+            .unwrap_or(1.0);
+        let panel_x = self.win_w / scale - DETAIL_W * self.anim.get(PLUGIN_DETAIL_KEY);
+        let (mouse_x, mouse_y) = self.logical_mouse_pos;
+        if close_rect(panel_x).contains(Point::new(mouse_x, mouse_y)) {
+            return true;
+        }
+        let content_y = mouse_y + self.plugin_detail_scroll;
+        if toggle_rect(panel_x).contains(Point::new(mouse_x, content_y))
+            || (safe_github_url(&plugin.github_link)
+                && github_rect(panel_x, plugin).contains(Point::new(mouse_x, content_y)))
+        {
+            return true;
+        }
+        let fallback = tr("plugin_readme_empty");
+        let readme = plugin.readme.as_deref().unwrap_or(&fallback);
+        markdown::links(
+            readme,
+            panel_x + 20.0,
+            plugin_readme_y(plugin),
+            DETAIL_W - 40.0,
+        )
+        .iter()
+        .any(|link| link.rect.contains(Point::new(mouse_x, content_y)))
     }
 
     pub(super) fn draw_plugin_detail(

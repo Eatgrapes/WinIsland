@@ -1406,12 +1406,19 @@ impl PluginManager {
 
     pub fn load_all(&self) {
         let dlls = discover_plugins(&self.plugin_dir);
+        let disabled = disabled_plugin_ids(&self.plugin_dir);
         log::info!(
             "Discovering ABI v1 plugins in {}: {} DLL(s) found",
             self.plugin_dir.display(),
             dlls.len()
         );
         for (path, manifest) in dlls {
+            if let Some(manifest) = manifest.as_ref()
+                && disabled.contains(&manifest.id)
+            {
+                log::info!("Plugin '{}' is disabled", manifest.id);
+                continue;
+            }
             if let Err(error) = self.load_dll_checked(&path, manifest.as_ref()) {
                 log::warn!("Failed to load plugin '{}': {error}", path.display());
             }
