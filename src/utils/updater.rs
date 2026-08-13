@@ -1,9 +1,13 @@
 use crate::core::i18n::tr;
-use serde::{Deserialize, Serialize};
+use reqwest::header::{CACHE_CONTROL, PRAGMA};
+use serde::Deserialize;
+use serde::de::DeserializeOwned;
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::LazyLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 use windows::Win32::UI::WindowsAndMessaging::{
     IDOK, IDYES, MB_ICONINFORMATION, MB_OKCANCEL, MB_SETFOREGROUND, MB_TOPMOST, MessageBoxW,
 };
@@ -17,20 +21,42 @@ static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         .unwrap()
 });
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct VersionInfo {
-    pub version: Option<String>,
-    pub timestamp: Option<String>,
+#[derive(Deserialize)]
+struct NightlyVersionInfo {
+    build_number: u64,
+    built_at: String,
+    installer_sha256: String,
+}
+
+#[derive(Deserialize)]
+struct GithubRelease {
+    tag_name: String,
+    assets: Vec<GithubReleaseAsset>,
+}
+
+#[derive(Deserialize)]
+struct GithubReleaseAsset {
+    name: String,
+    browser_download_url: String,
+    digest: Option<String>,
 }
 
 const UPDATE_URL_JSON: &str =
     "https://github.com/WinIslandProject/WinIsland/releases/download/nightly/version_info.json";
 const UPDATE_URL_NIGHTLY_INSTALLER: &str = "https://github.com/WinIslandProject/WinIsland/releases/download/nightly/WinIsland-Nightly-Setup.exe";
+const UPDATE_URL_STABLE_RELEASE: &str =
+    "https://api.github.com/repos/WinIslandProject/WinIsland/releases/latest";
 
 #[derive(Clone, Copy)]
 enum InstallerChannel {
     Stable,
     Nightly,
+}
+
+struct UpdatePackage {
+    channel: InstallerChannel,
+    download_url: String,
+    expected_sha256: Option<String>,
 }
 
 impl InstallerChannel {
@@ -47,6 +73,56 @@ impl InstallerChannel {
         path.push("WinIsland.exe");
         path
     }
+}
+
+fn nightly_build_number() -> u64 {
+    env!("WINISLAND_BUILD_NUMBER").parse().unwrap_or_default()
+}
+
+fn cache_buster() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+}
+
+async fn fetch_json<T: DeserializeOwned>(url: &str) -> Result<T, String> {
+    let response = HTTP_CLIENT
+        .get(url)
+        .header(CACHE_CONTROL, "no-cache, no-store")
+        .header(PRAGMA, "no-cache")
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    if !response.status().is_success() {
+        return Err(format!("HTTP {}", response.status()));
+    }
+
+    response.json().await.map_err(|error| error.to_string())
+}
+
+fn validate_sha256(value: &str) -> Option<String> {
+    let value = value.trim();
+    (value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .then(|| value.to_ascii_lowercase())
+}
+
+fn parse_release_digest(value: Option<&str>) -> Option<String> {
+    value
+        .and_then(|value| value.strip_prefix("sha256:"))
+        .and_then(validate_sha256)
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let digest = Sha256::digest(bytes);
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
 }
 
 fn is_version_newer(current: &str, remote: &str) -> bool {
@@ -154,15 +230,13 @@ async fn notify_up_to_date(manual: bool) {
 async fn prompt_update(
     channel_name: &str,
     version_display: &str,
-    download_url: &str,
-    json: String,
-    channel: InstallerChannel,
+    package: UpdatePackage,
     app_dir: &Path,
 ) {
     let title_w: Vec<u16> = format!("{} ({})\0", tr("update_available_title"), channel_name)
         .encode_utf16()
         .collect();
-    let description = match channel {
+    let description = match package.channel {
         InstallerChannel::Stable => tr("update_available_desc"),
         InstallerChannel::Nightly => {
             tr("update_available_nightly_desc").replace("{}", version_display)
@@ -183,109 +257,74 @@ async fn prompt_update(
     if let Ok(r) = result
         && (r == IDOK || r == IDYES)
     {
-        perform_update(download_url, json, app_dir.to_path_buf(), channel).await;
+        perform_update(package, app_dir.to_path_buf()).await;
     }
 }
 
 async fn do_beta_check(app_dir: &Path, manual: bool) {
-    let remote_json_str = match HTTP_CLIENT.get(UPDATE_URL_JSON).send().await {
-        Ok(resp) => match resp.text().await {
-            Ok(s) => s,
-            Err(_) => {
-                log::warn!("Update check (Beta): failed to read remote version info");
-                notify_check_failed(manual).await;
-                return;
-            }
-        },
-        Err(_) => {
-            log::warn!("Update check (Beta): HTTP request failed for version_info.json");
-            notify_check_failed(manual).await;
-            return;
-        }
-    };
-
-    let remote_info: VersionInfo = match serde_json::from_str(&remote_json_str) {
+    let manifest_url = format!("{UPDATE_URL_JSON}?check={}", cache_buster());
+    let remote_info: NightlyVersionInfo = match fetch_json(&manifest_url).await {
         Ok(info) => info,
-        Err(_) => {
-            log::warn!("Update check (Beta): failed to parse remote version info");
+        Err(error) => {
+            log::warn!("Update check (Beta): failed to fetch version info: {error}");
             notify_check_failed(manual).await;
             return;
         }
     };
 
-    let remote_timestamp = match &remote_info.timestamp {
-        Some(t) => t,
+    let expected_sha256 = match validate_sha256(&remote_info.installer_sha256) {
+        Some(hash) => hash,
         None => {
-            log::warn!("Update check (Beta): remote version info does not contain timestamp");
+            log::warn!("Update check (Beta): version info contains an invalid installer hash");
             notify_check_failed(manual).await;
             return;
         }
     };
 
-    let needs_update = remote_timestamp.as_str() > env!("BUILD_TIMESTAMP");
+    let local_build = nightly_build_number();
+    let remote_build = remote_info.build_number;
 
-    if needs_update {
+    if remote_build > local_build {
         log::info!(
-            "Update available (Beta): {} -> {}",
-            env!("BUILD_TIMESTAMP"),
-            remote_timestamp
+            "Update available (Beta): build {} -> {}",
+            local_build,
+            remote_build
         );
         prompt_update(
             &tr("channel_beta"),
-            remote_timestamp,
-            UPDATE_URL_NIGHTLY_INSTALLER,
-            remote_json_str,
-            InstallerChannel::Nightly,
+            &remote_info.built_at,
+            UpdatePackage {
+                channel: InstallerChannel::Nightly,
+                download_url: format!("{UPDATE_URL_NIGHTLY_INSTALLER}?build={remote_build}"),
+                expected_sha256: Some(expected_sha256),
+            },
             app_dir,
         )
         .await;
     } else {
         log::info!(
-            "Update check (Beta): current version is up-to-date (local: {}, remote: {})",
-            env!("BUILD_TIMESTAMP"),
-            remote_timestamp
+            "Update check (Beta): current build is up-to-date (local: {}, remote: {})",
+            local_build,
+            remote_build
         );
         notify_up_to_date(manual).await;
     }
 }
 
 async fn do_stable_check(app_dir: &Path, manual: bool) {
-    let resp = match HTTP_CLIENT
-        .get("https://github.com/WinIslandProject/WinIsland/releases/latest")
-        .send()
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            log::warn!(
-                "Update check (Stable): HTTP request failed for latest release: {:?}",
-                e
-            );
+    let release: GithubRelease = match fetch_json(UPDATE_URL_STABLE_RELEASE).await {
+        Ok(release) => release,
+        Err(error) => {
+            log::warn!("Update check (Stable): failed to fetch latest release: {error}");
             notify_check_failed(manual).await;
             return;
         }
     };
 
-    let path = resp.url().path();
-    let tag_name = if path.contains("/tag/") {
-        path.split("/tag/").last().map(|tag| tag.to_string())
-    } else {
-        None
-    };
-
-    let tag_name = match tag_name {
-        Some(t) => t,
-        None => {
-            log::warn!(
-                "Update check (Stable): failed to extract latest release tag from URL path '{}'",
-                path
-            );
-            notify_check_failed(manual).await;
-            return;
-        }
-    };
-
-    let remote_version = tag_name.trim_start_matches('v').trim_start_matches('V');
+    let remote_version = release
+        .tag_name
+        .trim_start_matches('v')
+        .trim_start_matches('V');
     let needs_update = is_version_newer(crate::core::config::APP_VERSION, remote_version);
 
     if needs_update {
@@ -295,21 +334,24 @@ async fn do_stable_check(app_dir: &Path, manual: bool) {
             remote_version
         );
 
-        let download_url = format!(
-            "https://github.com/WinIslandProject/WinIsland/releases/download/{}/WinIsland-Setup.exe",
-            tag_name
-        );
-        let local_version_info = VersionInfo {
-            version: Some(remote_version.to_string()),
-            timestamp: None,
+        let Some(asset) = release
+            .assets
+            .into_iter()
+            .find(|asset| asset.name == InstallerChannel::Stable.installer_name())
+        else {
+            log::warn!("Update check (Stable): release does not contain WinIsland-Setup.exe");
+            notify_check_failed(manual).await;
+            return;
         };
-        let serialized = serde_json::to_string(&local_version_info).unwrap_or_default();
+
         prompt_update(
             &tr("channel_stable"),
             remote_version,
-            &download_url,
-            serialized,
-            InstallerChannel::Stable,
+            UpdatePackage {
+                channel: InstallerChannel::Stable,
+                download_url: asset.browser_download_url,
+                expected_sha256: parse_release_digest(asset.digest.as_deref()),
+            },
             app_dir,
         )
         .await;
@@ -322,14 +364,18 @@ async fn do_stable_check(app_dir: &Path, manual: bool) {
     }
 }
 
-async fn perform_update(
-    download_url: &str,
-    remote_json_str: String,
-    app_dir: PathBuf,
-    channel: InstallerChannel,
-) {
-    log::info!("Update: downloading installer from {}", download_url);
-    let resp = match HTTP_CLIENT.get(download_url).send().await {
+async fn perform_update(package: UpdatePackage, app_dir: PathBuf) {
+    log::info!(
+        "Update: downloading installer from {}",
+        package.download_url
+    );
+    let resp = match HTTP_CLIENT
+        .get(&package.download_url)
+        .header(CACHE_CONTROL, "no-cache, no-store")
+        .header(PRAGMA, "no-cache")
+        .send()
+        .await
+    {
         Ok(r) => r,
         Err(_) => {
             log::error!("Update: download request failed");
@@ -354,6 +400,19 @@ async fn perform_update(
     };
     log::info!("Update: downloaded {} bytes", bytes.len());
 
+    if let Some(expected_hash) = package.expected_sha256 {
+        let actual_hash = sha256_hex(&bytes);
+        if actual_hash != expected_hash {
+            log::error!(
+                "Update: installer hash mismatch (expected {}, got {})",
+                expected_hash,
+                actual_hash
+            );
+            show_error_box(tr("update_failed_title"), tr("update_failed_dl")).await;
+            return;
+        }
+    }
+
     let installer_directory = app_dir.join("updates");
     if fs::create_dir_all(&installer_directory).is_err() {
         log::error!(
@@ -363,7 +422,7 @@ async fn perform_update(
         show_error_box(tr("update_failed_title"), tr("update_failed_save")).await;
         return;
     }
-    let installer_path = installer_directory.join(channel.installer_name());
+    let installer_path = installer_directory.join(package.channel.installer_name());
 
     if fs::write(&installer_path, &bytes).is_err() {
         log::error!(
@@ -374,8 +433,6 @@ async fn perform_update(
         return;
     }
 
-    let local_json_path = app_dir.join("version_info.json");
-    let _ = fs::write(local_json_path, remote_json_str);
     log::info!(
         "Update: installer written to {}, scheduling update",
         installer_path.display()
