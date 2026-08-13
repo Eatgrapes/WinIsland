@@ -1570,13 +1570,7 @@ impl PluginManager {
     }
 
     pub fn set_plugin_enabled(&self, plugin_id: &str, enabled: bool) -> Result<(), String> {
-        if plugin_id.is_empty()
-            || !plugin_id
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
-        {
-            return Err("Invalid plugin ID".to_string());
-        }
+        validate_plugin_id(plugin_id)?;
         if !self
             .installed_plugins()
             .iter()
@@ -1591,6 +1585,73 @@ impl PluginManager {
             disabled.insert(plugin_id.to_string());
         }
         write_disabled_plugin_ids(&self.plugin_dir, &disabled)
+    }
+
+    pub fn uninstall_plugin(&self, plugin_id: &str) -> Result<(), String> {
+        validate_plugin_id(plugin_id)?;
+        let targets = uninstall_targets(&self.plugin_dir, plugin_id);
+        if targets.is_empty() {
+            return Err(format!("Plugin '{plugin_id}' is not installed"));
+        }
+
+        let loaded_source = self.entries.try_borrow().ok().and_then(|entries| {
+            entries
+                .iter()
+                .find(|plugin| plugin.metadata().id == plugin_id)
+                .map(|plugin| plugin.path().to_path_buf())
+        });
+        let was_loaded = self
+            .unload_if_loaded(plugin_id)
+            .map_err(|error| error.to_string())?;
+        let uninstall_id = NEXT_BACKUP_ID.fetch_add(1, Ordering::Relaxed);
+        let mut moved = Vec::with_capacity(targets.len());
+        for (index, source) in targets.into_iter().enumerate() {
+            let backup = self.plugin_dir.join(format!(
+                ".{plugin_id}.uninstall-{}-{uninstall_id}-{index}",
+                std::process::id()
+            ));
+            if let Err(error) = std::fs::rename(&source, &backup) {
+                let rollback = restore_uninstall_targets(&moved);
+                let reload = if was_loaded {
+                    reload_plugin_source(self, loaded_source.as_deref())
+                } else {
+                    Ok(())
+                };
+                return Err(rollback_message(
+                    format!("Cannot remove plugin files: {error}"),
+                    rollback.and(reload),
+                ));
+            }
+            moved.push((source, backup));
+        }
+
+        let mut disabled = disabled_plugin_ids(&self.plugin_dir);
+        disabled.remove(plugin_id);
+        if let Err(error) = write_disabled_plugin_ids(&self.plugin_dir, &disabled) {
+            let rollback = restore_uninstall_targets(&moved);
+            let reload = if was_loaded {
+                reload_plugin_source(self, loaded_source.as_deref())
+            } else {
+                Ok(())
+            };
+            return Err(rollback_message(error, rollback.and(reload)));
+        }
+
+        for (_, backup) in moved {
+            let result = if backup.is_dir() {
+                std::fs::remove_dir_all(&backup)
+            } else {
+                std::fs::remove_file(&backup)
+            };
+            if let Err(error) = result {
+                log::warn!(
+                    "Plugin '{}' was uninstalled, but temporary files '{}' could not be removed: {error}",
+                    plugin_id,
+                    backup.display()
+                );
+            }
+        }
+        Ok(())
     }
 
     pub fn install_from_zip(&self, path: &Path) -> Result<PluginManifest, String> {
@@ -1854,6 +1915,67 @@ fn discover_manual_plugin_dlls(directory: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+fn uninstall_targets(directory: &Path, plugin_id: &str) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with('.'))
+            {
+                return None;
+            }
+            if path.is_dir() {
+                return zip_loader::read_manifest_file(&path.join("plugin.yml"))
+                    .ok()
+                    .filter(|manifest| manifest.id == plugin_id)
+                    .map(|_| path);
+            }
+            if !path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("dll"))
+            {
+                return None;
+            }
+            NativePlugin::load(&path)
+                .ok()
+                .filter(|plugin| plugin.metadata().id == plugin_id)
+                .map(|_| path)
+        })
+        .collect()
+}
+
+fn restore_uninstall_targets(moved: &[(PathBuf, PathBuf)]) -> Result<(), String> {
+    let mut errors = Vec::new();
+    for (source, backup) in moved.iter().rev() {
+        if let Err(error) = std::fs::rename(backup, source) {
+            errors.push(format!("cannot restore '{}': {error}", source.display()));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
+fn reload_plugin_source(manager: &PluginManager, source: Option<&Path>) -> Result<(), String> {
+    let Some(source) = source else {
+        return Ok(());
+    };
+    let manifest = source
+        .parent()
+        .and_then(|directory| zip_loader::read_manifest_file(&directory.join("plugin.yml")).ok());
+    manager
+        .load_dll_checked(source, manifest.as_ref())
+        .map_err(|error| format!("cannot reload previous plugin: {error}"))
+}
+
 fn read_plugin_icon(path: &Path) -> Option<Vec<u8>> {
     let bytes = zip_loader::read_bounded_file(path, zip_loader::MAX_PLUGIN_ICON_BYTES).ok()?;
     let reader = image::ImageReader::new(std::io::Cursor::new(&bytes))
@@ -1896,6 +2018,17 @@ fn disabled_plugin_ids(directory: &Path) -> HashSet<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn validate_plugin_id(plugin_id: &str) -> Result<(), String> {
+    if plugin_id.is_empty()
+        || !plugin_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        return Err("Invalid plugin ID".to_string());
+    }
+    Ok(())
 }
 
 fn write_disabled_plugin_ids(directory: &Path, ids: &HashSet<String>) -> Result<(), String> {

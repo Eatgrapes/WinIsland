@@ -123,6 +123,7 @@ pub(crate) enum PluginSettingsRequest {
     LoadMarketplace,
     InstallMarketplace(Box<MarketplacePlugin>),
     SetEnabled { id: String, enabled: bool },
+    Uninstall { id: String },
     Restart,
 }
 
@@ -179,6 +180,7 @@ pub struct SettingsApp {
     pub(crate) plugin_page_tab: PluginPageTab,
     pub(crate) marketplace_state: MarketplaceViewState,
     pub(crate) marketplace_installing_id: Option<String>,
+    pub(crate) pending_plugin_uninstall_id: Option<String>,
     pub(crate) selected_plugin_id: Option<String>,
     pub(crate) plugin_detail_closing: bool,
     pub(crate) plugin_detail_scroll: f32,
@@ -231,6 +233,7 @@ impl SettingsApp {
             plugin_page_tab: PluginPageTab::Installed,
             marketplace_state: MarketplaceViewState::NotLoaded,
             marketplace_installing_id: None,
+            pending_plugin_uninstall_id: None,
             selected_plugin_id: None,
             plugin_detail_closing: false,
             plugin_detail_scroll: 0.0,
@@ -899,6 +902,9 @@ impl SettingsApp {
             .is_some_and(|id| !self.plugins.iter().any(|plugin| &plugin.id == id))
         {
             self.selected_plugin_id = None;
+            self.pending_plugin_uninstall_id = None;
+            self.plugin_detail_closing = true;
+            self.anim.set_with_speed(PLUGIN_DETAIL_KEY, 0.0, 0.28);
         }
         self.mark_items_dirty();
         if let Some(win) = &self.window {

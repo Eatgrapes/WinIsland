@@ -53,6 +53,24 @@ impl App {
                     }
                 }
             }
+            Some(crate::window::settings::PluginSettingsRequest::Uninstall { id }) => {
+                let result = self.plugin_mgr.uninstall_plugin(&id);
+                if let Some(settings) = self.settings.as_mut() {
+                    match result {
+                        Ok(()) => {
+                            settings.set_plugins(self.plugin_mgr.installed_plugins());
+                            settings.set_plugin_status(
+                                crate::core::i18n::tr("plugin_uninstalled"),
+                                false,
+                            );
+                        }
+                        Err(error) => settings.set_plugin_status(
+                            crate::core::i18n::tr_args("plugin_uninstall_failed", &[&error]),
+                            false,
+                        ),
+                    }
+                }
+            }
             Some(crate::window::settings::PluginSettingsRequest::Restart) => {
                 self.close_settings();
                 if let Ok(exe) = std::env::current_exe() {

@@ -373,6 +373,7 @@ impl SettingsApp {
     }
 
     fn open_plugin_detail(&mut self, id: String) {
+        self.pending_plugin_uninstall_id = None;
         self.selected_plugin_id = Some(id);
         self.plugin_detail_closing = false;
         self.plugin_detail_scroll = 0.0;
@@ -385,6 +386,7 @@ impl SettingsApp {
         }
         self.plugin_page_tab = tab;
         clear_plugin_icon_cache();
+        self.pending_plugin_uninstall_id = None;
         self.selected_plugin_id = None;
         self.plugin_detail_closing = false;
         self.plugin_detail_scroll = 0.0;

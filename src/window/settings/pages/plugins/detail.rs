@@ -20,8 +20,11 @@ use super::{
 
 const DETAIL_PADDING: f32 = 20.0;
 const DETAIL_HEADER_Y: f32 = 80.0;
-const DETAIL_DESCRIPTION_Y: f32 = 190.0;
+const DETAIL_ACTION_Y: f32 = DETAIL_HEADER_Y + DETAIL_ICON_SIZE + 16.0;
+const DETAIL_DESCRIPTION_Y: f32 = DETAIL_ACTION_Y + BUTTON_H + 20.0;
 const BUTTON_H: f32 = 28.0;
+const UNINSTALL_BUTTON_W: f32 = 76.0;
+const ACTION_GAP: f32 = 8.0;
 
 #[derive(Clone)]
 enum DetailPlugin {
@@ -84,6 +87,7 @@ impl SettingsApp {
     }
 
     pub(super) fn close_plugin_detail(&mut self) {
+        self.pending_plugin_uninstall_id = None;
         self.plugin_detail_closing = true;
         self.anim.set_with_speed(PLUGIN_DETAIL_KEY, 0.0, 0.28);
     }
@@ -132,6 +136,27 @@ impl SettingsApp {
                         id: installed.id.clone(),
                         enabled: !installed.enabled,
                     });
+                    return true;
+                }
+                if uninstall_rect(panel_x, safe_github_url(&installed.github_link))
+                    .contains(content_point)
+                {
+                    if self
+                        .pending_plugin_uninstall_id
+                        .as_ref()
+                        .is_some_and(|id| id == &installed.id)
+                    {
+                        self.pending_plugin_uninstall_id = None;
+                        self.plugin_request = Some(PluginSettingsRequest::Uninstall {
+                            id: installed.id.clone(),
+                        });
+                    } else {
+                        self.pending_plugin_uninstall_id = Some(installed.id.clone());
+                    }
+                    self.mark_items_dirty();
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
                     return true;
                 }
             }
@@ -192,7 +217,11 @@ impl SettingsApp {
             self.logical_mouse_pos.1 + self.plugin_detail_scroll,
         );
         let action_hovered = match &plugin {
-            DetailPlugin::Installed(_) => toggle_rect(panel_x).contains(point),
+            DetailPlugin::Installed(installed) => {
+                toggle_rect(panel_x).contains(point)
+                    || uninstall_rect(panel_x, safe_github_url(&installed.github_link))
+                        .contains(point)
+            }
             DetailPlugin::Marketplace(marketplace) => {
                 let action = self.marketplace_action(marketplace);
                 action.is_available()
@@ -330,6 +359,14 @@ impl SettingsApp {
                     panel_x + DETAIL_W - DETAIL_PADDING - 36.0,
                     y + 2.0,
                 );
+                draw_uninstall_button(
+                    canvas,
+                    panel_x,
+                    safe_github_url(&installed.github_link),
+                    self.pending_plugin_uninstall_id
+                        .as_ref()
+                        .is_some_and(|id| id == &installed.id),
+                );
             }
             DetailPlugin::Marketplace(marketplace) => {
                 let action = self.marketplace_action(marketplace);
@@ -457,6 +494,34 @@ fn draw_detail_action(
     );
 }
 
+fn draw_uninstall_button(canvas: &Canvas, panel_x: f32, has_github: bool, confirming: bool) {
+    let rect = uninstall_rect(panel_x, has_github);
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    paint.set_color(Color::from_argb(
+        if confirming { 50 } else { 28 },
+        255,
+        69,
+        58,
+    ));
+    canvas.draw_round_rect(rect, BUTTON_H / 2.0, BUTTON_H / 2.0, &paint);
+    paint.set_color(Color::from_rgb(255, 69, 58));
+    draw_centered_text(
+        canvas,
+        FontManager::global(),
+        &tr(if confirming {
+            "plugin_uninstall_confirm"
+        } else {
+            "plugin_uninstall"
+        }),
+        rect.center_x(),
+        rect.top + 18.0,
+        11.0,
+        true,
+        &paint,
+    );
+}
+
 fn draw_panel_background(
     canvas: &Canvas,
     theme: &SettingsTheme,
@@ -507,23 +572,22 @@ fn detail_action_rect(panel_x: f32, label: &str) -> Rect {
             + 24.0)
             .clamp(64.0, 112.0);
     Rect::from_xywh(
-        panel_x + DETAIL_PADDING + 124.0,
-        DETAIL_HEADER_Y + 50.0,
+        panel_x + DETAIL_PADDING + 116.0 + ACTION_GAP,
+        DETAIL_ACTION_Y,
         width,
         BUTTON_H,
     )
 }
 
-fn github_rect(panel_x: f32, marketplace: bool) -> Rect {
+fn github_rect(panel_x: f32, _marketplace: bool) -> Rect {
+    Rect::from_xywh(panel_x + DETAIL_PADDING, DETAIL_ACTION_Y, 116.0, BUTTON_H)
+}
+
+fn uninstall_rect(panel_x: f32, has_github: bool) -> Rect {
     Rect::from_xywh(
-        panel_x
-            + if marketplace {
-                DETAIL_PADDING
-            } else {
-                DETAIL_PADDING + DETAIL_ICON_SIZE + 14.0
-            },
-        DETAIL_HEADER_Y + 50.0,
-        116.0,
+        panel_x + DETAIL_PADDING + if has_github { 116.0 + ACTION_GAP } else { 0.0 },
+        DETAIL_ACTION_Y,
+        UNINSTALL_BUTTON_W,
         BUTTON_H,
     )
 }
