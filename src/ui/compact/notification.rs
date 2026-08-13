@@ -1,8 +1,7 @@
 use std::borrow::Cow;
-use std::path::PathBuf;
+use std::collections::HashSet;
 use std::sync::mpsc::{self, Receiver};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use skia_safe::canvas::SrcRectConstraint;
 use skia_safe::{
@@ -18,6 +17,7 @@ use windows::UI::Notifications::Management::{
 use windows::UI::Notifications::{KnownNotificationBindings, NotificationKinds, UserNotification};
 use windows::core::HRESULT;
 
+use crate::ui::compact::notification_event::{self, NotificationEventSubscription};
 use crate::ui::compact::{CompactOverlayState, CompactSize};
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 
@@ -26,10 +26,6 @@ const ENTER_DURATION: Duration = Duration::from_millis(220);
 const FADE_DURATION: Duration = Duration::from_millis(280);
 const DETAIL_LINE_GAP: f32 = 21.0;
 const MAX_ICON_BYTES: u64 = 2 * 1024 * 1024;
-const DATABASE_CHECK_INTERVAL: Duration = Duration::from_millis(100);
-const DATABASE_CHANGE_DEBOUNCE: Duration = Duration::from_millis(150);
-const DATABASE_SETTLE_INTERVAL: Duration = Duration::from_millis(300);
-const FALLBACK_POLL_INTERVAL: Duration = Duration::from_secs(30);
 const RETRY_INTERVAL: Duration = Duration::from_secs(5);
 
 pub(super) struct NotificationPayload {
@@ -41,7 +37,15 @@ pub(super) struct NotificationPayload {
     icon: Option<NotificationIconData>,
 }
 
-struct NotificationIconData {
+pub(super) enum NotificationMonitorUpdate {
+    Notification(NotificationPayload),
+    Icon {
+        notification_id: u32,
+        icon: NotificationIconData,
+    },
+}
+
+pub(super) struct NotificationIconData {
     bytes: Vec<u8>,
     visible_bounds: Option<IconBounds>,
 }
@@ -59,94 +63,38 @@ struct IconBounds {
     height: u32,
 }
 
-enum NotificationPollResult {
-    Latest(Option<u32>),
+#[derive(Clone, Copy)]
+enum NotificationReadKind {
+    Baseline,
+    Reconcile,
+    Event,
+}
+
+struct NotificationRecord {
+    id: u32,
+    creation_time: i64,
+}
+
+enum NotificationReadResult {
+    Notifications(Vec<NotificationRecord>),
     Failed(HRESULT),
-}
-
-#[derive(Default)]
-struct NotificationDatabaseWatch {
-    path: Option<PathBuf>,
-    modified: Option<SystemTime>,
-    check_after: Option<Instant>,
-    query_after: Option<Instant>,
-    settle_until: Option<Instant>,
-}
-
-impl NotificationDatabaseWatch {
-    fn start(&mut self, now: Instant) {
-        self.path = notification_database_path();
-        self.modified = self.read_modified();
-        self.check_after = Some(now + DATABASE_CHECK_INTERVAL);
-        self.query_after = None;
-        self.settle_until = None;
-    }
-
-    fn update(&mut self, now: Instant) -> bool {
-        if self
-            .check_after
-            .is_some_and(|check_after| now < check_after)
-        {
-            return false;
-        }
-        self.check_after = Some(now + DATABASE_CHECK_INTERVAL);
-        let modified = self.read_modified();
-        let changed = modified != self.modified;
-        self.modified = modified;
-
-        if let Some(settle_until) = self.settle_until {
-            if changed {
-                self.settle_until = Some(now + DATABASE_SETTLE_INTERVAL);
-            } else if now >= settle_until {
-                self.settle_until = None;
-            }
-            self.query_after = None;
-            return false;
-        }
-        if changed {
-            self.query_after = Some(now + DATABASE_CHANGE_DEBOUNCE);
-        }
-        let due = self
-            .query_after
-            .is_some_and(|query_after| now >= query_after);
-        if due {
-            self.query_after = None;
-        }
-        due
-    }
-
-    fn settle_after_query(&mut self, now: Instant) {
-        self.modified = self.read_modified();
-        self.check_after = Some(now + DATABASE_CHECK_INTERVAL);
-        self.query_after = None;
-        self.settle_until = Some(now + DATABASE_SETTLE_INTERVAL);
-    }
-
-    fn read_modified(&self) -> Option<SystemTime> {
-        self.path
-            .as_ref()
-            .and_then(|path| std::fs::metadata(path).ok())
-            .and_then(|metadata| metadata.modified().ok())
-    }
 }
 
 #[derive(Default)]
 pub(super) struct NotificationMonitor {
     listener: Option<UserNotificationListener>,
-    latest_notification_id: Arc<Mutex<Option<u32>>>,
+    event_subscription: Option<NotificationEventSubscription>,
     access_receiver: Option<Receiver<bool>>,
-    poll_receiver: Option<Receiver<NotificationPollResult>>,
+    read_receiver: Option<Receiver<(NotificationReadKind, NotificationReadResult)>>,
+    icon_receiver: Option<Receiver<(u32, Option<NotificationIconData>)>>,
     access_attempted: bool,
     retry_after: Option<Instant>,
-    history_poll_after: Option<Instant>,
-    fallback_poll_after: Option<Instant>,
-    database_watch: NotificationDatabaseWatch,
-    last_polled_notification_id: Option<u32>,
-    poll_initialized: bool,
+    seen_notifications: HashSet<(u32, i64)>,
+    pending_notification_id: Option<u32>,
 }
 
 impl NotificationMonitor {
-    pub(super) fn update(&mut self, enabled: bool) -> Option<NotificationPayload> {
+    pub(super) fn update(&mut self, enabled: bool) -> Option<NotificationMonitorUpdate> {
         if !enabled {
             self.stop();
             self.access_attempted = false;
@@ -165,8 +113,10 @@ impl NotificationMonitor {
             self.access_attempted = true;
             self.request_access();
         }
-        self.poll_notifications();
-        self.take_payload()
+        self.finish_notification_read();
+        self.handle_subscription_error();
+        self.read_notifications_when_signaled();
+        self.take_update()
     }
 
     fn request_access(&mut self) {
@@ -189,7 +139,9 @@ impl NotificationMonitor {
                         operation.join(),
                         Ok(UserNotificationListenerAccessStatus::Allowed)
                     );
-                    let _ = sender.send(granted);
+                    if sender.send(granted).is_ok() {
+                        crate::utils::event_loop::wake();
+                    }
                 });
                 self.access_receiver = Some(receiver);
             }
@@ -230,135 +182,164 @@ impl NotificationMonitor {
     }
 
     fn start_monitor(&mut self, listener: UserNotificationListener) {
-        let now = Instant::now();
         self.listener = Some(listener);
         self.retry_after = None;
-        self.history_poll_after = Some(now);
-        self.fallback_poll_after = Some(now + FALLBACK_POLL_INTERVAL);
-        self.database_watch.start(now);
-        self.last_polled_notification_id = None;
-        self.poll_initialized = false;
+        self.seen_notifications.clear();
+        self.pending_notification_id = None;
+        notification_event::reset_signals();
+        if !self.start_notification_read(NotificationReadKind::Baseline) {
+            self.restart_monitor();
+        }
     }
 
-    fn poll_notifications(&mut self) {
+    fn finish_notification_read(&mut self) {
         let result = self
-            .poll_receiver
+            .read_receiver
             .as_ref()
             .map(|receiver| receiver.try_recv());
         match result {
-            Some(Ok(NotificationPollResult::Latest(notification_id))) => {
-                self.poll_receiver = None;
-                self.finish_history_poll(Instant::now());
-                self.update_polled_notification(notification_id);
+            Some(Ok((kind, NotificationReadResult::Notifications(notifications)))) => {
+                self.read_receiver = None;
+                self.handle_notification_snapshot(kind, notifications);
             }
-            Some(Ok(NotificationPollResult::Failed(error))) => {
-                self.poll_receiver = None;
-                self.retry_history_poll(Instant::now());
+            Some(Ok((_, NotificationReadResult::Failed(error)))) => {
+                self.read_receiver = None;
                 log::warn!("Notification history could not be read: {:?}", error);
+                self.restart_monitor();
             }
             Some(Err(mpsc::TryRecvError::Disconnected)) => {
-                self.poll_receiver = None;
-                self.retry_history_poll(Instant::now());
+                self.read_receiver = None;
                 log::warn!("Notification history request ended unexpectedly");
+                self.restart_monitor();
             }
-            Some(Err(mpsc::TryRecvError::Empty)) => return,
-            None => {}
+            Some(Err(mpsc::TryRecvError::Empty)) | None => {}
+        }
+    }
+
+    fn handle_notification_snapshot(
+        &mut self,
+        kind: NotificationReadKind,
+        mut notifications: Vec<NotificationRecord>,
+    ) {
+        notifications
+            .sort_unstable_by_key(|notification| (notification.creation_time, notification.id));
+        if matches!(kind, NotificationReadKind::Baseline) {
+            for notification in notifications {
+                self.seen_notifications
+                    .insert((notification.id, notification.creation_time));
+            }
+            match NotificationEventSubscription::subscribe() {
+                Ok(subscription) => self.event_subscription = Some(subscription),
+                Err(error) => {
+                    log::warn!("Notification event subscription could not be started: {error}");
+                    self.restart_monitor();
+                    return;
+                }
+            }
+            if !self.start_notification_read(NotificationReadKind::Reconcile) {
+                self.restart_monitor();
+            }
+            return;
         }
 
-        let now = Instant::now();
-        let database_due = self.database_watch.update(now);
-        let history_due = self
-            .history_poll_after
-            .is_some_and(|poll_after| now >= poll_after);
-        let fallback_due = self
-            .fallback_poll_after
-            .is_some_and(|poll_after| now >= poll_after);
-        if self.poll_receiver.is_some() || (!history_due && !database_due && !fallback_due) {
+        let mut current_notifications = HashSet::with_capacity(notifications.len());
+        let mut newest_notification_id = None;
+        for notification in notifications {
+            let identity = (notification.id, notification.creation_time);
+            current_notifications.insert(identity);
+            if !self.seen_notifications.contains(&identity) {
+                newest_notification_id = Some(notification.id);
+            }
+        }
+        self.seen_notifications = current_notifications;
+        if newest_notification_id.is_some() {
+            self.pending_notification_id = newest_notification_id;
+        }
+    }
+
+    fn handle_subscription_error(&mut self) {
+        let Some(error_code) = notification_event::take_error() else {
+            return;
+        };
+        log::warn!("Notification event subscription failed with Win32 error {error_code}");
+        if self
+            .event_subscription
+            .as_ref()
+            .is_some_and(NotificationEventSubscription::has_wnf)
+        {
             return;
         }
-        let Some(listener) = self.listener.as_ref() else {
+        self.restart_monitor();
+    }
+
+    fn read_notifications_when_signaled(&mut self) {
+        if self.event_subscription.is_none()
+            || self.read_receiver.is_some()
+            || !notification_event::take_delivery()
+        {
             return;
+        }
+        if !self.start_notification_read(NotificationReadKind::Event) {
+            self.restart_monitor();
+        }
+    }
+
+    fn start_notification_read(&mut self, kind: NotificationReadKind) -> bool {
+        let Some(listener) = self.listener.as_ref() else {
+            return false;
         };
         let Ok(operation) = listener.GetNotificationsAsync(NotificationKinds::Toast) else {
-            self.retry_history_poll(now);
             log::warn!("Notification history request could not be started");
-            return;
+            return false;
         };
-        self.history_poll_after = None;
-        self.fallback_poll_after = None;
         let (sender, receiver) = mpsc::sync_channel(1);
         tokio::task::spawn_blocking(move || {
             let result = operation.join().map(|notifications| {
-                let mut latest_notification_id: Option<u32> = None;
+                let mut records = Vec::new();
                 if let Ok(count) = notifications.Size() {
                     for index in 0..count {
                         if let Ok(notification) = notifications.GetAt(index)
                             && let Ok(notification_id) = notification.Id()
                         {
-                            latest_notification_id = Some(
-                                latest_notification_id
-                                    .map_or(notification_id, |latest| latest.max(notification_id)),
-                            );
+                            let creation_time = notification
+                                .CreationTime()
+                                .map(|time| time.UniversalTime)
+                                .unwrap_or_default();
+                            records.push(NotificationRecord {
+                                id: notification_id,
+                                creation_time,
+                            });
                         }
                     }
                 }
-                latest_notification_id
+                records
             });
             let result = match result {
-                Ok(notification_id) => NotificationPollResult::Latest(notification_id),
-                Err(error) => NotificationPollResult::Failed(error.code()),
+                Ok(notifications) => NotificationReadResult::Notifications(notifications),
+                Err(error) => NotificationReadResult::Failed(error.code()),
             };
-            let _ = sender.send(result);
+            if sender.send((kind, result)).is_ok() {
+                crate::utils::event_loop::wake();
+            }
         });
-        self.poll_receiver = Some(receiver);
-    }
-
-    fn finish_history_poll(&mut self, now: Instant) {
-        self.history_poll_after = None;
-        self.fallback_poll_after = Some(now + FALLBACK_POLL_INTERVAL);
-        self.database_watch.settle_after_query(now);
-    }
-
-    fn retry_history_poll(&mut self, now: Instant) {
-        self.history_poll_after = Some(now + RETRY_INTERVAL);
-        self.fallback_poll_after = None;
-        self.database_watch.settle_after_query(now);
-    }
-
-    fn update_polled_notification(&mut self, notification_id: Option<u32>) {
-        if !self.poll_initialized {
-            self.last_polled_notification_id = notification_id;
-            self.poll_initialized = true;
-            return;
-        }
-        let Some(notification_id) = notification_id else {
-            return;
-        };
-        if self
-            .last_polled_notification_id
-            .is_none_or(|latest| notification_id > latest)
-        {
-            self.last_polled_notification_id = Some(notification_id);
-            *self
-                .latest_notification_id
-                .lock()
-                .unwrap_or_else(|error| error.into_inner()) = Some(notification_id);
-        }
+        self.read_receiver = Some(receiver);
+        true
     }
 
     fn stop(&mut self) {
         self.listener = None;
+        self.event_subscription = None;
         self.access_receiver = None;
-        self.poll_receiver = None;
-        self.history_poll_after = None;
-        self.fallback_poll_after = None;
-        self.database_watch = NotificationDatabaseWatch::default();
-        self.last_polled_notification_id = None;
-        self.poll_initialized = false;
-        *self
-            .latest_notification_id
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = None;
+        self.read_receiver = None;
+        self.icon_receiver = None;
+        self.seen_notifications.clear();
+        self.pending_notification_id = None;
+        notification_event::reset_signals();
+    }
+
+    fn restart_monitor(&mut self) {
+        self.stop();
+        self.schedule_retry();
     }
 
     fn schedule_retry(&mut self) {
@@ -366,15 +347,49 @@ impl NotificationMonitor {
         self.retry_after = Some(Instant::now() + RETRY_INTERVAL);
     }
 
-    fn take_payload(&self) -> Option<NotificationPayload> {
-        let notification_id = self
-            .latest_notification_id
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .take()?;
-        self.listener
+    fn take_update(&mut self) -> Option<NotificationMonitorUpdate> {
+        if let Some(notification_id) = self.pending_notification_id.take()
+            && let Some(listener) = self.listener.as_ref()
+            && let Some((payload, display)) = read_notification(listener, notification_id)
+        {
+            if let Some(display) = display {
+                self.start_icon_read(notification_id, display);
+            }
+            return Some(NotificationMonitorUpdate::Notification(payload));
+        }
+        self.finish_icon_read()
+    }
+
+    fn start_icon_read(&mut self, notification_id: u32, display: AppDisplayInfo) {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        tokio::task::spawn_blocking(move || {
+            let icon = read_app_icon(&display);
+            if sender.send((notification_id, icon)).is_ok() {
+                crate::utils::event_loop::wake();
+            }
+        });
+        self.icon_receiver = Some(receiver);
+    }
+
+    fn finish_icon_read(&mut self) -> Option<NotificationMonitorUpdate> {
+        let result = self
+            .icon_receiver
             .as_ref()
-            .and_then(|listener| read_notification(listener, notification_id))
+            .map(|receiver| receiver.try_recv());
+        match result {
+            Some(Ok((notification_id, icon))) => {
+                self.icon_receiver = None;
+                icon.map(|icon| NotificationMonitorUpdate::Icon {
+                    notification_id,
+                    icon,
+                })
+            }
+            Some(Err(mpsc::TryRecvError::Disconnected)) => {
+                self.icon_receiver = None;
+                None
+            }
+            Some(Err(mpsc::TryRecvError::Empty)) | None => None,
+        }
     }
 
     pub(super) fn remove_notification(&self, notification_id: u32) {
@@ -386,15 +401,6 @@ impl NotificationMonitor {
     }
 }
 
-fn notification_database_path() -> Option<PathBuf> {
-    dirs::data_local_dir().map(|path| {
-        path.join("Microsoft")
-            .join("Windows")
-            .join("Notifications")
-            .join("wpndatabase.db")
-    })
-}
-
 impl Drop for NotificationMonitor {
     fn drop(&mut self) {
         self.stop();
@@ -404,10 +410,10 @@ impl Drop for NotificationMonitor {
 fn read_notification(
     listener: &UserNotificationListener,
     notification_id: u32,
-) -> Option<NotificationPayload> {
+) -> Option<(NotificationPayload, Option<AppDisplayInfo>)> {
     let notification = listener.GetNotification(notification_id).ok()?;
     let (mut title, detail) = read_notification_text(&notification);
-    let (app_name, app_user_model_id, icon) = notification
+    let (app_name, app_user_model_id, display) = notification
         .AppInfo()
         .ok()
         .and_then(|app| {
@@ -421,21 +427,24 @@ fn read_notification(
                 .ok()
                 .map(|app_user_model_id| app_user_model_id.to_string())
                 .filter(|app_user_model_id| !app_user_model_id.is_empty());
-            Some((name, app_user_model_id, read_app_icon(&display)))
+            Some((name, app_user_model_id, Some(display)))
         })
         .unwrap_or_default();
 
     if title.is_empty() {
         title = app_name.clone();
     }
-    (!title.is_empty()).then_some(NotificationPayload {
-        notification_id,
-        app_name,
-        app_user_model_id,
-        title,
-        detail,
-        icon,
-    })
+    (!title.is_empty()).then_some((
+        NotificationPayload {
+            notification_id,
+            app_name,
+            app_user_model_id,
+            title,
+            detail,
+            icon: None,
+        },
+        display,
+    ))
 }
 
 fn read_notification_text(notification: &UserNotification) -> (String, String) {
@@ -551,7 +560,7 @@ pub(super) struct NotificationIndicator {
 impl NotificationIndicator {
     pub(super) fn update(
         &mut self,
-        notification: Option<NotificationPayload>,
+        update: Option<NotificationMonitorUpdate>,
         state: CompactOverlayState,
     ) -> bool {
         if self
@@ -560,10 +569,20 @@ impl NotificationIndicator {
         {
             self.clear_display();
         }
-        let received_notification = notification.is_some();
-        if let Some(notification) = notification {
-            self.pending = Some(notification);
-        }
+        let received_notification = match update {
+            Some(NotificationMonitorUpdate::Notification(notification)) => {
+                self.pending = Some(notification);
+                true
+            }
+            Some(NotificationMonitorUpdate::Icon {
+                notification_id,
+                icon,
+            }) => {
+                self.update_icon(notification_id, icon);
+                false
+            }
+            None => false,
+        };
         if !matches!(state, CompactOverlayState::Present) {
             self.clear_display();
             if matches!(state, CompactOverlayState::Discard) {
@@ -592,15 +611,22 @@ impl NotificationIndicator {
         self.detail = detail;
         self.notification_id = Some(notification_id);
         self.app_user_model_id = app_user_model_id;
-        self.icon = icon.and_then(|icon| {
-            Image::from_encoded(Data::new_copy(&icon.bytes)).map(|image| NotificationIcon {
-                image,
-                visible_bounds: icon.visible_bounds,
-            })
-        });
+        self.icon = icon.and_then(decode_notification_icon);
         self.display_started = Some(Instant::now());
         self.display_until = Some(Instant::now() + DISPLAY_DURATION);
         received_notification
+    }
+
+    fn update_icon(&mut self, notification_id: u32, icon: NotificationIconData) {
+        if self.notification_id == Some(notification_id) {
+            self.icon = decode_notification_icon(icon);
+        } else if let Some(pending) = self
+            .pending
+            .as_mut()
+            .filter(|pending| pending.notification_id == notification_id)
+        {
+            pending.icon = Some(icon);
+        }
     }
 
     pub(super) fn clear(&mut self) {
@@ -757,6 +783,13 @@ impl NotificationIndicator {
         };
         (enter * exit, (1.0 - enter) * 7.0)
     }
+}
+
+fn decode_notification_icon(icon: NotificationIconData) -> Option<NotificationIcon> {
+    Image::from_encoded(Data::new_copy(&icon.bytes)).map(|image| NotificationIcon {
+        image,
+        visible_bounds: icon.visible_bounds,
+    })
 }
 
 fn ease_out_cubic(value: f32) -> f32 {

@@ -1,5 +1,8 @@
 # Changelog
 
+### v1.3.0
+- Improved the notification system
+
 ### v1.2.9
 - Fixed notification text and app icon display issues (#129)
 - Optimised GPU performance utilisation (#136)

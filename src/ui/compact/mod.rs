@@ -1,4 +1,5 @@
 mod notification;
+mod notification_event;
 mod volume;
 
 use skia_safe::{Canvas, Rect};

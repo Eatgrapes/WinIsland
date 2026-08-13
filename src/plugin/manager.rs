@@ -4,9 +4,8 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
-use winit::event_loop::EventLoopProxy;
 
 use super::loader::NativePlugin;
 use super::types::{
@@ -90,8 +89,6 @@ struct RuntimeState {
 }
 
 static RUNTIME: OnceLock<Mutex<RuntimeState>> = OnceLock::new();
-static EVENT_LOOP_PROXY: OnceLock<EventLoopProxy<()>> = OnceLock::new();
-static WAKE_PENDING: AtomicBool = AtomicBool::new(false);
 static NEXT_PLUGIN_TOKEN: AtomicU64 = AtomicU64::new(1);
 static NEXT_RESOURCE_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_BACKUP_ID: AtomicU64 = AtomicU64::new(1);
@@ -129,23 +126,6 @@ static HOST_STATE_API: HostStateApiV1 = HostStateApiV1 {
 
 fn runtime() -> &'static Mutex<RuntimeState> {
     RUNTIME.get_or_init(|| Mutex::new(RuntimeState::default()))
-}
-
-pub fn set_event_loop_proxy(proxy: EventLoopProxy<()>) {
-    let _ = EVENT_LOOP_PROXY.set(proxy);
-}
-
-pub fn acknowledge_host_wake() {
-    WAKE_PENDING.store(false, Ordering::Release);
-}
-
-fn wake_host() {
-    let Some(proxy) = EVENT_LOOP_PROXY.get() else {
-        return;
-    };
-    if !WAKE_PENDING.swap(true, Ordering::AcqRel) && proxy.send_event(()).is_err() {
-        WAKE_PENDING.store(false, Ordering::Release);
-    }
 }
 
 pub fn host_api() -> *const HostApiV1 {
@@ -299,7 +279,7 @@ unsafe extern "C" fn context_create(
     // SAFETY: out_id was checked non-null and belongs to the caller.
     unsafe { out_id.write(id) };
     drop(state);
-    wake_host();
+    crate::utils::event_loop::wake();
     PluginResultC::ok()
 }
 
@@ -337,7 +317,7 @@ unsafe extern "C" fn context_update(
         .context_events
         .insert(id, ContextEvent::Upsert(context));
     drop(state);
-    wake_host();
+    crate::utils::event_loop::wake();
     PluginResultC::ok()
 }
 
@@ -355,7 +335,7 @@ unsafe extern "C" fn context_release(token: PluginToken, id: ResourceId) -> Plug
         state.context_events.insert(id, ContextEvent::Remove(id));
     }
     drop(state);
-    wake_host();
+    crate::utils::event_loop::wake();
     PluginResultC::ok()
 }
 
@@ -456,7 +436,7 @@ unsafe extern "C" fn media_create(
     // SAFETY: out_id was checked non-null and belongs to the caller.
     unsafe { out_id.write(id) };
     drop(state);
-    wake_host();
+    crate::utils::event_loop::wake();
     PluginResultC::ok()
 }
 
@@ -502,7 +482,7 @@ unsafe extern "C" fn media_update(
     state.media.insert(id, media);
     state.media_dirty = true;
     drop(state);
-    wake_host();
+    crate::utils::event_loop::wake();
     PluginResultC::ok()
 }
 
@@ -525,7 +505,7 @@ unsafe extern "C" fn media_release(token: PluginToken, id: ResourceId) -> Plugin
     state.media.remove(&id);
     state.media_dirty = true;
     drop(state);
-    wake_host();
+    crate::utils::event_loop::wake();
     PluginResultC::ok()
 }
 
@@ -602,7 +582,7 @@ unsafe extern "C" fn i18n_register_bundle(
     // SAFETY: out_id was checked non-null and belongs to the caller.
     unsafe { out_id.write(id) };
     drop(state);
-    wake_host();
+    crate::utils::event_loop::wake();
     PluginResultC::ok()
 }
 
@@ -619,7 +599,7 @@ unsafe extern "C" fn i18n_release_bundle(token: PluginToken, id: ResourceId) -> 
     }
     state.resources.remove(&id);
     drop(state);
-    wake_host();
+    crate::utils::event_loop::wake();
     PluginResultC::ok()
 }
 
@@ -869,7 +849,7 @@ fn revoke_plugin(token: PluginToken) {
             log::error!("Failed to release plugin translation bundle {id}: {error}");
         }
     }
-    wake_host();
+    crate::utils::event_loop::wake();
 }
 
 pub struct PluginManager {

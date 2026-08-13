@@ -109,7 +109,7 @@ fn main() {
         false
     });
     let event_loop = event_loop_builder.build().unwrap();
-    plugin::manager::set_event_loop_proxy(event_loop.create_proxy());
+    utils::event_loop::set_proxy(event_loop.create_proxy());
     let mut app = App::default();
     event_loop.run_app(&mut app).unwrap();
     log::info!("Application event loop exited, shutting down");

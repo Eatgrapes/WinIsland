@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
@@ -48,7 +50,8 @@ impl ApplicationHandler for App {
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: ()) {
-        crate::plugin::manager::acknowledge_host_wake();
+        crate::utils::event_loop::acknowledge_wake();
+        self.next_frame_deadline = Instant::now();
         if let Some(window) = &self.window {
             window.request_redraw();
         }
