@@ -1,6 +1,6 @@
 # 宿主服务
 
-ABI v1 提供四个版本化宿主服务。Context、Media 和国际化会创建归 plugin token 所有的资源；Host State 只返回快照，不创建资源。
+ABI v1 提供五个版本化宿主服务。Context、Media、国际化和 Widget 会创建归 plugin token 所有的资源；Host State 只返回快照，不创建资源。
 
 ## 查询并校验服务
 
@@ -41,6 +41,7 @@ if result.status != 0 {
 | Media | 4 个活动资源 | 每份封面最大 16 MiB；每插件封面总计 32 MiB |
 | 翻译 bundle | 16 个活动 bundle | 每个 1 MiB；每插件总计 4 MiB |
 | 翻译键值对 | 每 bundle 4,096 对 | key/value 各 64 KiB；语言代码 64 字节 |
+| Widget | 16 个活动资源 | 最大占用 6 列 × 3 行；稳定 key 最长 63 个 ASCII 字节 |
 
 更新会继续占用被替换资源的配额；release 后才会归还数量和内存预算。
 
@@ -164,6 +165,37 @@ WinIsland 在事件循环线程同步调用回调。回调应尽快把慢任务�
 ### Media 常见错误
 
 Media 调用会拒绝空 title、未知 flag/control、声明控制但没有回调、长度非零但 cover 指针为空、单封面超过 16 MiB、封面总配额溢出、owner/type 不匹配，以及回调期间更新或释放。
+
+## Widget 服务
+
+Widget 资源通过 WinIsland 的 `DrawApiV1` 渲染，因此插件不需要依赖 Skia 或其他图形库。声明
+`CAPABILITY_WIDGET`、查询 `widget_api()`，并为每个可配置小组件提供稳定 key：
+
+```rust
+let widget = WidgetDataV1 {
+    key: str_to_fixed("status"),
+    span_cols: 2,
+    span_rows: 1,
+    title: str_to_fixed("Status"),
+    on_draw: Some(draw_widget),
+    ..Default::default()
+};
+
+let mut widget_id = INVALID_ID;
+let result = unsafe { widget_api.create.unwrap()(token, &widget, &mut widget_id) };
+```
+
+宿主会把 key 与 descriptor 中的插件 ID 组合成持久化布局身份。key 必须由 1-63 个 ASCII
+字母、数字、`_` 或 `-` 组成，在同一插件内唯一，并且在 `update` 和后续插件版本中保持不变。
+带 key 的小组件会进入“设置 > 小组件”，并通过真实绘制回调生成实时预览。用户可以把它拖入
+灵动岛网格、调整位置，或删除回小组件库；选择的位置会跨重启保存。
+
+空 key 只用于兼容 API 0.5 之前构建的插件。这类小组件仍会自动放进第一个空位，但不会进入
+设置中的小组件库。
+
+绘制回调在渲染线程同步执行。请使用相对小组件的逻辑坐标，保持回调简短，不要保存 context，
+并在 shutdown 中释放资源。Widget 调用会拒绝非法占格、未知 flag、缺少回调、重复或非法 key、
+update 时更换 key、所有权不匹配，以及超过每插件资源上限。
 
 ## 翻译服务
 

@@ -7,7 +7,7 @@ This guide builds a complete ABI v1 DLL that publishes one persistent Context. T
 - Windows 10 version 2004 or later, or Windows 11
 - Stable Rust with the `x86_64-pc-windows-msvc` toolchain
 - Visual Studio Build Tools with the Desktop development with C++ workload
-- A WinIsland build that supports plugin API `0.3` / ABI v1
+- A WinIsland build that supports plugin API `0.5` / ABI v1
 
 Check the toolchain:
 
@@ -40,7 +40,7 @@ name = "hello_winisland_plugin"
 crate-type = ["cdylib"]
 
 [dependencies]
-winisland-plugin-api = "0.3"
+winisland-plugin-api = "0.5"
 ```
 
 `cdylib` is required: it produces a native DLL with the exported ABI entry point. The package metadata will also be reused by the packager, so keep it aligned with `PluginMetadataC` below.

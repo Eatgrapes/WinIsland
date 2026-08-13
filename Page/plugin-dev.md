@@ -1,6 +1,6 @@
 # Plugin development
 
-WinIsland plugin API `0.3` publishes native ABI v1. A plugin is a Windows DLL loaded directly into the WinIsland process. It can publish compact contexts, replace the displayed media source, register translations, and inspect the current host state.
+WinIsland plugin API `0.5` publishes native ABI v1. A plugin is a Windows DLL loaded directly into the WinIsland process. It can publish compact contexts and configurable widgets, replace the displayed media source, register translations, and inspect the current host state.
 
 > Plugins are trusted native code. There is no sandbox, process boundary, permission prompt, or crash isolation. Install and distribute plugins with the same care as desktop executables.
 
@@ -44,6 +44,7 @@ The lifecycle is strictly `create -> shutdown -> destroy`. `shutdown` must synch
 | `CAPABILITY_MEDIA` | `MediaApiV1` | A custom now-playing source and optional playback controls |
 | `CAPABILITY_I18N` | `I18nApiV1` | Plugin-owned translation keys for supported languages |
 | `CAPABILITY_HOST_STATE` | `HostStateApiV1` | Read the displayed media and current light/dark theme |
+| `CAPABILITY_WIDGET` | `WidgetApiV1` | Render widgets managed by the Settings layout editor |
 
 Querying a service does not grant access by itself. Every resource call also carries the host-issued `PluginToken`, and the host rejects calls made without the declared capability.
 
@@ -58,7 +59,7 @@ Querying a service does not grant access by itself. Every resource call also car
 
 ## Development workflow
 
-1. Define a `cdylib` crate and depend on `winisland-plugin-api = "0.3"`.
+1. Define a `cdylib` crate and depend on `winisland-plugin-api = "0.5"`.
 2. Export one `winisland_plugin_entry_v1` function returning a static descriptor.
 3. Validate `PluginCreateInfoV1`, query declared services, and return an opaque instance handle.
 4. Keep all host-issued resource IDs in plugin-owned state.
@@ -68,7 +69,7 @@ Querying a service does not grant access by itself. Every resource call also car
 
 ## Compatibility contract
 
-Crate version `0.3.x` exposes ABI version `1`. Runtime compatibility is selected by `ABI_VERSION_1`, each structure's `struct_size`, and service table versions, not by Rust crate metadata at DLL load time.
+Crate version `0.5.x` exposes ABI version `1`. Runtime compatibility is selected by `ABI_VERSION_1`, each structure's `struct_size`, and service table versions, not by Rust crate metadata at DLL load time.
 
 All public ABI structures use `#[repr(C)]`. Plugins should initialize versioned structures with `Default` where available and must not assume fields beyond the advertised `struct_size` exist. A new incompatible ABI requires a new entry symbol and ABI version rather than changing ABI v1 in place.
 

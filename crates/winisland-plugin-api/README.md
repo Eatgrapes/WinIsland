@@ -2,7 +2,7 @@
 
 Versioned C ABI types and packaging tools for trusted native WinIsland plugins.
 
-Plugins are loaded as in-process Windows DLLs. They are not sandboxed: install only plugins you trust. ABI v1 is published by crate version `0.4` and does not support the old `0.2` vtable ABI.
+Plugins are loaded as in-process Windows DLLs. They are not sandboxed: install only plugins you trust. ABI v1 is published by crate version `0.5` and does not support the old `0.2` vtable ABI.
 
 ## Project setup
 
@@ -20,7 +20,7 @@ name = "hello_winisland_plugin"
 crate-type = ["cdylib"]
 
 [dependencies]
-winisland-plugin-api = "0.4"
+winisland-plugin-api = "0.5"
 ```
 
 ## Minimal context plugin
@@ -165,6 +165,7 @@ no graphics library is linked into the plugin.
 let create_widget = widget_api.create.ok_or(())?;   // Option<fn> field, same as Media
 
 let mut widget = WidgetDataV1::default();           // span 2x1
+widget.key = str_to_fixed("status");
 widget.span_cols = 2;
 widget.span_rows = 2;
 widget.on_draw = Some(on_draw);
@@ -191,6 +192,13 @@ unsafe extern "C" fn on_draw(callback_data: *mut c_void, ctx: *const WidgetDrawC
 
 Contract notes:
 
+- `key` is the stable identity of this widget within the plugin. Use 1-63 ASCII letters, digits,
+  `_`, or `-`, keep it unique within the plugin, and never change it in `update` or across plugin
+  versions. A keyed widget appears in **Settings > Widgets**, where its real render callback is
+  used for the library preview and users can place, move, or remove it. The saved layout combines
+  the plugin ID and widget key, so runtime `ResourceId` values are never persisted.
+- An empty `key` is accepted only for compatibility with plugins built before 0.5. Such a widget
+  keeps the legacy automatic free-slot placement and cannot be managed in Settings.
 - Coordinates are **logical** and relative to the widget slot's top-left corner; the host applies
   the island `scale` and `alpha` automatically. `ctx.width` / `ctx.height` are the logical slot
   footprint dimensions (span columns/rows plus gaps).
@@ -207,7 +215,7 @@ Enable the optional packager:
 
 ```toml
 [dev-dependencies]
-winisland-plugin-api = { version = "0.4", features = ["packager"] }
+winisland-plugin-api = { version = "0.5", features = ["packager"] }
 
 [[example]]
 name = "pack"

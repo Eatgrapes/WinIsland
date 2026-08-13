@@ -11,7 +11,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! winisland-plugin-api = "0.4"
+//! winisland-plugin-api = "0.5"
 //! ```
 //!
 //! Export the ABI v1 descriptor from a `cdylib`. See the crate README for a
@@ -30,7 +30,7 @@
 //!
 //! ```toml
 //! [dev-dependencies]
-//! winisland-plugin-api = { version = "0.3", features = ["packager"] }
+//! winisland-plugin-api = { version = "0.5", features = ["packager"] }
 //! ```
 //!
 //! Add a `package.rs` example target that builds, signs and zips the plugin:

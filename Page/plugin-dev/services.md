@@ -1,6 +1,6 @@
 # Host services
 
-ABI v1 exposes four versioned host services. Context, Media, and i18n create resources owned by the plugin token. Host State returns a snapshot and creates no resource.
+ABI v1 exposes five versioned host services. Context, Media, i18n, and Widget create resources owned by the plugin token. Host State returns a snapshot and creates no resource.
 
 ## Query and validate a service
 
@@ -41,6 +41,7 @@ Limits protect the WinIsland process from accidental unbounded resource use. The
 | Media | 4 active resources | Cover up to 16 MiB each; 32 MiB total cover data per plugin |
 | Translation bundle | 16 active bundles | 1 MiB per bundle; 4 MiB total per plugin |
 | Translation pairs | 4,096 per bundle | Key/value up to 64 KiB each; language code up to 64 bytes |
+| Widget | 16 active resources | Span up to 6 columns by 3 rows; stable key up to 63 ASCII bytes |
 
 An update is included in the same quota as the resource it replaces. Releasing a resource returns its count and memory budget.
 
@@ -164,6 +165,40 @@ Updating or releasing the same resource from inside its callback returns `media 
 ### Media errors
 
 Media calls reject an empty title, unknown flags or controls, controls without a callback, null cover data with nonzero length, covers larger than 16 MiB, total cover quota overflow, a wrong owner/type, and update/release during a callback.
+
+## Widget service
+
+Widget resources render through WinIsland's `DrawApiV1`, so plugins do not link Skia or another
+graphics library. Declare `CAPABILITY_WIDGET`, query `widget_api()`, and give every configurable
+widget a stable key:
+
+```rust
+let widget = WidgetDataV1 {
+    key: str_to_fixed("status"),
+    span_cols: 2,
+    span_rows: 1,
+    title: str_to_fixed("Status"),
+    on_draw: Some(draw_widget),
+    ..Default::default()
+};
+
+let mut widget_id = INVALID_ID;
+let result = unsafe { widget_api.create.unwrap()(token, &widget, &mut widget_id) };
+```
+
+The key is combined with the descriptor's plugin ID for saved layout identity. It must contain
+1-63 ASCII letters, digits, `_`, or `-`, be unique within the plugin, and remain unchanged in
+`update` and future plugin releases. Keyed widgets appear in **Settings > Widgets** with a live
+preview from their real draw callback. Users can drag them into the island grid, rearrange them,
+or remove them back to the widget library; the selected slot persists across restarts.
+
+An empty key is accepted for compatibility with plugins built before API 0.5. Those widgets keep
+legacy automatic placement in the first free slot and do not appear in the Settings library.
+
+The draw callback runs synchronously on the render thread. Use logical coordinates relative to
+the widget, keep the callback short, never retain the context, and release the resource during
+shutdown. Widget calls reject invalid spans, unknown flags, missing callbacks, duplicate or
+invalid keys, key changes during update, wrong ownership, and the per-plugin resource limit.
 
 ## Translation service
 
