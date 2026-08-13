@@ -161,16 +161,33 @@ impl App {
                     let _ = std::fs::remove_dir_all(staging);
                     Self::show_toast("Plugin Error", &error);
                     log::error!("Failed to activate installed plugin: {error}");
+                    if let Some(settings) = self.settings.as_mut() {
+                        settings.set_plugin_status(
+                            crate::core::i18n::tr_args("plugin_install_failed", &[&error]),
+                            false,
+                        );
+                    }
                     return;
                 }
                 Self::show_toast(
                     "Plugin Installed",
                     &format!("{} loaded successfully!", manifest.name),
                 );
+                if let Some(settings) = self.settings.as_mut() {
+                    settings.set_plugins(self.plugin_mgr.installed_plugins());
+                    settings
+                        .set_plugin_status(crate::core::i18n::tr("plugin_installed_restart"), true);
+                }
                 log::info!("Plugin '{}' installed via drop", manifest.name);
             }
             Ok(Err(e)) => {
                 Self::show_toast("Plugin Error", &e);
+                if let Some(settings) = self.settings.as_mut() {
+                    settings.set_plugin_status(
+                        crate::core::i18n::tr_args("plugin_install_failed", &[&e]),
+                        false,
+                    );
+                }
                 log::error!("Failed to install plugin from drop: {}", e);
             }
             Err(mpsc::TryRecvError::Empty) => {
@@ -179,6 +196,15 @@ impl App {
             Err(mpsc::TryRecvError::Disconnected) => {
                 Self::show_toast("Plugin Error", "Installation thread crashed");
                 log::error!("Plugin installation thread disconnected unexpectedly");
+                if let Some(settings) = self.settings.as_mut() {
+                    settings.set_plugin_status(
+                        crate::core::i18n::tr_args(
+                            "plugin_install_failed",
+                            &["installation thread crashed"],
+                        ),
+                        false,
+                    );
+                }
             }
         }
     }

@@ -76,6 +76,7 @@ impl SettingsApp {
                     window.request_redraw();
                 }
             }
+            3 => self.handle_plugin_click(),
             4 => self.handle_about_click(input),
             _ => {}
         }
@@ -143,6 +144,9 @@ impl SettingsApp {
         if self.widget_dragging.is_some() {
             return true;
         }
+        if self.active_page == 3 {
+            return self.plugin_hovered();
+        }
         if self
             .widget_preview_hit_at_mouse()
             .is_some_and(|hit| hit != WidgetPreviewHit::None)
@@ -193,6 +197,13 @@ impl SettingsApp {
         };
         self.page_history_index = next_index;
         self.active_page = self.page_history[next_index];
+        if self.active_page != 3 {
+            self.selected_plugin_id = None;
+            self.plugin_detail_closing = false;
+            self.plugin_drop_hovered = false;
+            self.anim
+                .set_with_speed(super::PLUGIN_DETAIL_KEY, 0.0, 0.28);
+        }
         self.reset_scroll();
         true
     }
@@ -205,6 +216,13 @@ impl SettingsApp {
         self.page_history.push(page);
         self.page_history_index = self.page_history.len() - 1;
         self.active_page = page;
+        if page != 3 {
+            self.selected_plugin_id = None;
+            self.plugin_detail_closing = false;
+            self.plugin_drop_hovered = false;
+            self.anim
+                .set_with_speed(super::PLUGIN_DETAIL_KEY, 0.0, 0.28);
+        }
         self.reset_scroll();
     }
 

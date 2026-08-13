@@ -1,4 +1,5 @@
 use crate::core::config::{AppConfig, WidgetKind};
+use crate::plugin::manager::InstalledPlugin;
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
 use crate::utils::icon::get_app_icon;
@@ -86,6 +87,7 @@ pub(crate) enum PageNavigation {
 
 pub(crate) const POPUP_OPACITY_KEY: u64 = 1;
 pub(crate) const SIDEBAR_KEY_BASE: u64 = 1_000;
+pub(crate) const PLUGIN_DETAIL_KEY: u64 = 2_000;
 pub(crate) const SCROLL_STIFFNESS: f32 = 55.0;
 pub(crate) const SCROLL_DAMPING: f32 = 16.0;
 
@@ -113,6 +115,12 @@ pub(crate) struct NumberInput {
     pub(crate) rect: skia_safe::Rect,
     pub(crate) text: String,
     pub(crate) on_commit: NumberInputHandler,
+}
+
+pub(crate) enum PluginSettingsRequest {
+    Install(std::path::PathBuf),
+    SetEnabled { id: String, enabled: bool },
+    Restart,
 }
 
 pub struct SettingsApp {
@@ -151,11 +159,19 @@ pub struct SettingsApp {
     pub(crate) widget_dragging: Option<WidgetKind>,
     pub(crate) widget_drag_hover_slot: Option<usize>,
     pub(crate) widget_preview_hover_slot: Option<usize>,
+    pub(crate) plugins: Vec<InstalledPlugin>,
+    pub(crate) selected_plugin_id: Option<String>,
+    pub(crate) plugin_detail_closing: bool,
+    pub(crate) plugin_detail_scroll: f32,
+    pub(crate) plugin_detail_max_scroll: f32,
+    pub(crate) plugin_drop_hovered: bool,
+    pub(crate) plugin_status: Option<(String, bool)>,
+    plugin_request: Option<PluginSettingsRequest>,
     close_requested: bool,
 }
 
 impl SettingsApp {
-    pub fn new(config: AppConfig) -> Self {
+    pub fn new(config: AppConfig, plugins: Vec<InstalledPlugin>) -> Self {
         let switch_anim = SwitchAnimator::new(&[]);
         Self {
             window: None,
@@ -193,6 +209,14 @@ impl SettingsApp {
             widget_dragging: None,
             widget_drag_hover_slot: None,
             widget_preview_hover_slot: None,
+            plugins,
+            selected_plugin_id: None,
+            plugin_detail_closing: false,
+            plugin_detail_scroll: 0.0,
+            plugin_detail_max_scroll: 0.0,
+            plugin_drop_hovered: false,
+            plugin_status: None,
+            plugin_request: None,
             close_requested: false,
         }
     }
@@ -360,6 +384,7 @@ impl SettingsApp {
     pub(crate) fn invalidate_renderer_target(&mut self) {
         self.renderer_target = None;
         sidebar::clear_sidebar_icon_cache();
+        pages::plugins::clear_plugin_icon_cache();
     }
 
     pub(crate) fn recreate_renderer_target(
@@ -460,6 +485,12 @@ impl SettingsApp {
                     || (new_pos.1 - self.last_hover_mouse_pos.1).abs() > 0.5;
                 self.logical_mouse_pos = new_pos;
                 self.update_scroll_drag(new_pos.1);
+                if self.active_page == 3
+                    && mouse_moved
+                    && let Some(win) = &self.window
+                {
+                    win.request_redraw();
+                }
 
                 let dots_hovered = self.focused && window_controls_hovered(new_pos.0, new_pos.1);
                 if dots_hovered != self.dots_hovered {
@@ -557,6 +588,38 @@ impl SettingsApp {
                     }
                 }
             }
+            WindowEvent::HoveredFile(path) => {
+                let hovered = self.active_page == 3
+                    && path
+                        .extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"));
+                if hovered != self.plugin_drop_hovered {
+                    self.plugin_drop_hovered = hovered;
+                    if let Some(win) = &self.window {
+                        win.request_redraw();
+                    }
+                }
+            }
+            WindowEvent::HoveredFileCancelled => {
+                self.plugin_drop_hovered = false;
+                if let Some(win) = &self.window {
+                    win.request_redraw();
+                }
+            }
+            WindowEvent::DroppedFile(path)
+                if self.active_page == 3
+                    && path
+                        .extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip")) =>
+            {
+                self.plugin_drop_hovered = false;
+                self.plugin_status = Some((crate::core::i18n::tr("plugin_installing"), false));
+                self.plugin_request = Some(PluginSettingsRequest::Install(path));
+                self.mark_items_dirty();
+                if let Some(win) = &self.window {
+                    win.request_redraw();
+                }
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 if self.popup.is_some() {
                     self.popup = None;
@@ -567,6 +630,18 @@ impl SettingsApp {
                     return;
                 }
                 let (mx, _) = self.logical_mouse_pos;
+                if self.active_page == 3 && self.plugin_detail_contains(mx) {
+                    let diff = match delta {
+                        winit::event::MouseScrollDelta::LineDelta(_, y) => y * 40.0,
+                        winit::event::MouseScrollDelta::PixelDelta(pos) => pos.y as f32,
+                    };
+                    self.plugin_detail_scroll = (self.plugin_detail_scroll - diff)
+                        .clamp(0.0, self.plugin_detail_max_scroll);
+                    if let Some(win) = &self.window {
+                        win.request_redraw();
+                    }
+                    return;
+                }
                 if mx >= SIDEBAR_W {
                     let diff = match delta {
                         winit::event::MouseScrollDelta::LineDelta(_, y) => y * 40.0,
@@ -667,6 +742,11 @@ impl SettingsApp {
         let mut redraw = is_widget_dragging || is_number_input_active || self.switch_anim.tick();
         if self.anim.tick() {
             redraw = true;
+        }
+        if self.plugin_detail_closing && self.anim.get(PLUGIN_DETAIL_KEY) <= 0.005 {
+            self.plugin_detail_closing = false;
+            self.selected_plugin_id = None;
+            self.plugin_detail_scroll = 0.0;
         }
 
         self.ensure_items_cache();
@@ -799,8 +879,37 @@ impl SettingsApp {
         self.popup = None;
         self.widget_dragging = None;
         sidebar::clear_sidebar_icon_cache();
+        pages::plugins::clear_plugin_icon_cache();
         let renderer_target = self.renderer_target.take();
         self.window = None;
         renderer_target
+    }
+
+    pub(crate) fn take_plugin_request(&mut self) -> Option<PluginSettingsRequest> {
+        self.plugin_request.take()
+    }
+
+    pub(crate) fn set_plugins(&mut self, plugins: Vec<InstalledPlugin>) {
+        pages::plugins::clear_plugin_icon_cache();
+        self.plugins = plugins;
+        if self
+            .selected_plugin_id
+            .as_ref()
+            .is_some_and(|id| !self.plugins.iter().any(|plugin| &plugin.id == id))
+        {
+            self.selected_plugin_id = None;
+        }
+        self.mark_items_dirty();
+        if let Some(win) = &self.window {
+            win.request_redraw();
+        }
+    }
+
+    pub(crate) fn set_plugin_status(&mut self, message: String, restart: bool) {
+        self.plugin_status = Some((message, restart));
+        self.mark_items_dirty();
+        if let Some(win) = &self.window {
+            win.request_redraw();
+        }
     }
 }

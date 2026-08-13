@@ -24,6 +24,7 @@ impl ApplicationHandler for App {
             {
                 settings.handle_window_event(event_loop, event, renderer);
             }
+            self.handle_plugin_settings_request(event_loop);
             if self
                 .settings
                 .as_ref()
@@ -47,6 +48,7 @@ impl ApplicationHandler for App {
                 self.next_frame_deadline.min(settings_deadline),
             ));
         }
+        self.handle_plugin_settings_request(event_loop);
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: ()) {

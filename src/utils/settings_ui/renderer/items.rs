@@ -1005,6 +1005,7 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 draw_center_text(&ctx, y, item.height(), text, *size, *color);
             }
             SettingsItem::Spacer { .. } => {}
+            SettingsItem::Custom { .. } => {}
             SettingsItem::WidgetPreview => {
                 draw_widget_preview(WidgetPreviewParams {
                     canvas,

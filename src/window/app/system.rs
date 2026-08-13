@@ -19,6 +19,44 @@ use crate::window::tray::TrayAction;
 use super::App;
 
 impl App {
+    pub(super) fn handle_plugin_settings_request(&mut self, event_loop: &ActiveEventLoop) {
+        let request = self
+            .settings
+            .as_mut()
+            .and_then(crate::window::settings::SettingsApp::take_plugin_request);
+        match request {
+            Some(crate::window::settings::PluginSettingsRequest::Install(path)) => {
+                self.install_zip_drop(&path);
+            }
+            Some(crate::window::settings::PluginSettingsRequest::SetEnabled { id, enabled }) => {
+                let result = self.plugin_mgr.set_plugin_enabled(&id, enabled);
+                if let Some(settings) = self.settings.as_mut() {
+                    match result {
+                        Ok(()) => {
+                            settings.set_plugins(self.plugin_mgr.installed_plugins());
+                            settings.set_plugin_status(
+                                crate::core::i18n::tr("plugin_state_restart"),
+                                true,
+                            );
+                        }
+                        Err(error) => settings.set_plugin_status(
+                            crate::core::i18n::tr_args("plugin_state_failed", &[&error]),
+                            false,
+                        ),
+                    }
+                }
+            }
+            Some(crate::window::settings::PluginSettingsRequest::Restart) => {
+                self.close_settings();
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(exe).arg("--restart").spawn();
+                }
+                event_loop.exit();
+            }
+            None => {}
+        }
+    }
+
     pub(super) fn invalidate_renderer(&mut self, reason: &str, now: Instant) {
         if self.renderer.take().is_some() {
             log::warn!("D3D12 renderer invalidated: {reason}");
@@ -136,6 +174,15 @@ impl App {
     pub(super) fn install_zip_drop(&mut self, path: &Path) {
         if self.pending_install.is_some() {
             Self::show_toast("Plugin Info", "Another installation is already in progress");
+            if let Some(settings) = self.settings.as_mut() {
+                settings.set_plugin_status(
+                    crate::core::i18n::tr_args(
+                        "plugin_install_failed",
+                        &["another installation is already in progress"],
+                    ),
+                    false,
+                );
+            }
             return;
         }
 
@@ -158,7 +205,10 @@ impl App {
             return;
         }
 
-        let mut settings = crate::window::settings::SettingsApp::new(load_config());
+        let mut settings = crate::window::settings::SettingsApp::new(
+            load_config(),
+            self.plugin_mgr.installed_plugins(),
+        );
         let Some(renderer) = self.renderer.as_mut() else {
             log::error!("Cannot open settings without the shared D3D12 renderer");
             return;

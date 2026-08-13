@@ -128,6 +128,10 @@ impl SettingsApp {
                 );
             }
 
+            if self.active_page == 3 {
+                self.draw_plugins_page(direct_context, canvas, &theme, win_w, win_h);
+            }
+
             self.draw_popup(canvas, &theme);
             self.draw_widget_drag_overlay(canvas, &theme, win_w, win_h);
             canvas.restore();

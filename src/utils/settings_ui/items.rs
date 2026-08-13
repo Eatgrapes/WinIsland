@@ -83,6 +83,9 @@ pub enum SettingsItem {
     Spacer {
         height: f32,
     },
+    Custom {
+        height: f32,
+    },
     WidgetPreview,
 }
 
@@ -95,6 +98,7 @@ impl SettingsItem {
             SettingsItem::CenterLink { .. } => 40.0,
             SettingsItem::CenterText { .. } => 35.0,
             SettingsItem::Spacer { height } => *height,
+            SettingsItem::Custom { height } => *height,
             SettingsItem::WidgetPreview => 480.0,
             SettingsItem::RowFolderPicker { current_path, .. } => {
                 if current_path.as_ref().is_some_and(|p| !p.is_empty()) {

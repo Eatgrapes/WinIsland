@@ -1538,6 +1538,26 @@ impl PluginManager {
                 });
             }
         }
+        for path in discover_manual_plugin_dlls(&self.plugin_dir) {
+            let Ok(plugin) = NativePlugin::load(&path) else {
+                continue;
+            };
+            let metadata = plugin.metadata();
+            if plugins.iter().any(|entry| entry.id == metadata.id) {
+                continue;
+            }
+            plugins.push(InstalledPlugin {
+                id: metadata.id.clone(),
+                name: metadata.name.clone(),
+                author: metadata.author.clone(),
+                version: metadata.version.clone(),
+                description: metadata.description.clone(),
+                github_link: String::new(),
+                enabled: !disabled.contains(&metadata.id),
+                icon: None,
+                readme: None,
+            });
+        }
         plugins.sort_by_key(|plugin| plugin.name.to_lowercase());
         plugins
     }
@@ -1786,9 +1806,7 @@ fn discover_packaged_plugins(directory: &Path, disabled: &HashSet<String>) -> Ve
                 manifest.icon.as_deref(),
                 &["icon.png", "icon.jpg", "icon.jpeg", "icon.webp"],
             )
-            .and_then(|path| {
-                zip_loader::read_bounded_file(&path, zip_loader::MAX_PLUGIN_ICON_BYTES).ok()
-            });
+            .and_then(|path| read_plugin_icon(&path));
             let readme = plugin_asset_path(
                 &directory,
                 manifest.readme.as_deref(),
@@ -1811,6 +1829,31 @@ fn discover_packaged_plugins(directory: &Path, disabled: &HashSet<String>) -> Ve
             })
         })
         .collect()
+}
+
+fn discover_manual_plugin_dlls(directory: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("dll"))
+        })
+        .collect()
+}
+
+fn read_plugin_icon(path: &Path) -> Option<Vec<u8>> {
+    let bytes = zip_loader::read_bounded_file(path, zip_loader::MAX_PLUGIN_ICON_BYTES).ok()?;
+    let reader = image::ImageReader::new(std::io::Cursor::new(&bytes))
+        .with_guessed_format()
+        .ok()?;
+    let (width, height) = reader.into_dimensions().ok()?;
+    (width > 0 && height > 0 && width <= 2048 && height <= 2048).then_some(bytes)
 }
 
 fn plugin_asset_path(
