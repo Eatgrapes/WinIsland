@@ -477,7 +477,7 @@ fn validate_github_release_url(value: &str) -> Result<(), String> {
 
 fn validate_marketplace_asset_url(value: &str) -> Result<(), String> {
     let prefix =
-        "https://github.com/WinIslandProject/PluginMarketplace/releases/download/catalog-v1/icons/";
+        "https://github.com/WinIslandProject/PluginMarketplace/releases/download/catalog-v1/icon-";
     let name = value.strip_prefix(prefix).ok_or_else(|| {
         "Marketplace icons must be served by the signed catalog release".to_string()
     })?;
