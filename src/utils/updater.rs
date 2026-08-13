@@ -163,11 +163,13 @@ async fn prompt_update(
     let title_w: Vec<u16> = format!("{} ({})\0", tr("update_available_title"), channel_name)
         .encode_utf16()
         .collect();
-    let text_w: Vec<u16> = tr("update_available_desc")
-        .replace("{}", version_display)
-        .add_null()
-        .encode_utf16()
-        .collect();
+    let description = match channel {
+        InstallerChannel::Stable => tr("update_available_desc"),
+        InstallerChannel::Nightly => {
+            tr("update_available_nightly_desc").replace("{}", version_display)
+        }
+    };
+    let text_w: Vec<u16> = description.add_null().encode_utf16().collect();
 
     let result = tokio::task::spawn_blocking(move || unsafe {
         MessageBoxW(
