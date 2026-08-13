@@ -1,6 +1,7 @@
 # Changelog
 
 ### v1.3.0
+- Fixed known bugs
 - Improved the notification system
 - Unified Nightly and Stable installer identities to prevent duplicate installations
 - Improved the update system

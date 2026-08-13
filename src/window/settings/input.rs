@@ -93,6 +93,13 @@ impl SettingsApp {
 
     pub(super) fn get_hover_state(&mut self) -> bool {
         let (mouse_x, mouse_y) = self.logical_mouse_pos;
+        if self.scroll_dragging
+            || self
+                .scrollbar_geometry()
+                .is_some_and(|scrollbar| scrollbar.hit_test(mouse_x, mouse_y))
+        {
+            return true;
+        }
         if let Some(direction) = self.page_navigation_at(mouse_x, mouse_y) {
             let is_enabled = match direction {
                 PageNavigation::Back => self.can_navigate_back(),

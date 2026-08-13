@@ -6,7 +6,7 @@ use winit::platform::windows::WindowExtWindows;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
-use crate::core::config::{DockPosition, MAX_HIDDEN_WIDTH, PADDING, TOP_OFFSET};
+use crate::core::config::{DockPosition, MAX_HIDDEN_WIDTH, TOP_OFFSET};
 
 use super::{App, DEFAULT_ANIMATION_REFRESH_RATE_MILLIHERTZ, HideEdge, IslandLayout};
 
@@ -118,11 +118,11 @@ impl App {
         let base_half_h = self.config.base_height as f64 * scale / 2.0;
 
         let (anchor_x, local_anchor_x) = if dock_position.is_left() {
-            (collapsed_center_x - base_half_w, PADDING as f64 / 2.0)
+            (collapsed_center_x - base_half_w, TOP_OFFSET as f64)
         } else if dock_position.is_right() {
             (
                 collapsed_center_x + base_half_w,
-                self.geom.os_w as f64 - PADDING as f64 / 2.0,
+                self.geom.os_w as f64 - TOP_OFFSET as f64,
             )
         } else {
             (collapsed_center_x, self.geom.os_w as f64 / 2.0)
@@ -130,10 +130,10 @@ impl App {
         let (anchor_y, local_anchor_y) = if dock_position.is_bottom() {
             (
                 collapsed_center_y + base_half_h,
-                self.geom.os_h as f64 - PADDING as f64 / 2.0,
+                self.geom.os_h as f64 - TOP_OFFSET as f64,
             )
         } else {
-            (collapsed_center_y - base_half_h, PADDING as f64 / 2.0)
+            (collapsed_center_y - base_half_h, TOP_OFFSET as f64)
         };
 
         (
@@ -302,7 +302,12 @@ impl App {
         if self.config.hidden_width >= MAX_HIDDEN_WIDTH {
             edge_size
         } else {
-            (self.config.hidden_width as f64 * self.config.global_scale as f64).min(edge_size)
+            let configured = self.config.hidden_width as f64 * self.config.global_scale as f64;
+            if configured <= f64::EPSILON {
+                1.0_f64.min(edge_size)
+            } else {
+                configured.min(edge_size)
+            }
         }
     }
 
@@ -337,15 +342,15 @@ impl App {
         };
         let dock_bottom = dock_position.is_bottom();
         let island_y = if dock_bottom {
-            self.geom.os_h as f64 - PADDING as f64 / 2.0 - self.springs.h.value as f64
+            self.geom.os_h as f64 - TOP_OFFSET as f64 - self.springs.h.value as f64
         } else {
-            PADDING as f64 / 2.0
+            TOP_OFFSET as f64
         };
 
         let offset_x = if dock_position.is_left() {
-            PADDING as f64 / 2.0
+            TOP_OFFSET as f64
         } else if dock_position.is_right() {
-            (self.geom.os_w as f64 - PADDING as f64 / 2.0 - self.springs.w.value as f64).max(0.0)
+            (self.geom.os_w as f64 - TOP_OFFSET as f64 - self.springs.w.value as f64).max(0.0)
         } else {
             (self.geom.os_w as f64 - self.springs.w.value as f64) / 2.0
         };
@@ -376,9 +381,9 @@ impl App {
             HideEdge::Right => (offset_x + hide_offset, island_y),
         };
         let stable_base_y = if dock_bottom {
-            self.geom.os_h as f64 - PADDING as f64 / 2.0 - self.config.base_height as f64 * scale
+            self.geom.os_h as f64 - TOP_OFFSET as f64 - self.config.base_height as f64 * scale
         } else {
-            PADDING as f64 / 2.0
+            TOP_OFFSET as f64
         };
         let stable_island_y = match hide_edge {
             HideEdge::Top => stable_base_y - hide_offset,
