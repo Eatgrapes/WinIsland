@@ -3,14 +3,18 @@ use std::time::{Duration, Instant};
 use skia_safe::Data;
 use tokio::sync::watch;
 use windows::Media::Control::GlobalSystemMediaTransportControlsSession;
+use windows::Storage::Streams::DataReader;
 
 use crate::core::lyrics::LyricsMode;
+use crate::utils::cover::compress_smtc_thumbnail;
 
 use super::session::is_music_session;
 use super::{LyricsFetchRequest, MediaInfo, spawn_lyrics_fetch};
 
 const MAX_THUMBNAIL_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_THUMBNAIL_STREAM_BYTES: u64 = 128 * 1024 * 1024;
 const THUMBNAIL_TOO_LARGE: windows::core::HRESULT = windows::core::HRESULT(-3);
+const THUMBNAIL_COMPRESSION_FAILED: windows::core::HRESULT = windows::core::HRESULT(-4);
 
 thread_local! {
     static LAST_TIMELINE_FETCH: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
@@ -262,11 +266,19 @@ fn spawn_thumbnail_fetch(
                         "Empty thumbnail",
                     ));
                 }
-                if size > MAX_THUMBNAIL_BYTES {
+                if size > MAX_THUMBNAIL_STREAM_BYTES {
                     return Err(windows::core::Error::new(
                         THUMBNAIL_TOO_LARGE,
-                        "Thumbnail exceeds 16 MiB",
+                        "Thumbnail exceeds 128 MiB",
                     ));
+                }
+                if size > MAX_THUMBNAIL_BYTES {
+                    return compress_smtc_thumbnail(&stream, size).ok_or_else(|| {
+                        windows::core::Error::new(
+                            THUMBNAIL_COMPRESSION_FAILED,
+                            "Failed to compress oversized thumbnail",
+                        )
+                    });
                 }
                 let size = size as u32;
                 let buffer = windows::Storage::Streams::Buffer::Create(size)?;
@@ -277,7 +289,7 @@ fn spawn_thumbnail_fetch(
                         windows::Storage::Streams::InputStreamOptions::None,
                     )?
                     .join()?;
-                let reader = windows::Storage::Streams::DataReader::FromBuffer(&res_buffer)?;
+                let reader = DataReader::FromBuffer(&res_buffer)?;
                 let mut bytes = vec![0u8; size as usize];
                 reader.ReadBytes(&mut bytes)?;
                 Ok(bytes)
@@ -309,12 +321,14 @@ fn spawn_thumbnail_fetch(
                 }
                 return;
             }
-            if res
-                .as_ref()
-                .is_err_and(|error| error.code() == THUMBNAIL_TOO_LARGE)
-            {
+            if res.as_ref().is_err_and(|error| {
+                matches!(
+                    error.code(),
+                    THUMBNAIL_TOO_LARGE | THUMBNAIL_COMPRESSION_FAILED
+                )
+            }) {
                 log::warn!(
-                    "SMTC: ignored oversized thumbnail for '{}' - '{}'",
+                    "SMTC: could not safely load oversized thumbnail for '{}' - '{}'",
                     title,
                     artist
                 );
