@@ -116,18 +116,14 @@ impl SettingsApp {
             });
             canvas.restore();
 
-            let ch = self.cached_content_height;
-            let view_h = win_h;
-            if ch > view_h {
-                let bar_h = (view_h / ch) * view_h;
-                let bar_y = (self.scroll_y / (ch - view_h)) * (view_h - bar_h);
+            if let Some(scrollbar) = self.scrollbar_geometry() {
                 let mut p = Paint::default();
                 p.set_anti_alias(true);
                 p.set_color(Color::from_argb(60, 255, 255, 255));
                 canvas.draw_round_rect(
-                    Rect::from_xywh(win_w - 6.0, bar_y, 4.0, bar_h),
-                    2.0,
-                    2.0,
+                    Rect::from_xywh(scrollbar.x, scrollbar.y, scrollbar.width, scrollbar.height),
+                    scrollbar.width / 2.0,
+                    scrollbar.width / 2.0,
                     &p,
                 );
             }

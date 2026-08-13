@@ -72,21 +72,14 @@ pub fn widget_grid_layout(x: f32, y: f32, w: f32, h: f32, scale: f32) -> WidgetG
     let gap = 7.0 * scale;
     let inner_w = (w - inset * 2.0).max(0.0);
     let inner_h = (h - inset * 2.0).max(0.0);
-    let slot_from_width =
-        (inner_w - gap * (WIDGET_GRID_COLS as f32 - 1.0)) / WIDGET_GRID_COLS as f32;
-    let slot_from_height =
-        (inner_h - gap * (WIDGET_GRID_ROWS as f32 - 1.0)) / WIDGET_GRID_ROWS as f32;
-    let slot_size = slot_from_width.min(slot_from_height).max(0.0);
-    let slot_w = slot_size;
-    let slot_h = slot_size;
-    let grid_w = slot_w * WIDGET_GRID_COLS as f32 + gap * (WIDGET_GRID_COLS as f32 - 1.0);
-    let grid_h = slot_h * WIDGET_GRID_ROWS as f32 + gap * (WIDGET_GRID_ROWS as f32 - 1.0);
+    let slot_w = (inner_w - gap * (WIDGET_GRID_COLS as f32 - 1.0)) / WIDGET_GRID_COLS as f32;
+    let slot_h = (inner_h - gap * (WIDGET_GRID_ROWS as f32 - 1.0)) / WIDGET_GRID_ROWS as f32;
 
     WidgetGridLayout {
-        grid_x: x + (w - grid_w) / 2.0,
-        grid_y: y + (h - grid_h) / 2.0,
-        slot_w,
-        slot_h,
+        grid_x: x + inset,
+        grid_y: y + inset,
+        slot_w: slot_w.max(0.0),
+        slot_h: slot_h.max(0.0),
         gap,
     }
 }

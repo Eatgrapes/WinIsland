@@ -60,11 +60,7 @@ jobs:
       run: cargo build --release --verbose
       env:
         WINISLAND_PACKAGE_CHANNEL: nightly
-    - name: Generate Version Info
-      run: |
-        $date = (Get-Date).ToUniversalTime().AddHours(8).ToString("yyyy-MM-dd HH:mm:ss")
-        $json = @{ timestamp = $date } | ConvertTo-Json
-        $json | Out-File -FilePath target/release/version_info.json -Encoding utf8
+        WINISLAND_BUILD_NUMBER: ${{ github.run_number }}
     - name: Restore identity signing certificate
       shell: pwsh
       env:
@@ -96,6 +92,18 @@ jobs:
           -CertificatePath $env:WINISLAND_MSIX_CERT_PATH `
           -CertificatePassword $env:WINISLAND_MSIX_CERT_PASSWORD `
           -OutputDirectory .\target\installer\nightly
+    - name: Generate Version Info
+      shell: pwsh
+      run: |
+        $date = [DateTime]::UtcNow
+        $installerPath = 'target/installer/nightly/installer/WinIsland-Nightly-Setup.exe'
+        $json = @{
+          build_number = [uint64]$env:GITHUB_RUN_NUMBER
+          built_at = $date.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")
+          installer_sha256 = (Get-FileHash -Path $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          timestamp = $date.AddHours(8).ToString('yyyy-MM-dd HH:mm:ss')
+        } | ConvertTo-Json
+        $json | Out-File -FilePath target/release/version_info.json -Encoding utf8
     - name: Delete Old Nightly Release
       run: |
         gh release delete nightly --yes --cleanup-tag
