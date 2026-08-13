@@ -60,6 +60,7 @@ impl App {
         }
 
         self.poll_pending_plugin_install();
+        self.poll_pending_plugin_marketplace();
         if self.ctx_mgr.tick() {
             window.request_redraw();
         }
@@ -162,6 +163,7 @@ impl App {
                     Self::show_toast("Plugin Error", &error);
                     log::error!("Failed to activate installed plugin: {error}");
                     if let Some(settings) = self.settings.as_mut() {
+                        settings.finish_marketplace_install();
                         settings.set_plugin_status(
                             crate::core::i18n::tr_args("plugin_install_failed", &[&error]),
                             false,
@@ -174,6 +176,7 @@ impl App {
                     &format!("{} loaded successfully!", manifest.name),
                 );
                 if let Some(settings) = self.settings.as_mut() {
+                    settings.finish_marketplace_install();
                     settings.set_plugins(self.plugin_mgr.installed_plugins());
                     settings
                         .set_plugin_status(crate::core::i18n::tr("plugin_installed_restart"), true);
@@ -183,6 +186,7 @@ impl App {
             Ok(Err(e)) => {
                 Self::show_toast("Plugin Error", &e);
                 if let Some(settings) = self.settings.as_mut() {
+                    settings.finish_marketplace_install();
                     settings.set_plugin_status(
                         crate::core::i18n::tr_args("plugin_install_failed", &[&e]),
                         false,
@@ -197,10 +201,77 @@ impl App {
                 Self::show_toast("Plugin Error", "Installation thread crashed");
                 log::error!("Plugin installation thread disconnected unexpectedly");
                 if let Some(settings) = self.settings.as_mut() {
+                    settings.finish_marketplace_install();
                     settings.set_plugin_status(
                         crate::core::i18n::tr_args(
                             "plugin_install_failed",
                             &["installation thread crashed"],
+                        ),
+                        false,
+                    );
+                }
+            }
+        }
+    }
+
+    fn poll_pending_plugin_marketplace(&mut self) {
+        if let Some(rx) = self.pending_marketplace_catalog.take() {
+            match rx.try_recv() {
+                Ok(Ok(catalog)) => {
+                    self.marketplace_catalog = Some(catalog.clone());
+                    if let Some(settings) = self.settings.as_mut() {
+                        settings.set_marketplace_catalog(catalog);
+                    }
+                }
+                Ok(Err(error)) => {
+                    log::error!("Failed to load plugin marketplace: {error}");
+                    if let Some(settings) = self.settings.as_mut() {
+                        settings.set_marketplace_error(error);
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    self.pending_marketplace_catalog = Some(rx);
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    if let Some(settings) = self.settings.as_mut() {
+                        settings.set_marketplace_error(
+                            "The marketplace task stopped unexpectedly".into(),
+                        );
+                    }
+                }
+            }
+        }
+
+        let Some(rx) = self.pending_marketplace_download.take() else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(Ok(path)) => {
+                if let Some(settings) = self.settings.as_mut() {
+                    settings.set_plugin_status(crate::core::i18n::tr("plugin_installing"), false);
+                }
+                self.install_zip_drop(&path);
+            }
+            Ok(Err(error)) => {
+                log::error!("Failed to download marketplace plugin: {error}");
+                if let Some(settings) = self.settings.as_mut() {
+                    settings.finish_marketplace_install();
+                    settings.set_plugin_status(
+                        crate::core::i18n::tr_args("plugin_install_failed", &[&error]),
+                        false,
+                    );
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => {
+                self.pending_marketplace_download = Some(rx);
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                if let Some(settings) = self.settings.as_mut() {
+                    settings.finish_marketplace_install();
+                    settings.set_plugin_status(
+                        crate::core::i18n::tr_args(
+                            "plugin_install_failed",
+                            &["the marketplace download task stopped unexpectedly"],
                         ),
                         false,
                     );
