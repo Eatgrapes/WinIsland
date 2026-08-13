@@ -31,6 +31,8 @@ pub struct PluginPackager {
     github_link: String,
     dll_name: String,
     dll_path: Option<PathBuf>,
+    icon: Option<String>,
+    readme: Option<String>,
     extra_dirs: Vec<String>,
     signing_key: Option<SigningKey>,
     output: Option<PathBuf>,
@@ -94,6 +96,14 @@ impl PluginPackager {
             .and_then(|lib| lib.get("name"))
             .and_then(|value| value.as_str())
             .map_or_else(|| name.replace('-', "_"), str::to_string);
+        let icon = ["icon.png", "icon.jpg", "icon.jpeg", "icon.webp"]
+            .into_iter()
+            .find(|path| Path::new(path).is_file())
+            .map(str::to_string);
+        let readme = ["README.md", "README.markdown", "README.txt"]
+            .into_iter()
+            .find(|path| Path::new(path).is_file())
+            .map(str::to_string);
 
         Ok(Self {
             id: name.clone(),
@@ -104,6 +114,8 @@ impl PluginPackager {
             github_link,
             dll_name,
             dll_path: None,
+            icon,
+            readme,
             extra_dirs: Vec::new(),
             signing_key: None,
             output: None,
@@ -121,6 +133,8 @@ impl PluginPackager {
             github_link: String::new(),
             dll_name: name.to_string().replace('-', "_"),
             dll_path: None,
+            icon: None,
+            readme: None,
             extra_dirs: Vec::new(),
             signing_key: None,
             output: None,
@@ -177,6 +191,18 @@ impl PluginPackager {
     /// By default it looks for `target/release/<dll_name>.dll`.
     pub fn dll_path(&mut self, path: &str) -> &mut Self {
         self.dll_path = Some(PathBuf::from(path));
+        self
+    }
+
+    /// Include an image displayed as the plugin icon in WinIsland settings.
+    pub fn icon(&mut self, path: &str) -> &mut Self {
+        self.icon = Some(path.to_string());
+        self
+    }
+
+    /// Include a Markdown or text file displayed on the plugin details page.
+    pub fn readme(&mut self, path: &str) -> &mut Self {
+        self.readme = Some(path.to_string());
         self
     }
 
@@ -284,6 +310,9 @@ impl PluginPackager {
                 log::warn!("Extra directory '{}' not found, skipping", dir);
             }
         }
+        for asset in [&self.icon, &self.readme].into_iter().flatten() {
+            copy_package_file(asset, staging_path)?;
+        }
 
         // 6. Compute DLL hashes
         let mut dll_hashes = Vec::new();
@@ -307,6 +336,8 @@ impl PluginPackager {
             github_link: self.github_link.clone(),
             abi_version: crate::ABI_VERSION_1,
             entry: dll_dest_name.to_string(),
+            icon: self.icon.clone(),
+            readme: self.readme.clone(),
             signature: None,
             dll_hashes: Some(dll_hashes.clone()),
         };
@@ -385,6 +416,24 @@ fn package_relative_path(path: &str) -> Result<&Path, String> {
         ));
     }
     Ok(path)
+}
+
+fn copy_package_file(path: &str, staging: &Path) -> Result<(), String> {
+    let source = package_relative_path(path)?;
+    if !source.is_file() {
+        return Err(format!(
+            "Package file '{}' does not exist",
+            source.display()
+        ));
+    }
+    let destination = staging.join(source);
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("Cannot create '{}': {error}", parent.display()))?;
+    }
+    std::fs::copy(source, &destination)
+        .map_err(|error| format!("Cannot copy '{}': {error}", source.display()))?;
+    Ok(())
 }
 
 fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {

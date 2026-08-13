@@ -6,6 +6,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 const MAX_FILENAME_COMPONENT: usize = 255;
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+pub const MAX_PLUGIN_ICON_BYTES: u64 = 4 * 1024 * 1024;
+pub const MAX_PLUGIN_README_BYTES: u64 = 1024 * 1024;
 const MAX_ZIP_ENTRIES: usize = 4096;
 const MAX_ENTRY_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
@@ -23,6 +25,10 @@ pub struct PluginManifest {
     #[serde(rename = "abi-version")]
     pub abi_version: u32,
     pub entry: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub readme: Option<String>,
 }
 
 impl PluginManifest {
@@ -58,12 +64,46 @@ impl PluginManifest {
         {
             return Err("'entry' must be a root-level .dll filename".into());
         }
+        validate_asset_path(
+            "icon",
+            self.icon.as_deref(),
+            &["png", "jpg", "jpeg", "webp"],
+        )?;
+        validate_asset_path("readme", self.readme.as_deref(), &["md", "markdown", "txt"])?;
         Ok(())
     }
 
     pub fn safe_dir_name(&self) -> &str {
         &self.id
     }
+}
+
+fn validate_asset_path(
+    field: &str,
+    value: Option<&str>,
+    extensions: &[&str],
+) -> Result<(), String> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    let path = Path::new(value);
+    if value.is_empty()
+        || value.len() > 512
+        || path
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+        || !path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                extensions
+                    .iter()
+                    .any(|allowed| extension.eq_ignore_ascii_case(allowed))
+            })
+    {
+        return Err(format!("'{field}' must be a safe relative asset path"));
+    }
+    Ok(())
 }
 
 fn validate_text(field: &str, value: &str, max_bytes: usize) -> Result<(), String> {
@@ -171,6 +211,13 @@ fn validate_archive(
     if !has_entry {
         return Err(format!("Entry DLL '{}' is missing", manifest.entry));
     }
+    for (field, asset) in [("icon", &manifest.icon), ("readme", &manifest.readme)] {
+        if let Some(asset) = asset
+            && !paths.contains(&asset.replace('\\', "/").to_lowercase())
+        {
+            return Err(format!("{field} asset '{asset}' is missing"));
+        }
+    }
     Ok(())
 }
 
@@ -235,6 +282,15 @@ pub fn read_manifest_file(path: &Path) -> Result<PluginManifest, String> {
         .map_err(|error| format!("Invalid '{}': {error}", path.display()))?;
     manifest.validate()?;
     Ok(manifest)
+}
+
+pub fn read_bounded_file(path: &Path, max_bytes: u64) -> Result<Vec<u8>, String> {
+    let metadata = std::fs::metadata(path)
+        .map_err(|error| format!("Cannot inspect '{}': {error}", path.display()))?;
+    if !metadata.is_file() || metadata.len() > max_bytes {
+        return Err(format!("'{}' exceeds the size limit", path.display()));
+    }
+    std::fs::read(path).map_err(|error| format!("Cannot read '{}': {error}", path.display()))
 }
 
 pub fn extract_plugin(

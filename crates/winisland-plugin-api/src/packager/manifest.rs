@@ -18,6 +18,10 @@ pub struct PluginManifest {
     pub abi_version: u32,
     pub entry: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub readme: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dll_hashes: Option<Vec<String>>,
@@ -35,6 +39,8 @@ impl PluginManifest {
             "github-link": self.github_link,
             "abi-version": self.abi_version,
             "entry": self.entry,
+            "icon": self.icon,
+            "readme": self.readme,
             "dll_hashes": self.dll_hashes,
         });
         serde_json::to_string(&payload).unwrap_or_default()
@@ -91,8 +97,42 @@ impl PluginManifest {
         {
             return Err("'entry' must be a root-level .dll filename".into());
         }
+        validate_asset_path(
+            "icon",
+            self.icon.as_deref(),
+            &["png", "jpg", "jpeg", "webp"],
+        )?;
+        validate_asset_path("readme", self.readme.as_deref(), &["md", "markdown", "txt"])?;
         Ok(())
     }
+}
+
+fn validate_asset_path(
+    field: &str,
+    value: Option<&str>,
+    extensions: &[&str],
+) -> Result<(), String> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    let path = Path::new(value);
+    if value.is_empty()
+        || value.len() > 512
+        || path
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+        || !path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                extensions
+                    .iter()
+                    .any(|allowed| extension.eq_ignore_ascii_case(allowed))
+            })
+    {
+        return Err(format!("'{field}' must be a safe relative asset path"));
+    }
+    Ok(())
 }
 
 fn validate_text(field: &str, value: &str, max_bytes: usize) -> Result<(), String> {

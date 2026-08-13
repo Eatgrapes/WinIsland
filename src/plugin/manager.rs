@@ -30,6 +30,20 @@ const MAX_WIDGETS_PER_PLUGIN: usize = 8;
 const MAX_TRANSLATION_PAIRS: u32 = 4096;
 const MAX_TRANSLATION_STRING_BYTES: u32 = 64 * 1024;
 const MAX_TRANSLATION_BUNDLE_BYTES: usize = 1024 * 1024;
+const DISABLED_PLUGINS_FILE: &str = ".disabled-plugins";
+
+#[derive(Clone)]
+pub struct InstalledPlugin {
+    pub id: String,
+    pub name: String,
+    pub author: String,
+    pub version: String,
+    pub description: String,
+    pub github_link: String,
+    pub enabled: bool,
+    pub icon: Option<Vec<u8>>,
+    pub readme: Option<String>,
+}
 
 #[derive(Clone)]
 pub struct PendingMediaSource {
@@ -1420,6 +1434,10 @@ impl PluginManager {
         if let Some(manifest) = manifest {
             validate_manifest_metadata(manifest, plugin.metadata())?;
         }
+        if disabled_plugin_ids(&self.plugin_dir).contains(&plugin_id) {
+            log::info!("Plugin '{}' is disabled", plugin_id);
+            return Ok(());
+        }
         let mut entries = self.entries.try_borrow_mut().map_err(|_| {
             PluginError::ExecutionError("plugin list is already borrowed".to_string())
         })?;
@@ -1496,6 +1514,56 @@ impl PluginManager {
 
     pub fn len(&self) -> usize {
         self.entries.try_borrow().map_or(0, |entries| entries.len())
+    }
+
+    pub fn installed_plugins(&self) -> Vec<InstalledPlugin> {
+        let disabled = disabled_plugin_ids(&self.plugin_dir);
+        let mut plugins = discover_packaged_plugins(&self.plugin_dir, &disabled);
+        if let Ok(entries) = self.entries.try_borrow() {
+            for plugin in entries.iter() {
+                if plugins.iter().any(|entry| entry.id == plugin.metadata().id) {
+                    continue;
+                }
+                let metadata = plugin.metadata();
+                plugins.push(InstalledPlugin {
+                    id: metadata.id.clone(),
+                    name: metadata.name.clone(),
+                    author: metadata.author.clone(),
+                    version: metadata.version.clone(),
+                    description: metadata.description.clone(),
+                    github_link: String::new(),
+                    enabled: !disabled.contains(&metadata.id),
+                    icon: None,
+                    readme: None,
+                });
+            }
+        }
+        plugins.sort_by_key(|plugin| plugin.name.to_lowercase());
+        plugins
+    }
+
+    pub fn set_plugin_enabled(&self, plugin_id: &str, enabled: bool) -> Result<(), String> {
+        if plugin_id.is_empty()
+            || !plugin_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        {
+            return Err("Invalid plugin ID".to_string());
+        }
+        if !self
+            .installed_plugins()
+            .iter()
+            .any(|plugin| plugin.id == plugin_id)
+        {
+            return Err(format!("Plugin '{plugin_id}' is not installed"));
+        }
+        let mut disabled = disabled_plugin_ids(&self.plugin_dir);
+        if enabled {
+            disabled.remove(plugin_id);
+        } else {
+            disabled.insert(plugin_id.to_string());
+        }
+        write_disabled_plugin_ids(&self.plugin_dir, &disabled)
     }
 
     pub fn install_from_zip(&self, path: &Path) -> Result<PluginManifest, String> {
@@ -1694,6 +1762,111 @@ fn discover_plugins(directory: &Path) -> Vec<(PathBuf, Option<PluginManifest>)> 
         }
     }
     plugins
+}
+
+fn discover_packaged_plugins(directory: &Path, disabled: &HashSet<String>) -> Vec<InstalledPlugin> {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let directory = entry.path();
+            if !directory.is_dir()
+                || directory
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with('.'))
+            {
+                return None;
+            }
+            let manifest = zip_loader::read_manifest_file(&directory.join("plugin.yml")).ok()?;
+            let icon = plugin_asset_path(
+                &directory,
+                manifest.icon.as_deref(),
+                &["icon.png", "icon.jpg", "icon.jpeg", "icon.webp"],
+            )
+            .and_then(|path| {
+                zip_loader::read_bounded_file(&path, zip_loader::MAX_PLUGIN_ICON_BYTES).ok()
+            });
+            let readme = plugin_asset_path(
+                &directory,
+                manifest.readme.as_deref(),
+                &["README.md", "README.markdown", "README.txt"],
+            )
+            .and_then(|path| {
+                zip_loader::read_bounded_file(&path, zip_loader::MAX_PLUGIN_README_BYTES).ok()
+            })
+            .and_then(|bytes| String::from_utf8(bytes).ok());
+            Some(InstalledPlugin {
+                enabled: !disabled.contains(&manifest.id),
+                id: manifest.id,
+                name: manifest.name,
+                author: manifest.author,
+                version: manifest.version,
+                description: manifest.description,
+                github_link: manifest.github_link,
+                icon,
+                readme,
+            })
+        })
+        .collect()
+}
+
+fn plugin_asset_path(
+    directory: &Path,
+    declared: Option<&str>,
+    fallbacks: &[&str],
+) -> Option<PathBuf> {
+    declared
+        .map(|path| directory.join(path))
+        .filter(|path| path.is_file())
+        .or_else(|| {
+            fallbacks
+                .iter()
+                .map(|path| directory.join(path))
+                .find(|path| path.is_file())
+        })
+}
+
+fn disabled_plugin_ids(directory: &Path) -> HashSet<String> {
+    std::fs::read_to_string(directory.join(DISABLED_PLUGINS_FILE))
+        .ok()
+        .map(|contents| {
+            contents
+                .lines()
+                .map(str::trim)
+                .filter(|line| {
+                    !line.is_empty()
+                        && line.bytes().all(|byte| {
+                            byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'
+                        })
+                })
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn write_disabled_plugin_ids(directory: &Path, ids: &HashSet<String>) -> Result<(), String> {
+    let path = directory.join(DISABLED_PLUGINS_FILE);
+    let mut ids = ids.iter().collect::<Vec<_>>();
+    ids.sort_unstable();
+    if ids.is_empty() {
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .map_err(|error| format!("Cannot remove '{}': {error}", path.display()))?;
+        }
+        return Ok(());
+    }
+    let contents = ids
+        .into_iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    std::fs::write(&path, contents)
+        .map_err(|error| format!("Cannot write '{}': {error}", path.display()))
 }
 
 fn validate_manifest_metadata(
