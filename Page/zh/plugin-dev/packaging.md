@@ -44,6 +44,8 @@ Packager 会依次：
 6. 可选地对 manifest payload 签名。
 7. 如果没有指定输出路径，写入 `target/<package-name>-<version>.zip`。
 
+如果插件项目根目录存在 `icon.png`、`icon.jpg`、`icon.jpeg` 或 `icon.webp`，Packager 会把第一个匹配文件作为插件头像加入安装包。它也会自动加入第一个匹配的 `README.md`、`README.markdown` 或 `README.txt`。可以用 `.icon("路径")` 和 `.readme("路径")` 显式覆盖自动识别结果。
+
 ## Cargo 元数据与 Descriptor 一致性
 
 `PluginPackager::from_cargo()` 读取：
@@ -97,6 +99,8 @@ description: Minimal WinIsland ABI v1 plugin
 github-link: https://github.com/example/hello-winisland-plugin
 abi-version: 1
 entry: hello_winisland_plugin.dll
+icon: icon.png
+readme: README.md
 dll_hashes:
   - 75f1cd58a8bbf6dd32a68415c13e4065a827b603ab70542032fdd722d98a4f4d
 ```
@@ -114,6 +118,15 @@ dll_hashes:
 | `abi-version` | 必须为 `1` |
 | `entry` | 一个根目录 `.dll` 文件名，最多 255 字节 |
 
+可选展示字段：
+
+| 字段 | 规则 |
+|---|---|
+| `icon` | 安全的相对 `.png`、`.jpg`、`.jpeg` 或 `.webp` 路径；显示在插件列表和详情栏中 |
+| `readme` | 安全的相对 `.md`、`.markdown` 或 `.txt` 路径；显示在详情栏中，宿主读取上限为 1 MiB |
+
+声明的展示文件必须真实存在于安装包中。省略字段时，WinIsland 也会查找上面列出的常见根目录文件名，因此已有插件可以不修改 manifest，直接加入头像或 README。
+
 Packager 元数据还可能包含 `dll_hashes` 和 `signature`。当前 WinIsland 宿主会反序列化必需字段，但不会强制检查 hash、签名者身份或 Ed25519 签名。因此，签名目前只记录构建元数据，不是安装信任决策；分发者必须明确说明这一点。
 
 ## 加入依赖与资源
@@ -123,6 +136,8 @@ Packager 元数据还可能包含 `dll_hashes` 和 `signature`。当前 WinIslan
 ```rust
 PluginPackager::from_cargo()
     .unwrap()
+    .icon("branding/plugin-icon.png")
+    .readme("docs/PLUGIN.md")
     .include_dir("assets")
     .include_dir("runtime")
     .build()
@@ -195,7 +210,7 @@ CI 中优先使用环境 secret，绝不能提交私钥。当前 key 加载 buil
 
 ## 安装事务
 
-把 ZIP 拖到 WinIsland 窗口上，安装按以下流程执行：
+打开“设置 > 插件”，把 ZIP 拖到安装区域，安装按以下流程执行：
 
 1. 后台线程校验归档并解压到隐藏 staging 目录。
 2. WinIsland 事件循环线程只为校验 Descriptor 加载一次 staging 入口 DLL。
@@ -210,6 +225,10 @@ CI 中优先使用环境 secret，绝不能提交私钥。当前 key 加载 buil
 校验加载与正式加载是刻意分开的。Windows 允许重命名已加载 DLL 的目录，但 loader 保存的模块路径仍会指向旧 staging 路径。从最终目标重新加载，才能保证相对资源和延迟依赖相对于安装位置解析。
 
 如果新实例初始化失败后又无法停止，WinIsland 会保持其 DLL 加载，避免卸载可能仍在执行的代码。安装会报告 non-stoppable instance，不会假装已经完成回滚。
+
+安装完成后，WinIsland 会刷新已安装插件列表并提示重启应用。插件可以在列表或详情栏中启用、禁用；状态按插件 ID 持久化，并在重启后生效。被禁用的打包插件会在打开 DLL 之前跳过。手动放置在插件目录根部的 DLL 仍需先读取 Descriptor，宿主才能确定它的插件 ID。
+
+点击插件会打开详情栏，显示头像、元数据、仓库链接、启用开关和 README。README 使用 CommonMark 解析，并启用 GFM 表格、任务列表和删除线；WinIsland 会原生渲染标题、段落、强调、列表、引用、代码、表格、分隔线与网页链接。设置页不会下载远程图片，但会保留图片替代文本和来源链接。
 
 ## 手动 DLL 与安装包
 

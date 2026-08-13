@@ -238,7 +238,11 @@ description: Minimal WinIsland ABI v1 plugin
 github-link: https://github.com/example/hello-winisland-plugin
 abi-version: 1
 entry: hello_winisland_plugin.dll
+icon: icon.png
+readme: README.md
 ```
+
+`icon` and `readme` are optional safe relative paths used by **Settings > Plugins**. `PluginPackager::from_cargo()` automatically includes conventional root files (`icon.png`/`.jpg`/`.jpeg`/`.webp` and `README.md`/`.markdown`/`.txt`). Use `.icon("path")` or `.readme("path")` to select another file. The README is rendered as CommonMark/GFM in the plugin details panel; enable and disable changes take effect after WinIsland restarts.
 
 Additional DLLs and asset directories may be included as dependencies, but WinIsland only loads `entry` as the plugin. The packager can write hashes and an Ed25519 signature; host-side signature verification is not implemented yet.
 
