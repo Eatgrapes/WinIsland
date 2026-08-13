@@ -2,13 +2,50 @@
 
 WinIsland distributes plugins as ZIP archives with one root-level `plugin.yml` and one declared entry DLL. The archive may contain dependency DLLs and assets, but WinIsland treats only `entry` as a plugin.
 
+## Publish to the plugin marketplace
+
+Marketplace plugins must be open source in a public GitHub repository with a GitHub-detected SPDX license. Add `.github/workflows/release.yml` to that repository:
+
+```yaml
+name: Release WinIsland plugin
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    uses: WinIslandProject/PluginMarketplace/.github/workflows/build-plugin.yml@main
+```
+
+The reusable workflow runs check, strict Clippy, formatting verification and the official packager, then publishes a GitHub Release with build provenance. Publish by pushing a version tag such as `v1.0.0`.
+
+After the first release succeeds, add one `plugins/<plugin-id>.toml` file in a pull request to [WinIslandProject/PluginMarketplace](https://github.com/WinIslandProject/PluginMarketplace):
+
+```toml
+schema = 1
+id = "example-clock"
+repository = "owner/example-clock"
+asset = "*.winisland-plugin.zip"
+categories = ["widget", "utility"]
+min_winisland_version = "1.2.9"
+```
+
+The ID must match both the file name and `plugin.yml`. Later plugin updates need no marketplace pull request: publish a new valid GitHub Release and the catalog refresh will discover it. See the marketplace [contribution guide](https://github.com/WinIslandProject/PluginMarketplace/blob/main/CONTRIBUTING.md) for the complete review rules.
+
 ## Add the packager
 
 Enable the optional `packager` feature as a development dependency:
 
 ```toml
 [dev-dependencies]
-winisland-plugin-api = { version = "0.3", features = ["packager"] }
+winisland-plugin-api = { version = "0.4", features = ["packager"] }
 
 [[example]]
 name = "pack"

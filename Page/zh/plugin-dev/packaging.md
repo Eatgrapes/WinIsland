@@ -2,13 +2,50 @@
 
 WinIsland 使用 ZIP 分发插件。安装包包含一个根目录 `plugin.yml` 和一个声明的入口 DLL。归档可以附带依赖 DLL 与资源，但 WinIsland 只把 `entry` 作为插件加载。
 
+## 发布到插件市场
+
+市场插件必须在公开的 GitHub 仓库中完整开源，并让 GitHub 识别出 SPDX 开源许可证。在插件仓库中添加 `.github/workflows/release.yml`：
+
+```yaml
+name: Release WinIsland plugin
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    uses: WinIslandProject/PluginMarketplace/.github/workflows/build-plugin.yml@main
+```
+
+这个复用工作流会执行 check、严格 Clippy、格式检查和官方 Packager，然后发布带有构建来源证明的 GitHub Release。推送 `v1.0.0` 之类的版本标签即可发布。
+
+第一次 Release 成功后，向 [WinIslandProject/PluginMarketplace](https://github.com/WinIslandProject/PluginMarketplace) 提交 PR，只添加一个 `plugins/<plugin-id>.toml`：
+
+```toml
+schema = 1
+id = "example-clock"
+repository = "owner/example-clock"
+asset = "*.winisland-plugin.zip"
+categories = ["widget", "utility"]
+min_winisland_version = "1.2.9"
+```
+
+ID 必须同时与文件名和 `plugin.yml` 一致。后续更新不需要再次提交市场 PR，只需发布新的有效 GitHub Release，市场目录会自动发现它。完整审核规则见市场仓库的[贡献指南](https://github.com/WinIslandProject/PluginMarketplace/blob/main/CONTRIBUTING.md)。
+
 ## 添加 Packager
 
 把可选 `packager` feature 加为开发依赖：
 
 ```toml
 [dev-dependencies]
-winisland-plugin-api = { version = "0.3", features = ["packager"] }
+winisland-plugin-api = { version = "0.4", features = ["packager"] }
 
 [[example]]
 name = "pack"

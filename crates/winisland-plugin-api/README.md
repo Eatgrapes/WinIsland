@@ -225,6 +225,27 @@ fn main() {
 
 Run `cargo run --example pack`.
 
+To publish through the WinIsland plugin marketplace, keep the complete source in a public GitHub repository with a detected SPDX license. Add this tag workflow:
+
+```yaml
+name: Release WinIsland plugin
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    uses: WinIslandProject/PluginMarketplace/.github/workflows/build-plugin.yml@main
+```
+
+After the first release, submit one registration file to [WinIslandProject/PluginMarketplace](https://github.com/WinIslandProject/PluginMarketplace). Future versions are discovered from new valid GitHub Releases without another registration pull request. The complete format is documented in the marketplace [contribution guide](https://github.com/WinIslandProject/PluginMarketplace/blob/main/CONTRIBUTING.md).
+
 `from_cargo()` reads package metadata, `repository`, and `[lib].name`. The package metadata must exactly match `PluginMetadataC`; use builder methods such as `.name(...)` or `.id(...)` when overriding it.
 
 The generated `plugin.yml` identifies one entry DLL:
