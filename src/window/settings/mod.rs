@@ -1,5 +1,6 @@
 use crate::core::config::{AppConfig, WidgetKind};
 use crate::plugin::manager::InstalledPlugin;
+use crate::plugin::marketplace::{MarketplaceCatalog, MarketplacePlugin};
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
 use crate::utils::icon::get_app_icon;
@@ -119,8 +120,23 @@ pub(crate) struct NumberInput {
 
 pub(crate) enum PluginSettingsRequest {
     Install(std::path::PathBuf),
+    LoadMarketplace,
+    InstallMarketplace(Box<MarketplacePlugin>),
     SetEnabled { id: String, enabled: bool },
     Restart,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PluginPageTab {
+    Installed,
+    Marketplace,
+}
+
+pub(crate) enum MarketplaceViewState {
+    NotLoaded,
+    Loading,
+    Loaded(Vec<MarketplacePlugin>),
+    Failed(String),
 }
 
 pub struct SettingsApp {
@@ -160,6 +176,9 @@ pub struct SettingsApp {
     pub(crate) widget_drag_hover_slot: Option<usize>,
     pub(crate) widget_preview_hover_slot: Option<usize>,
     pub(crate) plugins: Vec<InstalledPlugin>,
+    pub(crate) plugin_page_tab: PluginPageTab,
+    pub(crate) marketplace_state: MarketplaceViewState,
+    pub(crate) marketplace_installing_id: Option<String>,
     pub(crate) selected_plugin_id: Option<String>,
     pub(crate) plugin_detail_closing: bool,
     pub(crate) plugin_detail_scroll: f32,
@@ -209,6 +228,9 @@ impl SettingsApp {
             widget_drag_hover_slot: None,
             widget_preview_hover_slot: None,
             plugins,
+            plugin_page_tab: PluginPageTab::Installed,
+            marketplace_state: MarketplaceViewState::NotLoaded,
+            marketplace_installing_id: None,
             selected_plugin_id: None,
             plugin_detail_closing: false,
             plugin_detail_scroll: 0.0,
@@ -886,6 +908,39 @@ impl SettingsApp {
 
     pub(crate) fn set_plugin_status(&mut self, message: String, restart: bool) {
         self.plugin_status = Some((message, restart));
+        self.mark_items_dirty();
+        if let Some(win) = &self.window {
+            win.request_redraw();
+        }
+    }
+
+    pub(crate) fn set_marketplace_loading(&mut self) {
+        self.marketplace_state = MarketplaceViewState::Loading;
+        self.mark_items_dirty();
+        if let Some(win) = &self.window {
+            win.request_redraw();
+        }
+    }
+
+    pub(crate) fn set_marketplace_catalog(&mut self, catalog: MarketplaceCatalog) {
+        pages::plugins::clear_plugin_icon_cache();
+        self.marketplace_state = MarketplaceViewState::Loaded(catalog.plugins);
+        self.mark_items_dirty();
+        if let Some(win) = &self.window {
+            win.request_redraw();
+        }
+    }
+
+    pub(crate) fn set_marketplace_error(&mut self, error: String) {
+        self.marketplace_state = MarketplaceViewState::Failed(error);
+        self.mark_items_dirty();
+        if let Some(win) = &self.window {
+            win.request_redraw();
+        }
+    }
+
+    pub(crate) fn finish_marketplace_install(&mut self) {
+        self.marketplace_installing_id = None;
         self.mark_items_dirty();
         if let Some(win) = &self.window {
             win.request_redraw();

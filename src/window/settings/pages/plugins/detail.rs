@@ -5,22 +5,73 @@ use windows::core::PCWSTR;
 
 use crate::core::i18n::tr;
 use crate::plugin::manager::InstalledPlugin;
+use crate::plugin::marketplace::MarketplacePlugin;
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 
 use super::super::super::{
-    PLUGIN_DETAIL_KEY, PluginSettingsRequest, SETTINGS_HEADER_H, SIDEBAR_W, SettingsApp,
+    PLUGIN_DETAIL_KEY, PluginPageTab, PluginSettingsRequest, SETTINGS_HEADER_H, SIDEBAR_W,
+    SettingsApp,
 };
 use super::{
-    DETAIL_ICON_SIZE, DETAIL_W, draw_centered_text, draw_plugin_icon, draw_toggle, ellipsize_text,
-    markdown,
+    DETAIL_ICON_SIZE, DETAIL_W, MarketplaceAction, draw_centered_text, draw_plugin_icon,
+    draw_plugin_icon_data, draw_toggle, ellipsize_text, markdown,
 };
 
 const DETAIL_PADDING: f32 = 20.0;
 const DETAIL_HEADER_Y: f32 = 80.0;
-const DETAIL_DESCRIPTION_Y: f32 = 170.0;
-const GITHUB_BUTTON_W: f32 = 116.0;
-const GITHUB_BUTTON_H: f32 = 28.0;
+const DETAIL_DESCRIPTION_Y: f32 = 190.0;
+const BUTTON_H: f32 = 28.0;
+
+#[derive(Clone)]
+enum DetailPlugin {
+    Installed(InstalledPlugin),
+    Marketplace(MarketplacePlugin),
+}
+
+impl DetailPlugin {
+    fn name(&self) -> &str {
+        match self {
+            Self::Installed(plugin) => &plugin.name,
+            Self::Marketplace(plugin) => &plugin.name,
+        }
+    }
+
+    fn author(&self) -> &str {
+        match self {
+            Self::Installed(plugin) => &plugin.author,
+            Self::Marketplace(plugin) => &plugin.author,
+        }
+    }
+
+    fn version(&self) -> &str {
+        match self {
+            Self::Installed(plugin) => &plugin.version,
+            Self::Marketplace(plugin) => &plugin.version,
+        }
+    }
+
+    fn description(&self) -> &str {
+        match self {
+            Self::Installed(plugin) => &plugin.description,
+            Self::Marketplace(plugin) => &plugin.description,
+        }
+    }
+
+    fn repository(&self) -> &str {
+        match self {
+            Self::Installed(plugin) => &plugin.github_link,
+            Self::Marketplace(plugin) => &plugin.repository,
+        }
+    }
+
+    fn readme(&self) -> &str {
+        match self {
+            Self::Installed(plugin) => plugin.readme.as_deref().unwrap_or(""),
+            Self::Marketplace(plugin) => &plugin.readme,
+        }
+    }
+}
 
 impl SettingsApp {
     pub(crate) fn plugin_detail_contains(&self, mouse_x: f32) -> bool {
@@ -37,61 +88,28 @@ impl SettingsApp {
         self.anim.set_with_speed(PLUGIN_DETAIL_KEY, 0.0, 0.28);
     }
 
-    fn selected_plugin(&self) -> Option<&InstalledPlugin> {
+    fn selected_detail_plugin(&self) -> Option<DetailPlugin> {
         let id = self.selected_plugin_id.as_ref()?;
-        self.plugins.iter().find(|plugin| &plugin.id == id)
+        match self.plugin_page_tab {
+            PluginPageTab::Installed => self
+                .plugins
+                .iter()
+                .find(|plugin| &plugin.id == id)
+                .cloned()
+                .map(DetailPlugin::Installed),
+            PluginPageTab::Marketplace => match &self.marketplace_state {
+                super::super::super::MarketplaceViewState::Loaded(plugins) => plugins
+                    .iter()
+                    .find(|plugin| &plugin.id == id)
+                    .cloned()
+                    .map(DetailPlugin::Marketplace),
+                _ => None,
+            },
+        }
     }
 
     pub(super) fn handle_plugin_detail_click(&mut self) -> bool {
-        let Some(plugin) = self.selected_plugin() else {
-            return false;
-        };
-        let scale = self
-            .window
-            .as_ref()
-            .map(|window| window.scale_factor() as f32)
-            .unwrap_or(1.0);
-        let win_w = self.win_w / scale;
-        let panel_x = win_w - DETAIL_W * self.anim.get(PLUGIN_DETAIL_KEY);
-        let (mouse_x, mouse_y) = self.logical_mouse_pos;
-        if mouse_x < panel_x {
-            self.close_plugin_detail();
-            return true;
-        }
-
-        let content_y = mouse_y + self.plugin_detail_scroll;
-        if toggle_rect(panel_x).contains(Point::new(mouse_x, content_y)) {
-            self.plugin_request = Some(PluginSettingsRequest::SetEnabled {
-                id: plugin.id.clone(),
-                enabled: !plugin.enabled,
-            });
-            return true;
-        }
-        if safe_github_url(&plugin.github_link)
-            && github_rect(panel_x, plugin).contains(Point::new(mouse_x, content_y))
-        {
-            open_url(&plugin.github_link);
-            return true;
-        }
-
-        let fallback = tr("plugin_readme_empty");
-        let readme = plugin.readme.as_deref().unwrap_or(&fallback);
-        if let Some(link) = markdown::links(
-            readme,
-            panel_x + 20.0,
-            plugin_readme_y(plugin),
-            DETAIL_W - 40.0,
-        )
-        .iter()
-        .find(|link| link.rect.contains(Point::new(mouse_x, content_y)))
-        {
-            open_url(&link.url);
-        }
-        true
-    }
-
-    pub(super) fn plugin_detail_hovered(&self) -> bool {
-        let Some(plugin) = self.selected_plugin() else {
+        let Some(plugin) = self.selected_detail_plugin() else {
             return false;
         };
         let scale = self
@@ -101,23 +119,107 @@ impl SettingsApp {
             .unwrap_or(1.0);
         let panel_x = self.win_w / scale - DETAIL_W * self.anim.get(PLUGIN_DETAIL_KEY);
         let (mouse_x, mouse_y) = self.logical_mouse_pos;
-        let content_y = mouse_y + self.plugin_detail_scroll;
-        if toggle_rect(panel_x).contains(Point::new(mouse_x, content_y))
-            || (safe_github_url(&plugin.github_link)
-                && github_rect(panel_x, plugin).contains(Point::new(mouse_x, content_y)))
+        if mouse_x < panel_x {
+            self.close_plugin_detail();
+            return true;
+        }
+
+        let content_point = Point::new(mouse_x, mouse_y + self.plugin_detail_scroll);
+        match &plugin {
+            DetailPlugin::Installed(installed) => {
+                if toggle_rect(panel_x).contains(content_point) {
+                    self.plugin_request = Some(PluginSettingsRequest::SetEnabled {
+                        id: installed.id.clone(),
+                        enabled: !installed.enabled,
+                    });
+                    return true;
+                }
+            }
+            DetailPlugin::Marketplace(marketplace) => {
+                let action = self.marketplace_action(marketplace);
+                if detail_action_rect(panel_x, &action.label()).contains(content_point)
+                    && action.is_available()
+                {
+                    self.marketplace_installing_id = Some(marketplace.id.clone());
+                    self.plugin_request = Some(PluginSettingsRequest::InstallMarketplace(
+                        Box::new(marketplace.clone()),
+                    ));
+                    self.mark_items_dirty();
+                    return true;
+                }
+            }
+        }
+        if safe_github_url(plugin.repository())
+            && github_rect(panel_x, matches!(plugin, DetailPlugin::Marketplace(_)))
+                .contains(content_point)
+        {
+            open_url(plugin.repository());
+            return true;
+        }
+
+        let fallback = tr("plugin_readme_empty");
+        let readme = if plugin.readme().trim().is_empty() {
+            &fallback
+        } else {
+            plugin.readme()
+        };
+        if let Some(link) = markdown::links(
+            readme,
+            panel_x + DETAIL_PADDING,
+            plugin_readme_y(&plugin),
+            DETAIL_W - DETAIL_PADDING * 2.0,
+        )
+        .iter()
+        .find(|link| link.rect.contains(content_point))
+        {
+            open_url(&link.url);
+        }
+        true
+    }
+
+    pub(super) fn plugin_detail_hovered(&self) -> bool {
+        let Some(plugin) = self.selected_detail_plugin() else {
+            return false;
+        };
+        let scale = self
+            .window
+            .as_ref()
+            .map(|window| window.scale_factor() as f32)
+            .unwrap_or(1.0);
+        let panel_x = self.win_w / scale - DETAIL_W * self.anim.get(PLUGIN_DETAIL_KEY);
+        let point = Point::new(
+            self.logical_mouse_pos.0,
+            self.logical_mouse_pos.1 + self.plugin_detail_scroll,
+        );
+        let action_hovered = match &plugin {
+            DetailPlugin::Installed(_) => toggle_rect(panel_x).contains(point),
+            DetailPlugin::Marketplace(marketplace) => {
+                let action = self.marketplace_action(marketplace);
+                action.is_available()
+                    && detail_action_rect(panel_x, &action.label()).contains(point)
+            }
+        };
+        if action_hovered
+            || (safe_github_url(plugin.repository())
+                && github_rect(panel_x, matches!(plugin, DetailPlugin::Marketplace(_)))
+                    .contains(point))
         {
             return true;
         }
         let fallback = tr("plugin_readme_empty");
-        let readme = plugin.readme.as_deref().unwrap_or(&fallback);
+        let readme = if plugin.readme().trim().is_empty() {
+            &fallback
+        } else {
+            plugin.readme()
+        };
         markdown::links(
             readme,
-            panel_x + 20.0,
-            plugin_readme_y(plugin),
-            DETAIL_W - 40.0,
+            panel_x + DETAIL_PADDING,
+            plugin_readme_y(&plugin),
+            DETAIL_W - DETAIL_PADDING * 2.0,
         )
         .iter()
-        .any(|link| link.rect.contains(Point::new(mouse_x, content_y)))
+        .any(|link| link.rect.contains(point))
     }
 
     pub(super) fn draw_plugin_detail(
@@ -129,7 +231,7 @@ impl SettingsApp {
         win_h: f32,
         progress: f32,
     ) {
-        let Some(plugin) = self.selected_plugin() else {
+        let Some(plugin) = self.selected_detail_plugin() else {
             return;
         };
         let panel_x = win_w - DETAIL_W * progress;
@@ -153,25 +255,43 @@ impl SettingsApp {
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
         let y = DETAIL_HEADER_Y;
-        draw_plugin_icon(
-            direct_context,
-            canvas,
-            plugin,
-            Rect::from_xywh(
-                panel_x + DETAIL_PADDING,
-                y,
-                DETAIL_ICON_SIZE,
-                DETAIL_ICON_SIZE,
+        match &plugin {
+            DetailPlugin::Installed(installed) => draw_plugin_icon(
+                direct_context,
+                canvas,
+                installed,
+                Rect::from_xywh(
+                    panel_x + DETAIL_PADDING,
+                    y,
+                    DETAIL_ICON_SIZE,
+                    DETAIL_ICON_SIZE,
+                ),
             ),
-        );
+            DetailPlugin::Marketplace(marketplace) => draw_plugin_icon_data(
+                direct_context,
+                canvas,
+                &marketplace.id,
+                &marketplace.name,
+                marketplace.icon.as_deref(),
+                Rect::from_xywh(
+                    panel_x + DETAIL_PADDING,
+                    y,
+                    DETAIL_ICON_SIZE,
+                    DETAIL_ICON_SIZE,
+                ),
+            ),
+        }
         let info_x = panel_x + DETAIL_PADDING + DETAIL_ICON_SIZE + 14.0;
-        let toggle_x = panel_x + DETAIL_W - DETAIL_PADDING - 36.0;
+        let name_width = match plugin {
+            DetailPlugin::Installed(_) => panel_x + DETAIL_W - DETAIL_PADDING - 46.0 - info_x,
+            DetailPlugin::Marketplace(_) => panel_x + DETAIL_W - DETAIL_PADDING - info_x,
+        };
         let name = ellipsize_text(
             fm,
-            &plugin.name,
+            plugin.name(),
             17.0,
             skia_safe::FontStyle::bold(),
-            (toggle_x - info_x - 10.0).max(30.0),
+            name_width.max(30.0),
         );
         paint.set_color(theme.text_pri);
         fm.draw_text_cached(DrawTextCachedParams {
@@ -184,10 +304,9 @@ impl SettingsApp {
             paint: &paint,
         });
         paint.set_color(theme.text_sec);
-        let subtitle = format!("{} · v{}", plugin.author, plugin.version);
         let subtitle = ellipsize_text(
             fm,
-            &subtitle,
+            &format!("{} · v{}", plugin.author(), plugin.version()),
             11.5,
             skia_safe::FontStyle::normal(),
             DETAIL_W - (info_x - panel_x) - DETAIL_PADDING,
@@ -201,24 +320,32 @@ impl SettingsApp {
             bold: false,
             paint: &paint,
         });
-        draw_toggle(canvas, theme, plugin.enabled, toggle_x, y + 2.0);
 
-        if safe_github_url(&plugin.github_link) {
-            let button = github_rect(panel_x, plugin);
+        match &plugin {
+            DetailPlugin::Installed(installed) => {
+                draw_toggle(
+                    canvas,
+                    theme,
+                    installed.enabled,
+                    panel_x + DETAIL_W - DETAIL_PADDING - 36.0,
+                    y + 2.0,
+                );
+            }
+            DetailPlugin::Marketplace(marketplace) => {
+                let action = self.marketplace_action(marketplace);
+                draw_detail_action(canvas, theme, panel_x, action);
+            }
+        }
+
+        if safe_github_url(plugin.repository()) {
+            let button = github_rect(panel_x, matches!(plugin, DetailPlugin::Marketplace(_)));
             paint.set_color(theme.control_bg);
-            canvas.draw_round_rect(button, GITHUB_BUTTON_H / 2.0, GITHUB_BUTTON_H / 2.0, &paint);
+            canvas.draw_round_rect(button, BUTTON_H / 2.0, BUTTON_H / 2.0, &paint);
             paint.set_color(theme.accent);
-            let label = ellipsize_text(
-                fm,
-                &tr("plugin_open_github"),
-                11.0,
-                skia_safe::FontStyle::bold(),
-                GITHUB_BUTTON_W - 20.0,
-            );
             draw_centered_text(
                 canvas,
                 fm,
-                &label,
+                &tr("plugin_open_github"),
                 button.center_x(),
                 button.top + 18.0,
                 11.0,
@@ -227,11 +354,41 @@ impl SettingsApp {
             );
         }
 
-        let mut y = DETAIL_DESCRIPTION_Y;
+        let mut content_y = DETAIL_DESCRIPTION_Y;
+        if let DetailPlugin::Marketplace(marketplace) = &plugin
+            && let Some(reason) = &marketplace.revoked_reason
+        {
+            paint.set_color(Color::from_argb(28, 255, 69, 58));
+            let warning = Rect::from_xywh(
+                panel_x + DETAIL_PADDING,
+                content_y,
+                DETAIL_W - DETAIL_PADDING * 2.0,
+                42.0,
+            );
+            canvas.draw_round_rect(warning, 10.0, 10.0, &paint);
+            paint.set_color(Color::from_rgb(255, 69, 58));
+            let reason = ellipsize_text(
+                fm,
+                reason,
+                11.0,
+                skia_safe::FontStyle::normal(),
+                warning.width() - 20.0,
+            );
+            fm.draw_text_cached(DrawTextCachedParams {
+                canvas,
+                text: &reason,
+                x: warning.left + 10.0,
+                y: warning.top + 25.0,
+                size: 11.0,
+                bold: false,
+                paint: &paint,
+            });
+            content_y += 54.0;
+        }
         let description = markdown::render(markdown::MarkdownRenderParams {
             canvas,
-            markdown: &plugin.description,
-            origin: (panel_x + DETAIL_PADDING, y),
+            markdown: plugin.description(),
+            origin: (panel_x + DETAIL_PADDING, content_y),
             width: DETAIL_W - DETAIL_PADDING * 2.0,
             visible_range: (
                 self.plugin_detail_scroll + SETTINGS_HEADER_H,
@@ -239,13 +396,17 @@ impl SettingsApp {
             ),
             colors: markdown_colors(theme),
         });
-        y += description.height + 14.0;
+        content_y += description.height + 14.0;
         let fallback = tr("plugin_readme_empty");
-        let readme = plugin.readme.as_deref().unwrap_or(&fallback);
+        let readme_text = if plugin.readme().trim().is_empty() {
+            &fallback
+        } else {
+            plugin.readme()
+        };
         let readme = markdown::render(markdown::MarkdownRenderParams {
             canvas,
-            markdown: readme,
-            origin: (panel_x + DETAIL_PADDING, y),
+            markdown: readme_text,
+            origin: (panel_x + DETAIL_PADDING, content_y),
             width: DETAIL_W - DETAIL_PADDING * 2.0,
             visible_range: (
                 self.plugin_detail_scroll + SETTINGS_HEADER_H,
@@ -253,14 +414,47 @@ impl SettingsApp {
             ),
             colors: markdown_colors(theme),
         });
-        y += readme.height + 28.0;
+        content_y += readme.height + 28.0;
         canvas.restore();
 
-        self.plugin_detail_max_scroll = (y - win_h).max(0.0);
+        self.plugin_detail_max_scroll = (content_y - win_h).max(0.0);
         self.plugin_detail_scroll = self
             .plugin_detail_scroll
             .clamp(0.0, self.plugin_detail_max_scroll);
     }
+}
+
+fn draw_detail_action(
+    canvas: &Canvas,
+    theme: &SettingsTheme,
+    panel_x: f32,
+    action: MarketplaceAction,
+) {
+    let label = action.label();
+    let rect = detail_action_rect(panel_x, &label);
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    paint.set_color(if action.is_available() {
+        Color::from_argb(32, theme.accent.r(), theme.accent.g(), theme.accent.b())
+    } else {
+        theme.control_bg
+    });
+    canvas.draw_round_rect(rect, BUTTON_H / 2.0, BUTTON_H / 2.0, &paint);
+    paint.set_color(if action.is_available() {
+        theme.accent
+    } else {
+        theme.text_sec
+    });
+    draw_centered_text(
+        canvas,
+        FontManager::global(),
+        &label,
+        rect.center_x(),
+        rect.top + 18.0,
+        11.0,
+        true,
+        &paint,
+    );
 }
 
 fn draw_panel_background(
@@ -284,11 +478,10 @@ fn draw_panel_background(
 }
 
 fn draw_panel_header(canvas: &Canvas, theme: &SettingsTheme, panel_x: f32) {
-    let fm = FontManager::global();
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
     paint.set_color(theme.text_pri);
-    fm.draw_text_cached(DrawTextCachedParams {
+    FontManager::global().draw_text_cached(DrawTextCachedParams {
         canvas,
         text: &tr("plugin_details"),
         x: panel_x + DETAIL_PADDING,
@@ -308,23 +501,45 @@ fn toggle_rect(panel_x: f32) -> Rect {
     )
 }
 
-fn github_rect(panel_x: f32, _plugin: &InstalledPlugin) -> Rect {
+fn detail_action_rect(panel_x: f32, label: &str) -> Rect {
+    let width =
+        (FontManager::global().measure_text_cached(label, 11.0, skia_safe::FontStyle::bold())
+            + 24.0)
+            .clamp(64.0, 112.0);
     Rect::from_xywh(
-        panel_x + DETAIL_PADDING + DETAIL_ICON_SIZE + 14.0,
+        panel_x + DETAIL_PADDING + 124.0,
         DETAIL_HEADER_Y + 50.0,
-        GITHUB_BUTTON_W,
-        GITHUB_BUTTON_H,
+        width,
+        BUTTON_H,
     )
 }
 
-fn plugin_readme_y(plugin: &InstalledPlugin) -> f32 {
+fn github_rect(panel_x: f32, marketplace: bool) -> Rect {
+    Rect::from_xywh(
+        panel_x
+            + if marketplace {
+                DETAIL_PADDING
+            } else {
+                DETAIL_PADDING + DETAIL_ICON_SIZE + 14.0
+            },
+        DETAIL_HEADER_Y + 50.0,
+        116.0,
+        BUTTON_H,
+    )
+}
+
+fn plugin_readme_y(plugin: &DetailPlugin) -> f32 {
     DETAIL_DESCRIPTION_Y
-        + markdown::markdown_height(&plugin.description, DETAIL_W - DETAIL_PADDING * 2.0)
+        + match plugin {
+            DetailPlugin::Marketplace(plugin) if plugin.revoked_reason.is_some() => 54.0,
+            _ => 0.0,
+        }
+        + markdown::markdown_height(plugin.description(), DETAIL_W - DETAIL_PADDING * 2.0)
         + 14.0
 }
 
 fn safe_github_url(url: &str) -> bool {
-    url.starts_with("https://github.com/") || url.starts_with("http://github.com/")
+    url.starts_with("https://github.com/")
 }
 
 fn markdown_colors(theme: &SettingsTheme) -> markdown::MarkdownColors {
