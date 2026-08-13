@@ -82,11 +82,6 @@ Copy-Item -Path (Join-Path $repositoryRoot 'packaging\identity\Remove-Identity.p
     -CertificatePassword $CertificatePassword `
     -OutputDirectory $identityDirectory
 
-$identity = switch ($Channel) {
-    'stable' { 'Eatgrapes.WinIsland' }
-    'nightly' { 'Eatgrapes.WinIsland.Nightly' }
-}
-
 $installerOutput = Join-Path $OutputDirectory 'installer'
 New-Item -ItemType Directory -Force -Path $installerOutput | Out-Null
 

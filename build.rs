@@ -67,10 +67,7 @@ struct PackageIdentity {
 
 fn package_identity() -> PackageIdentity {
     match std::env::var("WINISLAND_PACKAGE_CHANNEL").as_deref() {
-        Ok("nightly") => PackageIdentity {
-            name: "Eatgrapes.WinIsland.Nightly",
-        },
-        Ok("stable") => PackageIdentity {
+        Ok("nightly" | "stable") => PackageIdentity {
             name: "Eatgrapes.WinIsland",
         },
         _ => PackageIdentity {

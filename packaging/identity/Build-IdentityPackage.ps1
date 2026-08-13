@@ -37,7 +37,7 @@ function Get-SdkTool([string]$Name) {
 
 $identity = switch ($Channel) {
     'stable' { @{ Name = 'Eatgrapes.WinIsland'; DisplayName = 'WinIsland' } }
-    'nightly' { @{ Name = 'Eatgrapes.WinIsland.Nightly'; DisplayName = 'WinIsland Nightly' } }
+    'nightly' { @{ Name = 'Eatgrapes.WinIsland'; DisplayName = 'WinIsland' } }
     'dev' { @{ Name = 'Eatgrapes.WinIsland.Dev'; DisplayName = 'WinIsland Development' } }
 }
 

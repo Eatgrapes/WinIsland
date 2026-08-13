@@ -42,16 +42,9 @@ impl InstallerChannel {
         }
     }
 
-    fn install_directory_name(self) -> &'static str {
-        match self {
-            Self::Stable => "WinIsland",
-            Self::Nightly => "WinIsland Nightly",
-        }
-    }
-
-    fn installed_executable(self) -> PathBuf {
+    fn installed_executable() -> PathBuf {
         let mut path = dirs::data_local_dir().unwrap_or_else(get_app_dir);
-        path.push(self.install_directory_name());
+        path.push("WinIsland");
         path.push("WinIsland.exe");
         path
     }
@@ -388,8 +381,7 @@ async fn perform_update(
     );
 
     let installer_path = installer_path.to_string_lossy().into_owned();
-    let installed_executable = channel
-        .installed_executable()
+    let installed_executable = InstallerChannel::installed_executable()
         .to_string_lossy()
         .into_owned();
 
