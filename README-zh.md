@@ -9,7 +9,7 @@
 这是一个可以在 Windows 上显示**灵动岛**的项目。
 
 ## 下载
-你可以在 [Release](https://github.com/WinIslandProject/WinIsland/releases) 或者我们的 [网站](https://tanikaze.icu/WinIsland) 下载WinIsland
+你可以在 [Release](https://github.com/WinIslandProject/WinIsland/releases) 或者我们的 [网站](https://tanikaze.icu/) 下载WinIsland
 
 ## 社区
 加入 QQ 群：`435799156`

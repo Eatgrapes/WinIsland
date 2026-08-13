@@ -9,7 +9,7 @@ English | [简体中文](./README-zh.md)
 This is a project that can display **Dynamic Island** on Windows.
 
 ## Download it
-you can in [Release](https://github.com/WinIslandProject/WinIsland/releases) or our [website](https://tanikaze.icu/WinIsland) Download WinIsland
+you can in [Release](https://github.com/WinIslandProject/WinIsland/releases) or our [website](https://tanikaze.icu/) Download WinIsland
 
 ## Community
 Join the QQ group: `435799156`
