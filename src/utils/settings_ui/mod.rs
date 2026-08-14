@@ -5,7 +5,8 @@ pub mod renderer;
 
 pub use anim::SwitchAnimator;
 pub use input::{
-    ClickResult, StepDirection, WidgetPreviewHit, WidgetSource, hit_test, hover_test,
+    ClickResult, CompactWidgetPreviewHit, StepDirection, WidgetEditorMode, WidgetPreviewHit,
+    WidgetSource, compact_widget_grid_geom, compact_widget_preview_hit_test, hit_test, hover_test,
     widget_delete_button_hit, widget_grid_geom, widget_library_items, widget_preview_height,
     widget_preview_hit_test, widget_source_span,
 };

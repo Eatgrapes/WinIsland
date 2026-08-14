@@ -177,6 +177,10 @@ pub struct SettingsApp {
     pub(crate) widget_dragging: Option<WidgetSource>,
     pub(crate) widget_drag_hover_slot: Option<usize>,
     pub(crate) widget_preview_hover_slot: Option<usize>,
+    pub(crate) widget_editor_mode: WidgetEditorMode,
+    pub(crate) compact_widget_dragging: Option<crate::core::config::CompactWidgetKind>,
+    pub(crate) compact_widget_drag_hover_slot: Option<usize>,
+    pub(crate) compact_widget_preview_hover_slot: Option<usize>,
     pub(crate) plugin_widgets: Vec<PluginWidget>,
     pub(crate) plugins: Vec<InstalledPlugin>,
     pub(crate) plugin_page_tab: PluginPageTab,
@@ -235,6 +239,10 @@ impl SettingsApp {
             widget_dragging: None,
             widget_drag_hover_slot: None,
             widget_preview_hover_slot: None,
+            widget_editor_mode: WidgetEditorMode::Expanded,
+            compact_widget_dragging: None,
+            compact_widget_drag_hover_slot: None,
+            compact_widget_preview_hover_slot: None,
             plugin_widgets,
             plugins,
             plugin_page_tab: PluginPageTab::Installed,
@@ -515,7 +523,7 @@ impl SettingsApp {
                     || (new_pos.1 - self.last_hover_mouse_pos.1).abs() > 0.5;
                 self.logical_mouse_pos = new_pos;
                 self.update_scroll_drag(new_pos.1);
-                if self.active_page == 3
+                if matches!(self.active_page, 2 | 3)
                     && mouse_moved
                     && let Some(win) = &self.window
                 {
@@ -530,30 +538,21 @@ impl SettingsApp {
                     }
                 }
 
-                if self.widget_dragging.is_some() {
-                    let new_slot = self
-                        .widget_preview_hit_at_mouse()
-                        .and_then(|hit| match hit {
-                            WidgetPreviewHit::Slot(slot) => Some(slot),
-                            _ => None,
-                        });
-                    let needs_redraw =
-                        widget_drag_move_needs_redraw(true, self.widget_drag_hover_slot, new_slot);
-                    if new_slot != self.widget_drag_hover_slot {
-                        self.widget_drag_hover_slot = new_slot;
+                if self.widget_drag_active() {
+                    let new_slot = self.widget_preview_slot_at_mouse();
+                    let current_slot = self.active_widget_drag_hover_slot();
+                    let needs_redraw = widget_drag_move_needs_redraw(true, current_slot, new_slot);
+                    if new_slot != current_slot {
+                        self.set_active_widget_drag_hover_slot(new_slot);
                     }
                     if needs_redraw && let Some(win) = &self.window {
                         win.request_redraw();
                     }
                 } else if self.active_page == 2 {
-                    let new_slot = self
-                        .widget_preview_hit_at_mouse()
-                        .and_then(|hit| match hit {
-                            WidgetPreviewHit::Slot(slot) => Some(slot),
-                            _ => None,
-                        });
-                    if new_slot != self.widget_preview_hover_slot {
-                        self.widget_preview_hover_slot = new_slot;
+                    let new_slot = self.widget_preview_slot_at_mouse();
+                    let current_slot = self.active_widget_preview_hover_slot();
+                    if new_slot != current_slot {
+                        self.set_active_widget_preview_hover_slot(new_slot);
                         if let Some(win) = &self.window {
                             win.request_redraw();
                         }
@@ -732,7 +731,7 @@ impl SettingsApp {
         let has_anim = self.switch_anim.is_animating() || self.anim.is_animating();
         let has_popup = self.popup.is_some();
         let is_scrolling = (self.target_scroll_y - self.scroll_y).abs() > 0.1;
-        let is_widget_dragging = self.widget_dragging.is_some();
+        let is_widget_dragging = self.widget_drag_active();
         let is_number_input_active = self.number_input.is_some();
 
         if !settings_frame_should_continue(
@@ -889,6 +888,7 @@ impl SettingsApp {
         self.commit_number_input();
         self.popup = None;
         self.widget_dragging = None;
+        self.compact_widget_dragging = None;
         sidebar::clear_sidebar_icon_cache();
         pages::plugins::clear_plugin_icon_cache();
         let renderer_target = self.renderer_target.take();

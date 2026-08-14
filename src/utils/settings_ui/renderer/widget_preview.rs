@@ -1,8 +1,8 @@
 use skia_safe::{Canvas, Color, FontStyle, Paint, Point, Rect};
 
 use crate::core::config::{
-    PluginWidgetSlot, WIDGET_GRID_SLOTS, WidgetKind, WidgetSlot, plugin_widget_slot, span_cells,
-    widget_footprint,
+    COMPACT_WIDGET_SLOTS, CompactWidgetKind, CompactWidgetSlot, PluginWidgetSlot,
+    WIDGET_GRID_SLOTS, WidgetKind, WidgetSlot, plugin_widget_slot, span_cells, widget_footprint,
 };
 use crate::core::i18n::tr;
 use crate::core::plugin_widget::PluginWidget;
@@ -14,12 +14,15 @@ use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::shape::g3_rounded_rect_path;
 
 use super::super::input::{
-    WIDGET_ISLAND_PANEL_H, WIDGET_LIBRARY_HEADER_H, WIDGET_PANEL_GAP, WidgetGridGeom, WidgetSource,
+    COMPACT_WIDGET_ISLAND_PANEL_H, COMPACT_WIDGET_PREVIEW_H, CompactWidgetGridGeom,
+    WIDGET_ISLAND_PANEL_H, WIDGET_LIBRARY_HEADER_H, WIDGET_PANEL_GAP, WidgetEditorMode,
+    WidgetGridGeom, WidgetSource, compact_widget_grid_geom, compact_widget_library_items,
     widget_delete_button_center, widget_grid_geom, widget_library_items, widget_source_rect,
     widget_source_span,
 };
 use super::super::items::{CONTENT_PADDING, GROUP_INNER_PAD};
 
+#[derive(Clone, Copy)]
 pub(super) struct WidgetPreviewParams<'a> {
     pub(super) canvas: &'a Canvas,
     pub(super) item_y: f32,
@@ -30,12 +33,19 @@ pub(super) struct WidgetPreviewParams<'a> {
     pub(super) island_style: &'a str,
     pub(super) expanded_width: f32,
     pub(super) expanded_height: f32,
+    pub(super) base_width: f32,
+    pub(super) base_height: f32,
+    pub(super) widget_editor_mode: WidgetEditorMode,
     pub(super) widget_layout: &'a [WidgetSlot],
     pub(super) plugin_widget_layout: &'a [PluginWidgetSlot],
     pub(super) plugin_widgets: &'a [PluginWidget],
     pub(super) widget_dragging: Option<&'a WidgetSource>,
     pub(super) widget_drag_hover_slot: Option<usize>,
     pub(super) widget_preview_hover_slot: Option<usize>,
+    pub(super) compact_widget_layout: &'a [CompactWidgetSlot],
+    pub(super) compact_widget_dragging: Option<CompactWidgetKind>,
+    pub(super) compact_widget_drag_hover_slot: Option<usize>,
+    pub(super) compact_widget_preview_hover_slot: Option<usize>,
     pub(super) theme: &'a SettingsTheme,
 }
 
@@ -99,13 +109,19 @@ fn draw_centered_label(canvas: &Canvas, text: &str, rect: Rect, size: f32, color
     );
 }
 
-fn draw_island_background(canvas: &Canvas, rect: Rect, island_style: &str, theme: &SettingsTheme) {
+fn draw_island_background(
+    canvas: &Canvas,
+    rect: Rect,
+    island_style: &str,
+    theme: &SettingsTheme,
+    corner_radius: f32,
+) {
     let mut shadow = Paint::default();
     shadow.set_anti_alias(true);
     shadow.set_color(Color::from_argb(72, 0, 0, 0));
     let shadow_path = g3_rounded_rect_path(
         Rect::from_xywh(rect.left, rect.top + 4.0, rect.width(), rect.height()),
-        28.0,
+        corner_radius,
     );
     canvas.draw_path(&shadow_path, &shadow);
 
@@ -134,7 +150,7 @@ fn draw_island_background(canvas: &Canvas, rect: Rect, island_style: &str, theme
     } else {
         paint.set_color(Color::from_rgb(10, 10, 10));
     }
-    let island_path = g3_rounded_rect_path(rect, 28.0);
+    let island_path = g3_rounded_rect_path(rect, corner_radius);
     canvas.draw_path(&island_path, &paint);
 
     paint.set_shader(None);
@@ -274,6 +290,13 @@ fn draw_library_tile(
 }
 
 pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
+    match params.widget_editor_mode {
+        WidgetEditorMode::Expanded => draw_expanded_widget_preview(params),
+        WidgetEditorMode::Compact => draw_compact_widget_preview(params),
+    }
+}
+
+fn draw_expanded_widget_preview(params: WidgetPreviewParams<'_>) {
     let WidgetPreviewParams {
         canvas,
         item_y,
@@ -291,6 +314,7 @@ pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
         widget_drag_hover_slot,
         widget_preview_hover_slot,
         theme,
+        ..
     } = params;
     let preview_height = params_item_height(
         plugin_widgets,
@@ -344,7 +368,7 @@ pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
         geometry.cap_w,
         geometry.cap_h,
     );
-    draw_island_background(canvas, island_rect, island_style, theme);
+    draw_island_background(canvas, island_rect, island_style, theme, 28.0);
 
     let dragging = widget_dragging.is_some();
     let drop_cells = match (widget_dragging, widget_drag_hover_slot) {
@@ -458,6 +482,203 @@ pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
             let (x, y, width, height) = widget_source_rect(panel_x, source_y, index);
             let rect = Rect::from_xywh(x, y, width, height);
             draw_library_tile(canvas, source, plugin_widgets, rect);
+        }
+    }
+}
+
+fn draw_compact_grid(
+    canvas: &Canvas,
+    geometry: &CompactWidgetGridGeom,
+    dragging: bool,
+    drop_slot: Option<usize>,
+    theme: &SettingsTheme,
+) {
+    for slot in 0..COMPACT_WIDGET_SLOTS {
+        let (x, y, width, height) = geometry.slot_rect(slot);
+        let rect = Rect::from_xywh(x, y, width, height);
+        let radius = height / 2.0;
+        let mut paint = Paint::default();
+        paint.set_anti_alias(true);
+        paint.set_style(skia_safe::paint::Style::Stroke);
+        paint.set_stroke_width(if dragging { 1.0 } else { 0.75 });
+        paint.set_color(Color::from_argb(
+            if dragging { 52 } else { 24 },
+            255,
+            255,
+            255,
+        ));
+        canvas.draw_round_rect(rect, radius, radius, &paint);
+        if drop_slot == Some(slot) {
+            paint.set_style(skia_safe::paint::Style::Fill);
+            paint.set_color(Color::from_argb(
+                86,
+                theme.accent.r(),
+                theme.accent.g(),
+                theme.accent.b(),
+            ));
+            canvas.draw_round_rect(rect, radius, radius, &paint);
+            paint.set_style(skia_safe::paint::Style::Stroke);
+            paint.set_stroke_width(2.0);
+            paint.set_color(theme.accent);
+            canvas.draw_round_rect(rect, radius, radius, &paint);
+        }
+    }
+}
+
+fn draw_compact_library_tile(canvas: &Canvas, widget: CompactWidgetKind, rect: Rect) {
+    let preview = Rect::from_xywh(rect.center_x() - 46.0, rect.center_y() - 15.0, 92.0, 30.0);
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    paint.set_color(Color::from_rgb(10, 10, 10));
+    canvas.draw_round_rect(
+        preview,
+        preview.height() / 2.0,
+        preview.height() / 2.0,
+        &paint,
+    );
+    crate::ui::widget::compact::draw_widget(canvas, widget, preview, 1.0, 255);
+}
+
+fn draw_compact_widget_preview(params: WidgetPreviewParams<'_>) {
+    let WidgetPreviewParams {
+        canvas,
+        item_y,
+        width,
+        content_width,
+        visible_min_y,
+        visible_max_y,
+        island_style,
+        base_width,
+        base_height,
+        compact_widget_layout,
+        compact_widget_dragging,
+        compact_widget_drag_hover_slot,
+        compact_widget_preview_hover_slot,
+        theme,
+        ..
+    } = params;
+    let preview_height = COMPACT_WIDGET_PREVIEW_H - 20.0;
+    let y = item_y + 10.0;
+    if y + preview_height < visible_min_y || y > visible_max_y {
+        return;
+    }
+
+    let panel_x = CONTENT_PADDING + GROUP_INNER_PAD;
+    let panel_width = content_width - GROUP_INNER_PAD * 2.0;
+    let library_y = y + COMPACT_WIDGET_ISLAND_PANEL_H + WIDGET_PANEL_GAP;
+    let library_height = preview_height - COMPACT_WIDGET_ISLAND_PANEL_H - WIDGET_PANEL_GAP;
+    draw_panel(
+        canvas,
+        Rect::from_xywh(panel_x, y, panel_width, COMPACT_WIDGET_ISLAND_PANEL_H),
+        theme,
+    );
+    draw_panel(
+        canvas,
+        Rect::from_xywh(panel_x, library_y, panel_width, library_height),
+        theme,
+    );
+    draw_label(
+        canvas,
+        &tr("widget_layout_title"),
+        panel_x + 16.0,
+        y + 25.0,
+        13.0,
+        true,
+        theme.text_pri,
+    );
+    draw_label(
+        canvas,
+        &tr("widget_layout_hint"),
+        panel_x + 16.0,
+        y + 44.0,
+        11.0,
+        false,
+        theme.text_sec,
+    );
+
+    let geometry = compact_widget_grid_geom(item_y, width, base_width, base_height);
+    let island_rect = Rect::from_xywh(
+        geometry.cap_x,
+        geometry.cap_y,
+        geometry.cap_w,
+        geometry.cap_h,
+    );
+    draw_island_background(
+        canvas,
+        island_rect,
+        island_style,
+        theme,
+        island_rect.height() / 2.0,
+    );
+    let dragging = compact_widget_dragging.is_some();
+    draw_compact_grid(
+        canvas,
+        &geometry,
+        dragging,
+        compact_widget_drag_hover_slot,
+        theme,
+    );
+
+    for entry in compact_widget_layout {
+        let Some(widget) = entry.widget else { continue };
+        if compact_widget_dragging == Some(widget) {
+            continue;
+        }
+        let (x, y, width, height) = geometry.slot_rect(entry.slot);
+        crate::ui::widget::compact::draw_widget(
+            canvas,
+            widget,
+            Rect::from_xywh(x, y, width, height),
+            geometry.cap_scale,
+            255,
+        );
+        if dragging || compact_widget_preview_hover_slot == Some(entry.slot) {
+            let (button_x, button_y) =
+                widget_delete_button_center(x, y, width, height, geometry.cap_scale);
+            draw_delete_button(canvas, button_x, button_y, geometry.cap_scale);
+        }
+    }
+
+    draw_label(
+        canvas,
+        &tr("widget_library_title"),
+        panel_x + 16.0,
+        library_y + 25.0,
+        13.0,
+        true,
+        theme.text_pri,
+    );
+    draw_label(
+        canvas,
+        &tr("widget_library_hint"),
+        panel_x + 16.0,
+        library_y + 43.0,
+        11.0,
+        false,
+        theme.text_sec,
+    );
+    let source_y = library_y + WIDGET_LIBRARY_HEADER_H;
+    let library_items =
+        compact_widget_library_items(compact_widget_layout, compact_widget_dragging);
+    if library_items.is_empty() {
+        if compact_widget_dragging.is_none() {
+            draw_centered_label(
+                canvas,
+                &tr("widget_library_empty"),
+                Rect::from_xywh(
+                    panel_x + 12.0,
+                    source_y,
+                    panel_width - 24.0,
+                    library_height - WIDGET_LIBRARY_HEADER_H,
+                ),
+                12.0,
+                theme.text_sec,
+            );
+        }
+    } else {
+        for (index, widget) in library_items.into_iter().enumerate() {
+            let (x, y, width, height) = widget_source_rect(panel_x, source_y, index);
+            draw_compact_library_tile(canvas, widget, Rect::from_xywh(x, y, width, height));
         }
     }
 }

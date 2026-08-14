@@ -373,6 +373,7 @@ pub const AVAILABLE_WIDGETS: [WidgetKind; 3] = [
     WidgetKind::ResourceUsage,
 ];
 pub const COMPACT_WIDGET_SLOTS: usize = 3;
+pub const AVAILABLE_COMPACT_WIDGETS: [CompactWidgetKind; 1] = [CompactWidgetKind::Time];
 
 pub fn default_compact_widget_layout() -> Vec<CompactWidgetSlot> {
     (0..COMPACT_WIDGET_SLOTS)
@@ -401,6 +402,29 @@ pub fn normalize_compact_widget_layout(layout: &mut Vec<CompactWidgetSlot>) -> b
     }
     layout.sort_by_key(|entry| entry.slot);
     *layout != original
+}
+
+pub fn place_compact_widget(
+    layout: &mut Vec<CompactWidgetSlot>,
+    widget: CompactWidgetKind,
+    target_slot: usize,
+) {
+    normalize_compact_widget_layout(layout);
+    let target_slot = target_slot.min(COMPACT_WIDGET_SLOTS - 1);
+    for entry in layout.iter_mut() {
+        if entry.widget == Some(widget) || entry.slot == target_slot {
+            entry.widget = None;
+        }
+    }
+    if let Some(entry) = layout.iter_mut().find(|entry| entry.slot == target_slot) {
+        entry.widget = Some(widget);
+    }
+}
+
+pub fn clear_compact_widget_slot(layout: &mut [CompactWidgetSlot], target_slot: usize) {
+    if let Some(entry) = layout.iter_mut().find(|entry| entry.slot == target_slot) {
+        entry.widget = None;
+    }
 }
 
 pub fn widget_footprint(widget: WidgetKind, anchor_slot: usize) -> Vec<usize> {

@@ -1,27 +1,110 @@
+use skia_safe::{Contains, Point, Rect};
+
 use crate::core::config::{
-    WidgetKind, clear_plugin_widget, clear_widget_slot, place_builtin_widget, place_plugin_widget,
-    plugin_widget_covering_slot, widget_covering_slot,
+    WidgetKind, clear_compact_widget_slot, clear_plugin_widget, clear_widget_slot,
+    place_builtin_widget, place_compact_widget, place_plugin_widget, plugin_widget_covering_slot,
+    widget_covering_slot,
 };
 use crate::utils::settings_ui::items::SettingsItem;
 use crate::utils::settings_ui::{
-    WidgetPreviewHit, WidgetSource, widget_delete_button_hit, widget_grid_geom,
+    CompactWidgetPreviewHit, WidgetPreviewHit, WidgetSource, compact_widget_grid_geom,
+    compact_widget_preview_hit_test, widget_delete_button_hit, widget_grid_geom,
     widget_library_items, widget_preview_height, widget_preview_hit_test,
 };
 
 use super::super::{SETTINGS_HEADER_H, SIDEBAR_W, SettingsApp};
+use crate::utils::settings_ui::WidgetEditorMode;
+
+const MODE_CONTROL_W: f32 = 154.0;
+const MODE_CONTROL_H: f32 = 30.0;
+const MODE_CONTROL_RIGHT: f32 = 18.0;
+const MODE_CONTROL_Y: f32 = 17.0;
 
 impl SettingsApp {
     pub(crate) fn build_widget_items(&self) -> Vec<SettingsItem> {
-        let library_count = widget_library_items(
-            &self.config.widget_layout,
-            &self.config.plugin_widget_layout,
-            &self.plugin_widgets,
-            self.widget_dragging.as_ref(),
+        let height = match self.widget_editor_mode {
+            WidgetEditorMode::Expanded => {
+                let count = widget_library_items(
+                    &self.config.widget_layout,
+                    &self.config.plugin_widget_layout,
+                    &self.plugin_widgets,
+                    self.widget_dragging.as_ref(),
+                )
+                .len();
+                widget_preview_height(count)
+            }
+            WidgetEditorMode::Compact => crate::utils::settings_ui::input::COMPACT_WIDGET_PREVIEW_H,
+        };
+        vec![SettingsItem::WidgetPreview { height }]
+    }
+
+    pub(crate) fn widget_mode_control_rect(&self) -> Rect {
+        let scale = self
+            .window
+            .as_ref()
+            .map(|window| window.scale_factor() as f32)
+            .unwrap_or(1.0);
+        let width = self.win_w / scale;
+        Rect::from_xywh(
+            width - MODE_CONTROL_RIGHT - MODE_CONTROL_W,
+            MODE_CONTROL_Y,
+            MODE_CONTROL_W,
+            MODE_CONTROL_H,
         )
-        .len();
-        vec![SettingsItem::WidgetPreview {
-            height: widget_preview_height(library_count),
-        }]
+    }
+
+    pub(crate) fn widget_mode_segment_rect(&self, mode: WidgetEditorMode) -> Rect {
+        let control = self.widget_mode_control_rect();
+        let segment_width = control.width() / 2.0;
+        Rect::from_xywh(
+            control.left
+                + if mode == WidgetEditorMode::Compact {
+                    segment_width
+                } else {
+                    0.0
+                },
+            control.top,
+            segment_width,
+            control.height(),
+        )
+    }
+
+    pub(crate) fn widget_mode_at(&self, x: f32, y: f32) -> Option<WidgetEditorMode> {
+        let point = Point::new(x, y);
+        if self.active_page != 2 || !self.widget_mode_control_rect().contains(point) {
+            return None;
+        }
+        if self
+            .widget_mode_segment_rect(WidgetEditorMode::Expanded)
+            .contains(point)
+        {
+            Some(WidgetEditorMode::Expanded)
+        } else {
+            Some(WidgetEditorMode::Compact)
+        }
+    }
+
+    pub(crate) fn handle_widget_mode_click(&mut self, x: f32, y: f32) -> bool {
+        let Some(mode) = self.widget_mode_at(x, y) else {
+            return false;
+        };
+        if mode != self.widget_editor_mode {
+            self.widget_editor_mode = mode;
+            self.widget_dragging = None;
+            self.compact_widget_dragging = None;
+            self.widget_drag_hover_slot = None;
+            self.compact_widget_drag_hover_slot = None;
+            self.widget_preview_hover_slot = None;
+            self.compact_widget_preview_hover_slot = None;
+            self.scroll_y = 0.0;
+            self.target_scroll_y = 0.0;
+            self.scroll_vel_y = 0.0;
+            self.mark_items_dirty();
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+        }
+        true
     }
 
     fn widget_preview_item_y(&mut self) -> Option<f32> {
@@ -39,7 +122,7 @@ impl SettingsApp {
         None
     }
 
-    pub(crate) fn widget_preview_hit_at_mouse(&mut self) -> Option<WidgetPreviewHit> {
+    fn expanded_widget_preview_hit_at_mouse(&mut self) -> Option<WidgetPreviewHit> {
         let item_y = self.widget_preview_item_y()?;
         let scale = self
             .window
@@ -65,8 +148,100 @@ impl SettingsApp {
         ))
     }
 
+    fn compact_widget_preview_hit_at_mouse(&mut self) -> Option<CompactWidgetPreviewHit> {
+        let item_y = self.widget_preview_item_y()?;
+        let scale = self
+            .window
+            .as_ref()
+            .map(|window| window.scale_factor() as f32)
+            .unwrap_or(1.0);
+        let width = self.win_w / scale - SIDEBAR_W;
+        let (mouse_x, mouse_y) = self.logical_mouse_pos;
+        if mouse_x < SIDEBAR_W {
+            return None;
+        }
+        Some(compact_widget_preview_hit_test(
+            mouse_x - SIDEBAR_W,
+            mouse_y + self.scroll_y,
+            item_y,
+            width,
+            self.config.base_width,
+            self.config.base_height,
+            &self.config.compact_widget_layout,
+            self.compact_widget_dragging,
+        ))
+    }
+
+    pub(crate) fn widget_preview_hovered_at_mouse(&mut self) -> bool {
+        match self.widget_editor_mode {
+            WidgetEditorMode::Expanded => self
+                .expanded_widget_preview_hit_at_mouse()
+                .is_some_and(|hit| hit != WidgetPreviewHit::None),
+            WidgetEditorMode::Compact => self
+                .compact_widget_preview_hit_at_mouse()
+                .is_some_and(|hit| hit != CompactWidgetPreviewHit::None),
+        }
+    }
+
+    pub(crate) fn widget_preview_slot_at_mouse(&mut self) -> Option<usize> {
+        match self.widget_editor_mode {
+            WidgetEditorMode::Expanded => {
+                self.expanded_widget_preview_hit_at_mouse()
+                    .and_then(|hit| match hit {
+                        WidgetPreviewHit::Slot(slot) => Some(slot),
+                        _ => None,
+                    })
+            }
+            WidgetEditorMode::Compact => {
+                self.compact_widget_preview_hit_at_mouse()
+                    .and_then(|hit| match hit {
+                        CompactWidgetPreviewHit::Slot(slot) => Some(slot),
+                        _ => None,
+                    })
+            }
+        }
+    }
+
+    pub(crate) fn widget_drag_active(&self) -> bool {
+        match self.widget_editor_mode {
+            WidgetEditorMode::Expanded => self.widget_dragging.is_some(),
+            WidgetEditorMode::Compact => self.compact_widget_dragging.is_some(),
+        }
+    }
+
+    pub(crate) fn active_widget_drag_hover_slot(&self) -> Option<usize> {
+        match self.widget_editor_mode {
+            WidgetEditorMode::Expanded => self.widget_drag_hover_slot,
+            WidgetEditorMode::Compact => self.compact_widget_drag_hover_slot,
+        }
+    }
+
+    pub(crate) fn set_active_widget_drag_hover_slot(&mut self, slot: Option<usize>) {
+        match self.widget_editor_mode {
+            WidgetEditorMode::Expanded => self.widget_drag_hover_slot = slot,
+            WidgetEditorMode::Compact => self.compact_widget_drag_hover_slot = slot,
+        }
+    }
+
+    pub(crate) fn active_widget_preview_hover_slot(&self) -> Option<usize> {
+        match self.widget_editor_mode {
+            WidgetEditorMode::Expanded => self.widget_preview_hover_slot,
+            WidgetEditorMode::Compact => self.compact_widget_preview_hover_slot,
+        }
+    }
+
+    pub(crate) fn set_active_widget_preview_hover_slot(&mut self, slot: Option<usize>) {
+        match self.widget_editor_mode {
+            WidgetEditorMode::Expanded => self.widget_preview_hover_slot = slot,
+            WidgetEditorMode::Compact => self.compact_widget_preview_hover_slot = slot,
+        }
+    }
+
     pub(crate) fn handle_widget_drag_press(&mut self) -> bool {
-        let Some(hit) = self.widget_preview_hit_at_mouse() else {
+        if self.widget_editor_mode == WidgetEditorMode::Compact {
+            return self.handle_compact_widget_drag_press();
+        }
+        let Some(hit) = self.expanded_widget_preview_hit_at_mouse() else {
             return false;
         };
         let source = match hit {
@@ -135,7 +310,64 @@ impl SettingsApp {
         true
     }
 
+    fn handle_compact_widget_drag_press(&mut self) -> bool {
+        let Some(hit) = self.compact_widget_preview_hit_at_mouse() else {
+            return false;
+        };
+        let widget = match hit {
+            CompactWidgetPreviewHit::Source(widget) => widget,
+            CompactWidgetPreviewHit::Slot(slot) => {
+                let Some(widget) = self
+                    .config
+                    .compact_widget_layout
+                    .iter()
+                    .find(|entry| entry.slot == slot)
+                    .and_then(|entry| entry.widget)
+                else {
+                    return false;
+                };
+                let Some(item_y) = self.widget_preview_item_y() else {
+                    return false;
+                };
+                let scale = self
+                    .window
+                    .as_ref()
+                    .map(|window| window.scale_factor() as f32)
+                    .unwrap_or(1.0);
+                let width = self.win_w / scale - SIDEBAR_W;
+                let geometry = compact_widget_grid_geom(
+                    item_y,
+                    width,
+                    self.config.base_width,
+                    self.config.base_height,
+                );
+                let (x, y, width, height) = geometry.slot_rect(slot);
+                let (mouse_x, mouse_y) = self.logical_mouse_pos;
+                if widget_delete_button_hit(
+                    mouse_x - SIDEBAR_W,
+                    mouse_y + self.scroll_y,
+                    x,
+                    y,
+                    width,
+                    height,
+                    geometry.cap_scale,
+                ) {
+                    return false;
+                }
+                widget
+            }
+            CompactWidgetPreviewHit::None => return false,
+        };
+        self.compact_widget_dragging = Some(widget);
+        self.compact_widget_drag_hover_slot = None;
+        self.mark_items_dirty();
+        true
+    }
+
     pub(crate) fn handle_widget_drag_release(&mut self) -> bool {
+        if self.widget_editor_mode == WidgetEditorMode::Compact {
+            return self.handle_compact_widget_drag_release();
+        }
         let Some(source) = self.widget_dragging.take() else {
             return false;
         };
@@ -170,7 +402,25 @@ impl SettingsApp {
         true
     }
 
+    fn handle_compact_widget_drag_release(&mut self) -> bool {
+        let Some(widget) = self.compact_widget_dragging.take() else {
+            return false;
+        };
+        let old_layout = self.config.compact_widget_layout.clone();
+        if let Some(slot) = self.compact_widget_drag_hover_slot.take() {
+            place_compact_widget(&mut self.config.compact_widget_layout, widget, slot);
+        }
+        self.mark_items_dirty();
+        if old_layout != self.config.compact_widget_layout {
+            crate::core::persistence::save_config(&self.config);
+        }
+        true
+    }
+
     pub(crate) fn handle_widget_click(&mut self) -> bool {
+        if self.widget_editor_mode == WidgetEditorMode::Compact {
+            return self.handle_compact_widget_click();
+        }
         let Some(item_y) = self.widget_preview_item_y() else {
             return false;
         };
@@ -222,6 +472,40 @@ impl SettingsApp {
             return false;
         };
         clear_plugin_widget(&mut self.config.plugin_widget_layout, &plugin_id);
+        crate::core::persistence::save_config(&self.config);
+        self.mark_items_dirty();
+        true
+    }
+
+    fn handle_compact_widget_click(&mut self) -> bool {
+        let Some(item_y) = self.widget_preview_item_y() else {
+            return false;
+        };
+        let scale = self
+            .window
+            .as_ref()
+            .map(|window| window.scale_factor() as f32)
+            .unwrap_or(1.0);
+        let width = self.win_w / scale - SIDEBAR_W;
+        let geometry = compact_widget_grid_geom(
+            item_y,
+            width,
+            self.config.base_width,
+            self.config.base_height,
+        );
+        let (mouse_x, mouse_y) = self.logical_mouse_pos;
+        let mouse_x = mouse_x - SIDEBAR_W;
+        let mouse_y = mouse_y + self.scroll_y;
+        let slot = self.config.compact_widget_layout.iter().find_map(|entry| {
+            entry.widget?;
+            let (x, y, width, height) = geometry.slot_rect(entry.slot);
+            widget_delete_button_hit(mouse_x, mouse_y, x, y, width, height, geometry.cap_scale)
+                .then_some(entry.slot)
+        });
+        let Some(slot) = slot else {
+            return false;
+        };
+        clear_compact_widget_slot(&mut self.config.compact_widget_layout, slot);
         crate::core::persistence::save_config(&self.config);
         self.mark_items_dirty();
         true
