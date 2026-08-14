@@ -1,5 +1,6 @@
 use crate::core::config::{
     AppConfig, MAX_HIDDEN_WIDTH, MIN_HIDDEN_WIDTH, WIDGET_GRID_SLOTS, ensure_settings_widget,
+    normalize_compact_widget_layout,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -67,6 +68,9 @@ pub fn load_config() -> AppConfig {
         migrated = true;
     }
     if ensure_settings_widget(&mut config.widget_layout) {
+        migrated = true;
+    }
+    if normalize_compact_widget_layout(&mut config.compact_widget_layout) {
         migrated = true;
     }
     let plugin_layout_len = config.plugin_widget_layout.len();
