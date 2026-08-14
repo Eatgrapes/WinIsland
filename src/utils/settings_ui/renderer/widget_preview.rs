@@ -218,6 +218,26 @@ fn draw_grid(
 
 fn draw_delete_button(canvas: &Canvas, x: f32, y: f32, scale: f32) {
     let radius = (8.0 * scale).max(7.0);
+    let stroke_width = (1.5 * scale).max(1.25);
+    let arm = (3.0 * scale).max(2.5);
+    draw_delete_button_with_metrics(canvas, x, y, radius, stroke_width, arm);
+}
+
+fn draw_compact_delete_button(canvas: &Canvas, x: f32, y: f32, scale: f32) {
+    let radius = (5.25 * scale).max(5.5);
+    let stroke_width = (1.1 * scale).max(1.15);
+    let arm = (2.0 * scale).max(2.0);
+    draw_delete_button_with_metrics(canvas, x, y, radius, stroke_width, arm);
+}
+
+fn draw_delete_button_with_metrics(
+    canvas: &Canvas,
+    x: f32,
+    y: f32,
+    radius: f32,
+    stroke_width: f32,
+    arm: f32,
+) {
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
     paint.set_color(Color::from_rgb(255, 59, 48));
@@ -225,9 +245,8 @@ fn draw_delete_button(canvas: &Canvas, x: f32, y: f32, scale: f32) {
 
     paint.set_color(Color::WHITE);
     paint.set_style(skia_safe::paint::Style::Stroke);
-    paint.set_stroke_width((1.5 * scale).max(1.25));
+    paint.set_stroke_width(stroke_width);
     paint.set_stroke_cap(skia_safe::paint::Cap::Round);
-    let arm = (3.0 * scale).max(2.5);
     canvas.draw_line((x - arm, y - arm), (x + arm, y + arm), &paint);
     canvas.draw_line((x + arm, y - arm), (x - arm, y + arm), &paint);
 }
@@ -635,7 +654,7 @@ fn draw_compact_widget_preview(params: WidgetPreviewParams<'_>) {
         if dragging || compact_widget_preview_hover_slot == Some(entry.slot) {
             let (button_x, button_y) =
                 widget_delete_button_center(x, y, width, height, geometry.cap_scale);
-            draw_delete_button(canvas, button_x, button_y, geometry.cap_scale);
+            draw_compact_delete_button(canvas, button_x, button_y, geometry.cap_scale);
         }
     }
 
