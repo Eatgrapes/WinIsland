@@ -225,12 +225,16 @@ pub fn draw_island(
     if compact_overlay_visible {
         compact_overlay.draw(canvas, rect, global_scale, 1.0 - hide_progress);
     } else {
-        let center_occupied = crate::ui::widget::compact::has_center_widget(compact_widget_layout);
+        let has_mini_content = mini_content.is_some();
+        let center_occupied =
+            crate::ui::widget::compact::has_center_widget(compact_widget_layout, has_mini_content);
         let visible_mini_content = if center_occupied { None } else { mini_content };
-        let has_mini_content = visible_mini_content.is_some();
         let has_center_content = center_occupied || has_mini_content;
-        let (left_extension, right_extension) =
-            crate::ui::widget::compact::side_extensions(compact_widget_layout, has_center_content);
+        let (left_extension, right_extension) = crate::ui::widget::compact::side_extensions(
+            compact_widget_layout,
+            has_center_content,
+            has_mini_content,
+        );
         let left_extension = left_extension * global_scale;
         let right_extension = right_extension * global_scale;
         draw_mini_content(MiniContentParams {
@@ -260,7 +264,7 @@ pub fn draw_island(
             Rect::from_xywh(offset_x, stable_offset_y, current_w, base_h),
             global_scale,
             (mini_alpha_f * 255.0) as u8,
-            has_center_content,
+            has_mini_content,
         );
     }
     canvas.restore();

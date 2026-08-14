@@ -623,10 +623,7 @@ impl App {
         let compact_widget_target_w =
             if !self.expanded && !self.compact_overlay.is_visible() && !self.is_width_hiding() {
                 let scale = self.config.global_scale.max(f32::EPSILON);
-                let center_occupied = crate::ui::widget::compact::has_center_widget(
-                    &self.config.compact_widget_layout,
-                );
-                let has_mini_content = self.ctx_mgr.current_mini().is_some() && !center_occupied;
+                let has_mini_content = self.ctx_mgr.current_mini().is_some();
                 let center_content_width = has_mini_content.then_some(lyric_target_w / scale);
                 crate::ui::widget::compact::target_width(
                     &self.config.compact_widget_layout,
