@@ -1,8 +1,11 @@
 use super::items::*;
-use crate::core::config::{AVAILABLE_WIDGETS, WidgetKind, WidgetSlot};
+use crate::core::config::{
+    AVAILABLE_WIDGETS, PluginWidgetId, PluginWidgetSlot, WidgetKind, WidgetSlot,
+};
+use crate::core::plugin_widget::PluginWidget;
 use crate::ui::widget::{WidgetGridLayout, widget_corner_radius, widget_grid_layout};
 
-pub const WIDGET_PREVIEW_H: f32 = 460.0;
+pub const WIDGET_PREVIEW_BASE_H: f32 = 480.0;
 pub const WIDGET_ISLAND_PANEL_H: f32 = 308.0;
 pub const WIDGET_PANEL_GAP: f32 = 12.0;
 pub const WIDGET_EDITOR_HEADER_H: f32 = 56.0;
@@ -62,10 +65,16 @@ impl ClickResult {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WidgetSource {
+    BuiltIn(WidgetKind),
+    Plugin(PluginWidgetId),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WidgetPreviewHit {
     None,
-    Source(WidgetKind),
+    Source(WidgetSource),
     Slot(usize),
 }
 
@@ -88,8 +97,9 @@ impl WidgetGridGeom {
         self.layout.slot_rect(slot)
     }
 
-    pub fn footprint_rect(&self, widget: WidgetKind, slot: usize) -> (f32, f32, f32, f32) {
-        self.layout.footprint_rect(widget, slot)
+    pub fn footprint_rect(&self, span: (usize, usize), slot: usize) -> (f32, f32, f32, f32) {
+        let cells = crate::core::config::span_cells(slot, span);
+        self.layout.footprint_rect_span(cells[0], span)
     }
 
     pub fn slot_at_point(&self, x: f32, y: f32, include_gaps: bool) -> Option<usize> {
@@ -117,13 +127,11 @@ pub fn widget_delete_button_hit(
     (mx - cx).powi(2) + (my - cy).powi(2) <= radius.powi(2)
 }
 
-pub fn widget_source_rect(
-    row_x: f32,
-    source_y: f32,
-    index: usize,
-    _kind: WidgetKind,
-) -> (f32, f32, f32, f32) {
-    let source_x = row_x + 12.0 + index as f32 * (WIDGET_LIBRARY_TILE_W + WIDGET_LIBRARY_TILE_GAP);
+pub fn widget_source_rect(row_x: f32, source_y: f32, index: usize) -> (f32, f32, f32, f32) {
+    let column = index % 4;
+    let row = index / 4;
+    let source_x = row_x + 12.0 + column as f32 * (WIDGET_LIBRARY_TILE_W + WIDGET_LIBRARY_TILE_GAP);
+    let source_y = source_y + row as f32 * (WIDGET_LIBRARY_TILE_H + WIDGET_LIBRARY_TILE_GAP);
     (
         source_x,
         source_y,
@@ -134,18 +142,47 @@ pub fn widget_source_rect(
 
 pub fn widget_library_items(
     widget_layout: &[WidgetSlot],
-    dragging: Option<WidgetKind>,
-) -> Vec<WidgetKind> {
-    AVAILABLE_WIDGETS
+    plugin_widget_layout: &[PluginWidgetSlot],
+    plugin_widgets: &[PluginWidget],
+    dragging: Option<&WidgetSource>,
+) -> Vec<WidgetSource> {
+    let mut items = AVAILABLE_WIDGETS
         .iter()
         .copied()
         .filter(|kind| {
-            Some(*kind) != dragging
+            dragging != Some(&WidgetSource::BuiltIn(*kind))
                 && !widget_layout
                     .iter()
                     .any(|entry| entry.widget == Some(*kind))
         })
-        .collect()
+        .map(WidgetSource::BuiltIn)
+        .collect::<Vec<_>>();
+    items.extend(plugin_widgets.iter().filter_map(|widget| {
+        let id = widget.layout_id()?;
+        (dragging != Some(&WidgetSource::Plugin(id.clone()))
+            && !plugin_widget_layout.iter().any(|entry| entry.id() == id))
+        .then_some(WidgetSource::Plugin(id))
+    }));
+    items
+}
+
+pub fn widget_preview_height(item_count: usize) -> f32 {
+    let rows = item_count.max(1).div_ceil(4);
+    WIDGET_PREVIEW_BASE_H
+        + (rows.saturating_sub(1) as f32) * (WIDGET_LIBRARY_TILE_H + WIDGET_LIBRARY_TILE_GAP)
+}
+
+pub fn widget_source_span(
+    source: &WidgetSource,
+    plugin_widgets: &[PluginWidget],
+) -> Option<(usize, usize)> {
+    match source {
+        WidgetSource::BuiltIn(kind) => Some(kind.span()),
+        WidgetSource::Plugin(id) => plugin_widgets
+            .iter()
+            .find(|widget| widget.layout_id().as_ref() == Some(id))
+            .map(PluginWidget::span),
+    }
 }
 
 pub fn widget_grid_geom(
@@ -157,7 +194,7 @@ pub fn widget_grid_geom(
     let content_w = width - CONTENT_PADDING * 2.0;
     let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
     let preview_w = content_w - GROUP_INNER_PAD * 2.0;
-    let py = item_y + (SettingsItem::WidgetPreview.height() - WIDGET_PREVIEW_H) / 2.0;
+    let py = item_y + 10.0;
 
     let mut cap_w = expanded_width;
     let mut cap_h = expanded_height;
@@ -197,21 +234,27 @@ pub fn widget_preview_hit_test(
     expanded_width: f32,
     expanded_height: f32,
     widget_layout: &[WidgetSlot],
-    dragging: Option<WidgetKind>,
+    plugin_widget_layout: &[PluginWidgetSlot],
+    plugin_widgets: &[PluginWidget],
+    dragging: Option<&WidgetSource>,
 ) -> WidgetPreviewHit {
     let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
-    let py = item_y + (SettingsItem::WidgetPreview.height() - WIDGET_PREVIEW_H) / 2.0;
+    let py = item_y + 10.0;
     let library_panel_y = py + WIDGET_ISLAND_PANEL_H + WIDGET_PANEL_GAP;
 
     let source_y = library_panel_y + WIDGET_LIBRARY_HEADER_H;
-    for (idx, kind) in widget_library_items(widget_layout, dragging)
-        .iter()
-        .enumerate()
+    for (idx, source) in widget_library_items(
+        widget_layout,
+        plugin_widget_layout,
+        plugin_widgets,
+        dragging,
+    )
+    .iter()
+    .enumerate()
     {
-        let (source_x, source_y, source_w, source_h) =
-            widget_source_rect(row_x, source_y, idx, *kind);
+        let (source_x, source_y, source_w, source_h) = widget_source_rect(row_x, source_y, idx);
         if in_rect(mx, my, source_x, source_y, source_w, source_h) {
-            return WidgetPreviewHit::Source(*kind);
+            return WidgetPreviewHit::Source(source.clone());
         }
     }
 

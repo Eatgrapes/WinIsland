@@ -1,4 +1,5 @@
 use crate::core::i18n::tr;
+use crate::ui::expanded::widget_view::draw_plugin_widget;
 use crate::ui::widget::draw_mini_card;
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
@@ -104,7 +105,9 @@ impl SettingsApp {
                 expanded_width: self.config.expanded_width,
                 expanded_height: self.config.expanded_height,
                 widget_layout: &self.config.widget_layout,
-                widget_dragging: self.widget_dragging,
+                plugin_widget_layout: &self.config.plugin_widget_layout,
+                plugin_widgets: &self.plugin_widgets,
+                widget_dragging: self.widget_dragging.as_ref(),
                 widget_drag_hover_slot: self.widget_drag_hover_slot,
                 widget_preview_hover_slot: self.widget_preview_hover_slot,
                 active_source_button,
@@ -126,6 +129,10 @@ impl SettingsApp {
                     scrollbar.width / 2.0,
                     &p,
                 );
+            }
+
+            if self.active_page == 3 {
+                self.draw_plugins_page(direct_context, canvas, &theme, win_w, win_h);
             }
 
             self.draw_popup(canvas, &theme);
@@ -156,7 +163,7 @@ impl SettingsApp {
         }
         let mut y = SETTINGS_HEADER_H;
         for item in &self.cached_items {
-            if matches!(item, SettingsItem::WidgetPreview) {
+            if matches!(item, SettingsItem::WidgetPreview { .. }) {
                 return Some(y);
             }
             y += item.height();
@@ -171,7 +178,7 @@ impl SettingsApp {
         win_w: f32,
         win_h: f32,
     ) {
-        let Some(widget) = self.widget_dragging else {
+        let Some(source) = self.widget_dragging.as_ref() else {
             return;
         };
 
@@ -190,8 +197,12 @@ impl SettingsApp {
                     self.config.expanded_width,
                     self.config.expanded_height,
                 );
-                let (_, _, w, h) = geom.footprint_rect(widget, 0);
-                (w.max(60.0), h.max(48.0))
+                widget_source_span(source, &self.plugin_widgets)
+                    .map(|span| {
+                        let (_, _, w, h) = geom.footprint_rect(span, 0);
+                        (w.max(60.0), h.max(48.0))
+                    })
+                    .unwrap_or((96.0, 72.0))
             })
             .unwrap_or((96.0, 96.0));
 
@@ -204,7 +215,22 @@ impl SettingsApp {
         shadow.set_color(Color::from_argb(90, 0, 0, 0));
         canvas.draw_round_rect(Rect::from_xywh(x, y + 4.0, w, h), 12.0, 12.0, &shadow);
 
-        draw_mini_card(canvas, widget, x, y, w, h);
+        match source {
+            WidgetSource::BuiltIn(widget) => draw_mini_card(canvas, *widget, x, y, w, h),
+            WidgetSource::Plugin(id) => {
+                if let Some(widget) = self
+                    .plugin_widgets
+                    .iter()
+                    .find(|widget| widget.layout_id().as_ref() == Some(id))
+                {
+                    let span = widget.span();
+                    let logical_width = (span.0 as f32 * 60.0).max(1.0);
+                    let logical_height = (span.1 as f32 * 48.0).max(1.0);
+                    let scale = (w / logical_width).min(h / logical_height).min(1.0);
+                    draw_plugin_widget(canvas, widget, x, y, w, h, scale, 255);
+                }
+            }
+        }
     }
 
     fn draw_page_navigation(&self, canvas: &Canvas, theme: &SettingsTheme) {
@@ -283,6 +309,7 @@ impl SettingsApp {
             0 => tr("tab_general"),
             1 => tr("tab_music"),
             2 => tr("tab_widgets"),
+            3 => tr("tab_plugins"),
             _ => tr("tab_about"),
         };
         let fm = FontManager::global();

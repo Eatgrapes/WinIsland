@@ -2,13 +2,50 @@
 
 WinIsland distributes plugins as ZIP archives with one root-level `plugin.yml` and one declared entry DLL. The archive may contain dependency DLLs and assets, but WinIsland treats only `entry` as a plugin.
 
+## Publish to the plugin marketplace
+
+Marketplace plugins must be open source in a public GitHub repository with a GitHub-detected SPDX license. Add `.github/workflows/release.yml` to that repository:
+
+```yaml
+name: Release WinIsland plugin
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    uses: WinIslandProject/PluginMarketplace/.github/workflows/build-plugin.yml@main
+```
+
+The reusable workflow runs check, strict Clippy, formatting verification and the official packager, then publishes a GitHub Release with build provenance. Publish by pushing a version tag such as `v1.0.0`.
+
+After the first release succeeds, add one `plugins/<plugin-id>.toml` file in a pull request to [WinIslandProject/PluginMarketplace](https://github.com/WinIslandProject/PluginMarketplace):
+
+```toml
+schema = 1
+id = "example-clock"
+repository = "owner/example-clock"
+asset = "*.winisland-plugin.zip"
+categories = ["widget", "utility"]
+min_winisland_version = "1.2.9"
+```
+
+The ID must match both the file name and `plugin.yml`. Later plugin updates need no marketplace pull request: publish a new valid GitHub Release and the catalog refresh will discover it. See the marketplace [contribution guide](https://github.com/WinIslandProject/PluginMarketplace/blob/main/CONTRIBUTING.md) for the complete review rules.
+
 ## Add the packager
 
 Enable the optional `packager` feature as a development dependency:
 
 ```toml
 [dev-dependencies]
-winisland-plugin-api = { version = "0.3", features = ["packager"] }
+winisland-plugin-api = { version = "0.5", features = ["packager"] }
 
 [[example]]
 name = "pack"
@@ -43,6 +80,8 @@ The packager performs these steps:
 5. Generates and validates `plugin.yml`.
 6. Optionally signs the manifest payload.
 7. Writes `target/<package-name>-<version>.zip` unless an output path was configured.
+
+If the project root contains `icon.png`, `icon.jpg`, `icon.jpeg`, or `icon.webp`, the packager includes the first match as the plugin icon. It also includes the first matching `README.md`, `README.markdown`, or `README.txt`. Use `.icon("path")` and `.readme("path")` to override automatic discovery.
 
 ## Cargo metadata and descriptor matching
 
@@ -97,6 +136,8 @@ description: Minimal WinIsland ABI v1 plugin
 github-link: https://github.com/example/hello-winisland-plugin
 abi-version: 1
 entry: hello_winisland_plugin.dll
+icon: icon.png
+readme: README.md
 dll_hashes:
   - 75f1cd58a8bbf6dd32a68415c13e4065a827b603ab70542032fdd722d98a4f4d
 ```
@@ -114,6 +155,15 @@ Required host fields:
 | `abi-version` | Must be `1` |
 | `entry` | One root-level `.dll` filename, at most 255 bytes |
 
+Optional presentation fields:
+
+| Field | Rule |
+|---|---|
+| `icon` | Safe relative `.png`, `.jpg`, `.jpeg`, or `.webp` path; displayed in the plugin list and details panel |
+| `readme` | Safe relative `.md`, `.markdown`, or `.txt` path; displayed in the details panel, at most 1 MiB when read by the host |
+
+Declared presentation files must exist in the archive. When either field is omitted, WinIsland also looks for the conventional root filenames listed above, so existing packages can add an icon or README without changing their manifest.
+
 Packager metadata may also include `dll_hashes` and `signature`. The current WinIsland host deserializes the required fields but does not enforce hashes, signer identity, or Ed25519 signature verification. A signature therefore records build metadata; it is not currently an installation trust decision. Distributors must state this clearly.
 
 ## Include dependencies and assets
@@ -123,6 +173,8 @@ Add an extra directory with `include_dir`:
 ```rust
 PluginPackager::from_cargo()
     .unwrap()
+    .icon("branding/plugin-icon.png")
+    .readme("docs/PLUGIN.md")
     .include_dir("assets")
     .include_dir("runtime")
     .build()
@@ -195,7 +247,7 @@ Actual bytes written are counted again during extraction. Validation failure rem
 
 ## Installation transaction
 
-Drop the ZIP onto the WinIsland window. Installation proceeds as follows:
+Open **Settings > Plugins** and drop the ZIP onto the installation area. Installation proceeds as follows:
 
 1. A background thread validates and extracts the package into a hidden staging directory.
 2. On the WinIsland event-loop thread, the staged entry DLL is loaded only for descriptor validation.
@@ -210,6 +262,10 @@ Drop the ZIP onto the WinIsland window. Installation proceeds as follows:
 The validation and final load are intentionally separate. On Windows, renaming the directory of a loaded DLL succeeds, but the module path retained by the loader still points to the old staging path. Loading the final instance from its destination ensures relative resources and delayed dependencies resolve against the installed location.
 
 If a newly created plugin instance cannot stop after initialization fails, WinIsland keeps its DLL loaded rather than deleting code that may still be executing. The installation reports a non-stoppable instance error and does not pretend rollback completed.
+
+After installation, WinIsland refreshes the installed-plugin list and asks for an application restart. Plugins can be enabled or disabled from either the list or details panel; that state is persisted by plugin ID and takes effect after restart. Disabled packaged plugins are skipped before their DLL is opened. A manually installed root DLL must still be opened far enough to read its descriptor and determine its ID.
+
+Clicking a plugin opens its details panel with the icon, metadata, repository link, enable switch, and README. README files are parsed as CommonMark with GFM tables, task lists, and strikethrough enabled. Headings, paragraphs, emphasis, lists, block quotes, code, tables, separators, and web links are rendered by WinIsland. Remote images are not downloaded by the settings page; their alternative text and source link remain available.
 
 ## Manual DLL versus package install
 

@@ -29,6 +29,9 @@ pub struct WidgetDataV1 {
     pub on_draw: Option<WidgetDrawFnV1>,
     /// Opaque pointer passed back to `on_draw`.
     pub callback_data: *mut std::ffi::c_void,
+    /// Stable widget key within this plugin. Required for settings layout control.
+    /// Max 63 ASCII bytes plus NUL, must match `[a-zA-Z0-9_-]+`, and cannot change on update.
+    pub key: [u8; 64],
 }
 
 impl Default for WidgetDataV1 {
@@ -42,6 +45,7 @@ impl Default for WidgetDataV1 {
             body: [0; 512],
             on_draw: None,
             callback_data: std::ptr::null_mut(),
+            key: [0; 64],
         }
     }
 }

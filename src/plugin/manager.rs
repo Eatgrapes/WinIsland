@@ -30,6 +30,20 @@ const MAX_WIDGETS_PER_PLUGIN: usize = 8;
 const MAX_TRANSLATION_PAIRS: u32 = 4096;
 const MAX_TRANSLATION_STRING_BYTES: u32 = 64 * 1024;
 const MAX_TRANSLATION_BUNDLE_BYTES: usize = 1024 * 1024;
+const DISABLED_PLUGINS_FILE: &str = ".disabled-plugins";
+
+#[derive(Clone)]
+pub struct InstalledPlugin {
+    pub id: String,
+    pub name: String,
+    pub author: String,
+    pub version: String,
+    pub description: String,
+    pub github_link: String,
+    pub enabled: bool,
+    pub icon: Option<Vec<u8>>,
+    pub readme: Option<String>,
+}
 
 #[derive(Clone)]
 pub struct PendingMediaSource {
@@ -74,6 +88,7 @@ struct ResourceOwner {
 }
 
 struct PluginRegistration {
+    id: String,
     capabilities: u64,
     stopping: bool,
 }
@@ -96,6 +111,7 @@ struct RuntimeState {
     media_sequence: u64,
     media_dirty: bool,
     widget_events: HashMap<ResourceId, WidgetEvent>,
+    widget_keys: HashMap<(PluginToken, String), ResourceId>,
     host_state: HostState,
 }
 
@@ -252,6 +268,44 @@ unsafe fn read_struct<T: Copy>(value: *const T) -> Result<T, &'static str> {
     Ok(unsafe { std::ptr::read_unaligned(value) })
 }
 
+unsafe fn read_widget_data(value: *const WidgetDataV1) -> Result<WidgetDataV1, &'static str> {
+    if value.is_null() {
+        return Err("input pointer is null");
+    }
+    // SAFETY: Plugin widget inputs start with a readable struct_size field.
+    let struct_size = unsafe { std::ptr::read_unaligned(value.cast::<u32>()) } as usize;
+    let legacy_size = std::mem::offset_of!(WidgetDataV1, key);
+    if struct_size < legacy_size {
+        return Err("input struct is truncated");
+    }
+    let mut data = std::mem::MaybeUninit::<WidgetDataV1>::zeroed();
+    // SAFETY: The trusted plugin reports at least the legacy prefix length. Copying only the
+    // smaller of its version and the host version preserves compatibility with both layouts.
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            value.cast::<u8>(),
+            data.as_mut_ptr().cast::<u8>(),
+            struct_size.min(std::mem::size_of::<WidgetDataV1>()),
+        );
+        Ok(data.assume_init())
+    }
+}
+
+fn validate_widget_key(key: &[u8; 64]) -> Result<Option<String>, &'static str> {
+    let end = key.iter().position(|byte| *byte == 0).unwrap_or(key.len());
+    if end == 0 {
+        return Ok(None);
+    }
+    if end == key.len()
+        || !key[..end]
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-' || *byte == b'_')
+    {
+        return Err("widget key must match [a-zA-Z0-9_-]{1,63}");
+    }
+    Ok(Some(String::from_utf8_lossy(&key[..end]).into_owned()))
+}
+
 unsafe fn read_utf8(value: Utf8SliceV1, max_len: u32) -> Result<String, &'static str> {
     if value.len > max_len {
         return Err("UTF-8 value exceeds the size limit");
@@ -277,7 +331,7 @@ unsafe extern "C" fn context_create(
     if out_id.is_null() {
         return PluginResultC::err("resource output pointer is null");
     }
-    // SAFETY: Validation is performed by read_struct before the value is used.
+    // SAFETY: read_widget_data validates and copies the versioned widget structure.
     let data = match unsafe { read_struct(data) } {
         Ok(data) => data,
         Err(error) => return PluginResultC::err(error),
@@ -326,7 +380,7 @@ unsafe extern "C" fn context_update(
     id: ResourceId,
     data: *const ContextDataV1,
 ) -> PluginResultC {
-    // SAFETY: Validation is performed by read_struct before the value is used.
+    // SAFETY: read_widget_data validates and copies the versioned widget structure.
     let data = match unsafe { read_struct(data) } {
         Ok(data) => data,
         Err(error) => return PluginResultC::err(error),
@@ -1025,7 +1079,7 @@ unsafe extern "C" fn widget_create(
         return PluginResultC::err("widget output pointer is null");
     }
     // SAFETY: Validation is performed by read_struct before the value is used.
-    let data = match unsafe { read_struct(data) } {
+    let data = match unsafe { read_widget_data(data) } {
         Ok(data) => data,
         Err(error) => return PluginResultC::err(error),
     };
@@ -1052,8 +1106,22 @@ unsafe extern "C" fn widget_create(
     if resource_count(&state, token, ResourceKind::Widget) >= MAX_WIDGETS_PER_PLUGIN {
         return PluginResultC::err("widget resource limit reached");
     }
+    let plugin_id = match state.plugins.get(&token) {
+        Some(plugin) => plugin.id.clone(),
+        None => return PluginResultC::err("invalid plugin token"),
+    };
+    let key = match validate_widget_key(&data.key) {
+        Ok(key) => key,
+        Err(error) => return PluginResultC::err(error),
+    };
+    if key
+        .as_ref()
+        .is_some_and(|key| state.widget_keys.contains_key(&(token, key.to_string())))
+    {
+        return PluginResultC::err("widget key is already registered by this plugin");
+    }
     let id = next_id(&NEXT_RESOURCE_ID);
-    let widget = widget_from_ffi(token, id, &data);
+    let widget = widget_from_ffi(&plugin_id, id, &data);
     let size_bytes = widget.title.len() + widget.body.len();
     state.resources.insert(
         id,
@@ -1063,6 +1131,9 @@ unsafe extern "C" fn widget_create(
             size_bytes,
         },
     );
+    if let Some(key) = key {
+        state.widget_keys.insert((token, key), id);
+    }
     state.widget_events.insert(id, WidgetEvent::Upsert(widget));
     // SAFETY: out_id was checked non-null and belongs to the caller.
     unsafe { out_id.write(id) };
@@ -1077,7 +1148,7 @@ unsafe extern "C" fn widget_update(
     data: *const WidgetDataV1,
 ) -> PluginResultC {
     // SAFETY: Validation is performed by read_struct before the value is used.
-    let data = match unsafe { read_struct(data) } {
+    let data = match unsafe { read_widget_data(data) } {
         Ok(data) => data,
         Err(error) => return PluginResultC::err(error),
     };
@@ -1094,8 +1165,6 @@ unsafe extern "C" fn widget_update(
     if data.on_draw.is_none() {
         return PluginResultC::err("widget render callback is required");
     }
-    let widget = widget_from_ffi(token, id, &data);
-    let size_bytes = widget.title.len() + widget.body.len();
     let mut state = match runtime().lock() {
         Ok(state) => state,
         Err(_) => return PluginResultC::err("plugin runtime lock is poisoned"),
@@ -1103,6 +1172,25 @@ unsafe extern "C" fn widget_update(
     if let Err(error) = require_resource(&state, token, id, ResourceKind::Widget) {
         return PluginResultC::err(error);
     }
+    let key = match validate_widget_key(&data.key) {
+        Ok(key) => key,
+        Err(error) => return PluginResultC::err(error),
+    };
+    let existing_key = state
+        .widget_keys
+        .iter()
+        .find_map(|((owner, key), resource)| {
+            (*owner == token && *resource == id).then_some(key.as_str())
+        });
+    if existing_key != key.as_deref() {
+        return PluginResultC::err("widget key cannot change after creation");
+    }
+    let plugin_id = match state.plugins.get(&token) {
+        Some(plugin) => plugin.id.clone(),
+        None => return PluginResultC::err("invalid plugin token"),
+    };
+    let widget = widget_from_ffi(&plugin_id, id, &data);
+    let size_bytes = widget.title.len() + widget.body.len();
     if let Some(owner) = state.resources.get_mut(&id) {
         owner.size_bytes = size_bytes;
     }
@@ -1121,6 +1209,9 @@ unsafe extern "C" fn widget_release(token: PluginToken, id: ResourceId) -> Plugi
         return PluginResultC::err(error);
     }
     state.resources.remove(&id);
+    state
+        .widget_keys
+        .retain(|_, resource_id| *resource_id != id);
     state.widget_events.remove(&id);
     state.widget_events.insert(id, WidgetEvent::Remove(id));
     drop(state);
@@ -1188,15 +1279,16 @@ pub fn drain_pending_contexts(manager: &mut crate::core::context::ContextManager
     }
 }
 
-pub fn drain_widget_events(manager: &mut crate::core::plugin_widget::WidgetManager) {
+pub fn drain_widget_events(manager: &mut crate::core::plugin_widget::WidgetManager) -> bool {
     let events = match runtime().lock() {
         Ok(mut runtime) => runtime
             .widget_events
             .drain()
             .map(|(_, event)| event)
             .collect::<Vec<_>>(),
-        Err(_) => return,
+        Err(_) => return false,
     };
+    let changed = !events.is_empty();
     for event in events {
         match event {
             WidgetEvent::Upsert(widget) => manager.upsert_widget(widget),
@@ -1205,6 +1297,7 @@ pub fn drain_widget_events(manager: &mut crate::core::plugin_widget::WidgetManag
             }
         }
     }
+    changed
 }
 
 pub fn drain_media_source_event() -> Option<MediaSourceEvent> {
@@ -1281,13 +1374,18 @@ pub fn dispatch_media_command(
     Ok(())
 }
 
-fn register_plugin(token: PluginToken, capabilities: u64) -> Result<(), PluginError> {
+fn register_plugin(
+    token: PluginToken,
+    plugin_id: &str,
+    capabilities: u64,
+) -> Result<(), PluginError> {
     let mut runtime = runtime()
         .lock()
         .map_err(|_| PluginError::ExecutionError("plugin runtime lock is poisoned".to_string()))?;
     runtime.plugins.insert(
         token,
         PluginRegistration {
+            id: plugin_id.to_string(),
             capabilities,
             stopping: false,
         },
@@ -1337,6 +1435,7 @@ fn revoke_plugin(token: PluginToken) {
             return;
         };
         runtime.plugins.remove(&token);
+        runtime.widget_keys.retain(|(owner, _), _| *owner != token);
         let resources = runtime
             .resources
             .iter()
@@ -1392,12 +1491,19 @@ impl PluginManager {
 
     pub fn load_all(&self) {
         let dlls = discover_plugins(&self.plugin_dir);
+        let disabled = disabled_plugin_ids(&self.plugin_dir);
         log::info!(
             "Discovering ABI v1 plugins in {}: {} DLL(s) found",
             self.plugin_dir.display(),
             dlls.len()
         );
         for (path, manifest) in dlls {
+            if let Some(manifest) = manifest.as_ref()
+                && disabled.contains(&manifest.id)
+            {
+                log::info!("Plugin '{}' is disabled", manifest.id);
+                continue;
+            }
             if let Err(error) = self.load_dll_checked(&path, manifest.as_ref()) {
                 log::warn!("Failed to load plugin '{}': {error}", path.display());
             }
@@ -1420,6 +1526,10 @@ impl PluginManager {
         if let Some(manifest) = manifest {
             validate_manifest_metadata(manifest, plugin.metadata())?;
         }
+        if disabled_plugin_ids(&self.plugin_dir).contains(&plugin_id) {
+            log::info!("Plugin '{}' is disabled", plugin_id);
+            return Ok(());
+        }
         let mut entries = self.entries.try_borrow_mut().map_err(|_| {
             PluginError::ExecutionError("plugin list is already borrowed".to_string())
         })?;
@@ -1431,7 +1541,7 @@ impl PluginManager {
         }
 
         let token = next_id(&NEXT_PLUGIN_TOKEN);
-        register_plugin(token, plugin.capabilities())?;
+        register_plugin(token, &plugin_id, plugin.capabilities())?;
         if let Err(error) = plugin.initialize(token, host_api()) {
             if let Err(shutdown_error) = begin_plugin_shutdown(token) {
                 entries.push(plugin);
@@ -1496,6 +1606,137 @@ impl PluginManager {
 
     pub fn len(&self) -> usize {
         self.entries.try_borrow().map_or(0, |entries| entries.len())
+    }
+
+    pub fn installed_plugins(&self) -> Vec<InstalledPlugin> {
+        let disabled = disabled_plugin_ids(&self.plugin_dir);
+        let mut plugins = discover_packaged_plugins(&self.plugin_dir, &disabled);
+        if let Ok(entries) = self.entries.try_borrow() {
+            for plugin in entries.iter() {
+                if plugins.iter().any(|entry| entry.id == plugin.metadata().id) {
+                    continue;
+                }
+                let metadata = plugin.metadata();
+                plugins.push(InstalledPlugin {
+                    id: metadata.id.clone(),
+                    name: metadata.name.clone(),
+                    author: metadata.author.clone(),
+                    version: metadata.version.clone(),
+                    description: metadata.description.clone(),
+                    github_link: String::new(),
+                    enabled: !disabled.contains(&metadata.id),
+                    icon: None,
+                    readme: None,
+                });
+            }
+        }
+        for path in discover_manual_plugin_dlls(&self.plugin_dir) {
+            let Ok(plugin) = NativePlugin::load(&path) else {
+                continue;
+            };
+            let metadata = plugin.metadata();
+            if plugins.iter().any(|entry| entry.id == metadata.id) {
+                continue;
+            }
+            plugins.push(InstalledPlugin {
+                id: metadata.id.clone(),
+                name: metadata.name.clone(),
+                author: metadata.author.clone(),
+                version: metadata.version.clone(),
+                description: metadata.description.clone(),
+                github_link: String::new(),
+                enabled: !disabled.contains(&metadata.id),
+                icon: None,
+                readme: None,
+            });
+        }
+        plugins.sort_by_key(|plugin| plugin.name.to_lowercase());
+        plugins
+    }
+
+    pub fn set_plugin_enabled(&self, plugin_id: &str, enabled: bool) -> Result<(), String> {
+        validate_plugin_id(plugin_id)?;
+        if !self
+            .installed_plugins()
+            .iter()
+            .any(|plugin| plugin.id == plugin_id)
+        {
+            return Err(format!("Plugin '{plugin_id}' is not installed"));
+        }
+        let mut disabled = disabled_plugin_ids(&self.plugin_dir);
+        if enabled {
+            disabled.remove(plugin_id);
+        } else {
+            disabled.insert(plugin_id.to_string());
+        }
+        write_disabled_plugin_ids(&self.plugin_dir, &disabled)
+    }
+
+    pub fn uninstall_plugin(&self, plugin_id: &str) -> Result<(), String> {
+        validate_plugin_id(plugin_id)?;
+        let targets = uninstall_targets(&self.plugin_dir, plugin_id);
+        if targets.is_empty() {
+            return Err(format!("Plugin '{plugin_id}' is not installed"));
+        }
+
+        let loaded_source = self.entries.try_borrow().ok().and_then(|entries| {
+            entries
+                .iter()
+                .find(|plugin| plugin.metadata().id == plugin_id)
+                .map(|plugin| plugin.path().to_path_buf())
+        });
+        let was_loaded = self
+            .unload_if_loaded(plugin_id)
+            .map_err(|error| error.to_string())?;
+        let uninstall_id = NEXT_BACKUP_ID.fetch_add(1, Ordering::Relaxed);
+        let mut moved = Vec::with_capacity(targets.len());
+        for (index, source) in targets.into_iter().enumerate() {
+            let backup = self.plugin_dir.join(format!(
+                ".{plugin_id}.uninstall-{}-{uninstall_id}-{index}",
+                std::process::id()
+            ));
+            if let Err(error) = std::fs::rename(&source, &backup) {
+                let rollback = restore_uninstall_targets(&moved);
+                let reload = if was_loaded {
+                    reload_plugin_source(self, loaded_source.as_deref())
+                } else {
+                    Ok(())
+                };
+                return Err(rollback_message(
+                    format!("Cannot remove plugin files: {error}"),
+                    rollback.and(reload),
+                ));
+            }
+            moved.push((source, backup));
+        }
+
+        let mut disabled = disabled_plugin_ids(&self.plugin_dir);
+        disabled.remove(plugin_id);
+        if let Err(error) = write_disabled_plugin_ids(&self.plugin_dir, &disabled) {
+            let rollback = restore_uninstall_targets(&moved);
+            let reload = if was_loaded {
+                reload_plugin_source(self, loaded_source.as_deref())
+            } else {
+                Ok(())
+            };
+            return Err(rollback_message(error, rollback.and(reload)));
+        }
+
+        for (_, backup) in moved {
+            let result = if backup.is_dir() {
+                std::fs::remove_dir_all(&backup)
+            } else {
+                std::fs::remove_file(&backup)
+            };
+            if let Err(error) = result {
+                log::warn!(
+                    "Plugin '{}' was uninstalled, but temporary files '{}' could not be removed: {error}",
+                    plugin_id,
+                    backup.display()
+                );
+            }
+        }
+        Ok(())
     }
 
     pub fn install_from_zip(&self, path: &Path) -> Result<PluginManifest, String> {
@@ -1694,6 +1935,206 @@ fn discover_plugins(directory: &Path) -> Vec<(PathBuf, Option<PluginManifest>)> 
         }
     }
     plugins
+}
+
+fn discover_packaged_plugins(directory: &Path, disabled: &HashSet<String>) -> Vec<InstalledPlugin> {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let directory = entry.path();
+            if !directory.is_dir()
+                || directory
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with('.'))
+            {
+                return None;
+            }
+            let manifest = zip_loader::read_manifest_file(&directory.join("plugin.yml")).ok()?;
+            let icon = plugin_asset_path(
+                &directory,
+                manifest.icon.as_deref(),
+                &["icon.png", "icon.jpg", "icon.jpeg", "icon.webp"],
+            )
+            .and_then(|path| read_plugin_icon(&path));
+            let readme = plugin_asset_path(
+                &directory,
+                manifest.readme.as_deref(),
+                &["README.md", "README.markdown", "README.txt"],
+            )
+            .and_then(|path| {
+                zip_loader::read_bounded_file(&path, zip_loader::MAX_PLUGIN_README_BYTES).ok()
+            })
+            .and_then(|bytes| String::from_utf8(bytes).ok());
+            Some(InstalledPlugin {
+                enabled: !disabled.contains(&manifest.id),
+                id: manifest.id,
+                name: manifest.name,
+                author: manifest.author,
+                version: manifest.version,
+                description: manifest.description,
+                github_link: manifest.github_link,
+                icon,
+                readme,
+            })
+        })
+        .collect()
+}
+
+fn discover_manual_plugin_dlls(directory: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("dll"))
+        })
+        .collect()
+}
+
+fn uninstall_targets(directory: &Path, plugin_id: &str) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with('.'))
+            {
+                return None;
+            }
+            if path.is_dir() {
+                return zip_loader::read_manifest_file(&path.join("plugin.yml"))
+                    .ok()
+                    .filter(|manifest| manifest.id == plugin_id)
+                    .map(|_| path);
+            }
+            if !path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("dll"))
+            {
+                return None;
+            }
+            NativePlugin::load(&path)
+                .ok()
+                .filter(|plugin| plugin.metadata().id == plugin_id)
+                .map(|_| path)
+        })
+        .collect()
+}
+
+fn restore_uninstall_targets(moved: &[(PathBuf, PathBuf)]) -> Result<(), String> {
+    let mut errors = Vec::new();
+    for (source, backup) in moved.iter().rev() {
+        if let Err(error) = std::fs::rename(backup, source) {
+            errors.push(format!("cannot restore '{}': {error}", source.display()));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
+fn reload_plugin_source(manager: &PluginManager, source: Option<&Path>) -> Result<(), String> {
+    let Some(source) = source else {
+        return Ok(());
+    };
+    let manifest = source
+        .parent()
+        .and_then(|directory| zip_loader::read_manifest_file(&directory.join("plugin.yml")).ok());
+    manager
+        .load_dll_checked(source, manifest.as_ref())
+        .map_err(|error| format!("cannot reload previous plugin: {error}"))
+}
+
+fn read_plugin_icon(path: &Path) -> Option<Vec<u8>> {
+    let bytes = zip_loader::read_bounded_file(path, zip_loader::MAX_PLUGIN_ICON_BYTES).ok()?;
+    let reader = image::ImageReader::new(std::io::Cursor::new(&bytes))
+        .with_guessed_format()
+        .ok()?;
+    let (width, height) = reader.into_dimensions().ok()?;
+    (width > 0 && height > 0 && width <= 2048 && height <= 2048).then_some(bytes)
+}
+
+fn plugin_asset_path(
+    directory: &Path,
+    declared: Option<&str>,
+    fallbacks: &[&str],
+) -> Option<PathBuf> {
+    declared
+        .map(|path| directory.join(path))
+        .filter(|path| path.is_file())
+        .or_else(|| {
+            fallbacks
+                .iter()
+                .map(|path| directory.join(path))
+                .find(|path| path.is_file())
+        })
+}
+
+fn disabled_plugin_ids(directory: &Path) -> HashSet<String> {
+    std::fs::read_to_string(directory.join(DISABLED_PLUGINS_FILE))
+        .ok()
+        .map(|contents| {
+            contents
+                .lines()
+                .map(str::trim)
+                .filter(|line| {
+                    !line.is_empty()
+                        && line.bytes().all(|byte| {
+                            byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'
+                        })
+                })
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn validate_plugin_id(plugin_id: &str) -> Result<(), String> {
+    if plugin_id.is_empty()
+        || !plugin_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        return Err("Invalid plugin ID".to_string());
+    }
+    Ok(())
+}
+
+fn write_disabled_plugin_ids(directory: &Path, ids: &HashSet<String>) -> Result<(), String> {
+    let path = directory.join(DISABLED_PLUGINS_FILE);
+    let mut ids = ids.iter().collect::<Vec<_>>();
+    ids.sort_unstable();
+    if ids.is_empty() {
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .map_err(|error| format!("Cannot remove '{}': {error}", path.display()))?;
+        }
+        return Ok(());
+    }
+    let contents = ids
+        .into_iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    std::fs::write(&path, contents)
+        .map_err(|error| format!("Cannot write '{}': {error}", path.display()))
 }
 
 fn validate_manifest_metadata(

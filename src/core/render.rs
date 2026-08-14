@@ -6,7 +6,7 @@ use self::background::{BackgroundParams, draw_background};
 use self::expanded::{ExpandedContentParams, draw_expanded_content};
 use self::mini::{MiniContentParams, draw_mini_content};
 
-use crate::core::config::WidgetSlot;
+use crate::core::config::{PluginWidgetSlot, WidgetSlot};
 use crate::core::smtc::MediaInfo;
 use crate::ui::compact::CompactOverlay;
 use crate::ui::expanded::music_view::{default_media_palette, get_media_palette};
@@ -57,6 +57,7 @@ pub struct StyleParams<'a> {
     pub lyrics_delay: f64,
     pub dt: f32,
     pub widget_layout: &'a [WidgetSlot],
+    pub plugin_widget_layout: &'a [PluginWidgetSlot],
     pub plugin_widgets: &'a crate::core::plugin_widget::WidgetManager,
 }
 
@@ -127,6 +128,7 @@ pub fn draw_island(
         lyrics_delay,
         dt,
         widget_layout,
+        plugin_widget_layout,
         plugin_widgets,
     } = style;
     let canvas = surface.canvas();
@@ -213,6 +215,7 @@ pub fn draw_island(
         palette: &palette,
         lyrics_delay,
         widget_layout,
+        plugin_widget_layout,
         plugin_widgets,
     });
     if compact_overlay_visible {

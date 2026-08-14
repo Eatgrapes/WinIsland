@@ -7,7 +7,7 @@
 - Windows 10 2004 或更高版本，或 Windows 11
 - Stable Rust 和 `x86_64-pc-windows-msvc` 工具链
 - 安装了“使用 C++ 的桌面开发”工作负载的 Visual Studio Build Tools
-- 支持插件 API `0.3` / ABI v1 的 WinIsland
+- 支持插件 API `0.5` / ABI v1 的 WinIsland
 
 检查工具链：
 
@@ -40,7 +40,7 @@ name = "hello_winisland_plugin"
 crate-type = ["cdylib"]
 
 [dependencies]
-winisland-plugin-api = "0.3"
+winisland-plugin-api = "0.5"
 ```
 
 必须使用 `cdylib`，它会生成带有 ABI 导出入口的原生 DLL。Packager 也会复用包元数据，因此这些字段必须与下面的 `PluginMetadataC` 保持一致。

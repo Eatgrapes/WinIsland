@@ -1,18 +1,22 @@
 use skia_safe::{Canvas, Color, FontStyle, Paint, Point, Rect};
 
-use crate::core::config::{WIDGET_GRID_SLOTS, WidgetKind, WidgetSlot, widget_footprint};
+use crate::core::config::{
+    PluginWidgetSlot, WIDGET_GRID_SLOTS, WidgetKind, WidgetSlot, plugin_widget_slot, span_cells,
+    widget_footprint,
+};
 use crate::core::i18n::tr;
+use crate::core::plugin_widget::PluginWidget;
 use crate::ui::widget::{draw_mini_card, draw_widget_preview as draw_widget_card_preview};
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::shape::g3_rounded_rect_path;
 
 use super::super::input::{
-    WIDGET_ISLAND_PANEL_H, WIDGET_LIBRARY_HEADER_H, WIDGET_PANEL_GAP, WIDGET_PREVIEW_H,
-    WidgetGridGeom, widget_delete_button_center, widget_grid_geom, widget_library_items,
-    widget_source_rect,
+    WIDGET_ISLAND_PANEL_H, WIDGET_LIBRARY_HEADER_H, WIDGET_PANEL_GAP, WidgetGridGeom, WidgetSource,
+    widget_delete_button_center, widget_grid_geom, widget_library_items, widget_source_rect,
+    widget_source_span,
 };
-use super::super::items::{CONTENT_PADDING, GROUP_INNER_PAD, SettingsItem};
+use super::super::items::{CONTENT_PADDING, GROUP_INNER_PAD};
 
 pub(super) struct WidgetPreviewParams<'a> {
     pub(super) canvas: &'a Canvas,
@@ -25,7 +29,9 @@ pub(super) struct WidgetPreviewParams<'a> {
     pub(super) expanded_width: f32,
     pub(super) expanded_height: f32,
     pub(super) widget_layout: &'a [WidgetSlot],
-    pub(super) widget_dragging: Option<WidgetKind>,
+    pub(super) plugin_widget_layout: &'a [PluginWidgetSlot],
+    pub(super) plugin_widgets: &'a [PluginWidget],
+    pub(super) widget_dragging: Option<&'a WidgetSource>,
     pub(super) widget_drag_hover_slot: Option<usize>,
     pub(super) widget_preview_hover_slot: Option<usize>,
     pub(super) theme: &'a SettingsTheme,
@@ -208,27 +214,61 @@ fn draw_delete_button(canvas: &Canvas, x: f32, y: f32, scale: f32) {
     canvas.draw_line((x + arm, y - arm), (x - arm, y + arm), &paint);
 }
 
-fn draw_library_tile(canvas: &Canvas, kind: WidgetKind, rect: Rect) {
+fn draw_library_tile(
+    canvas: &Canvas,
+    source: &WidgetSource,
+    plugin_widgets: &[PluginWidget],
+    rect: Rect,
+) {
     let preview_rect = Rect::from_xywh(
         rect.left + 7.0,
         rect.top + 6.0,
         rect.width() - 14.0,
         rect.height() - 12.0,
     );
-    let (preview_width, preview_height) = match kind {
-        WidgetKind::Clock => (98.0, 46.0),
-        WidgetKind::Calendar => (60.0, 60.0),
-        WidgetKind::ResourceUsage => (98.0, 46.0),
-        WidgetKind::Settings => (54.0, 54.0),
-    };
-    draw_mini_card(
-        canvas,
-        kind,
-        preview_rect.center_x() - preview_width / 2.0,
-        preview_rect.center_y() - preview_height / 2.0,
-        preview_width,
-        preview_height,
-    );
+    match source {
+        WidgetSource::BuiltIn(kind) => {
+            let (preview_width, preview_height) = match kind {
+                WidgetKind::Clock => (98.0, 46.0),
+                WidgetKind::Calendar => (60.0, 60.0),
+                WidgetKind::ResourceUsage => (98.0, 46.0),
+                WidgetKind::Settings => (54.0, 54.0),
+            };
+            draw_mini_card(
+                canvas,
+                *kind,
+                preview_rect.center_x() - preview_width / 2.0,
+                preview_rect.center_y() - preview_height / 2.0,
+                preview_width,
+                preview_height,
+            );
+        }
+        WidgetSource::Plugin(id) => {
+            if let Some(widget) = plugin_widgets
+                .iter()
+                .find(|widget| widget.layout_id().as_ref() == Some(id))
+            {
+                let span = widget.span();
+                let natural_width = span.0 as f32 * 60.0;
+                let natural_height = span.1 as f32 * 48.0;
+                let scale = (preview_rect.width() / natural_width)
+                    .min(preview_rect.height() / natural_height)
+                    .min(1.0);
+                let width = natural_width * scale;
+                let height = natural_height * scale;
+                crate::ui::expanded::widget_view::draw_plugin_widget(
+                    canvas,
+                    widget,
+                    preview_rect.center_x() - width / 2.0,
+                    preview_rect.center_y() - height / 2.0,
+                    width,
+                    height,
+                    scale,
+                    255,
+                );
+            }
+        }
+    }
 }
 
 pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
@@ -243,14 +283,20 @@ pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
         expanded_width,
         expanded_height,
         widget_layout,
+        plugin_widget_layout,
+        plugin_widgets,
         widget_dragging,
         widget_drag_hover_slot,
         widget_preview_hover_slot,
         theme,
     } = params;
-    let preview_height = WIDGET_PREVIEW_H;
-    let top_padding = (SettingsItem::WidgetPreview.height() - preview_height) / 2.0;
-    let y = item_y + top_padding;
+    let preview_height = params_item_height(
+        plugin_widgets,
+        widget_layout,
+        plugin_widget_layout,
+        widget_dragging,
+    );
+    let y = item_y + 10.0;
     if y + preview_height < visible_min_y || y > visible_max_y {
         return;
     }
@@ -300,17 +346,19 @@ pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
 
     let dragging = widget_dragging.is_some();
     let drop_cells = match (widget_dragging, widget_drag_hover_slot) {
-        (Some(widget), Some(slot)) => widget_footprint(widget, slot),
+        (Some(source), Some(slot)) => widget_source_span(source, plugin_widgets)
+            .map(|span| span_cells(slot, span))
+            .unwrap_or_default(),
         _ => Vec::new(),
     };
     draw_grid(canvas, &geometry, dragging, &drop_cells, theme);
 
     for entry in widget_layout {
         let Some(kind) = entry.widget else { continue };
-        if widget_dragging == Some(kind) {
+        if widget_dragging == Some(&WidgetSource::BuiltIn(kind)) {
             continue;
         }
-        let (x, y, width, height) = geometry.footprint_rect(kind, entry.slot);
+        let (x, y, width, height) = geometry.footprint_rect(kind.span(), entry.slot);
         draw_widget_card_preview(
             canvas,
             kind,
@@ -326,6 +374,36 @@ pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
         let hovered = widget_preview_hover_slot
             .is_some_and(|slot| widget_footprint(kind, entry.slot).contains(&slot));
         if kind != WidgetKind::Settings && (dragging || hovered) {
+            let (button_x, button_y) =
+                widget_delete_button_center(x, y, width, height, geometry.cap_scale);
+            draw_delete_button(canvas, button_x, button_y, geometry.cap_scale);
+        }
+    }
+
+    for widget in plugin_widgets {
+        let Some(id) = widget.layout_id() else {
+            continue;
+        };
+        let Some(entry) = plugin_widget_slot(plugin_widget_layout, &id) else {
+            continue;
+        };
+        if widget_dragging == Some(&WidgetSource::Plugin(id.clone())) {
+            continue;
+        }
+        let (x, y, width, height) = geometry.footprint_rect(widget.span(), entry.slot);
+        crate::ui::expanded::widget_view::draw_plugin_widget(
+            canvas,
+            widget,
+            x,
+            y,
+            width,
+            height,
+            geometry.cap_scale,
+            255,
+        );
+        let cells = span_cells(entry.slot, widget.span());
+        let hovered = widget_preview_hover_slot.is_some_and(|slot| cells.contains(&slot));
+        if dragging || hovered {
             let (button_x, button_y) =
                 widget_delete_button_center(x, y, width, height, geometry.cap_scale);
             draw_delete_button(canvas, button_x, button_y, geometry.cap_scale);
@@ -352,7 +430,12 @@ pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
     );
 
     let source_y = library_y + WIDGET_LIBRARY_HEADER_H;
-    let library_items = widget_library_items(widget_layout, widget_dragging);
+    let library_items = widget_library_items(
+        widget_layout,
+        plugin_widget_layout,
+        plugin_widgets,
+        widget_dragging,
+    );
     if library_items.is_empty() {
         if widget_dragging.is_none() {
             draw_centered_label(
@@ -369,10 +452,27 @@ pub(super) fn draw_widget_preview(params: WidgetPreviewParams<'_>) {
             );
         }
     } else {
-        for (index, kind) in library_items.iter().enumerate() {
-            let (x, y, width, height) = widget_source_rect(panel_x, source_y, index, *kind);
+        for (index, source) in library_items.iter().enumerate() {
+            let (x, y, width, height) = widget_source_rect(panel_x, source_y, index);
             let rect = Rect::from_xywh(x, y, width, height);
-            draw_library_tile(canvas, *kind, rect);
+            draw_library_tile(canvas, source, plugin_widgets, rect);
         }
     }
+}
+
+fn params_item_height(
+    plugin_widgets: &[PluginWidget],
+    widget_layout: &[WidgetSlot],
+    plugin_widget_layout: &[PluginWidgetSlot],
+    dragging: Option<&WidgetSource>,
+) -> f32 {
+    super::super::input::widget_preview_height(
+        widget_library_items(
+            widget_layout,
+            plugin_widget_layout,
+            plugin_widgets,
+            dragging,
+        )
+        .len(),
+    ) - 20.0
 }

@@ -1,5 +1,6 @@
 use crate::core::config::{
-    WIDGET_GRID_SLOTS, WidgetSlot, first_free_anchor, span_cells, widget_footprint,
+    PluginWidgetSlot, WIDGET_GRID_SLOTS, WidgetSlot, first_free_anchor, plugin_widget_slot,
+    span_cells, widget_footprint,
 };
 use crate::core::plugin_widget::WidgetManager;
 use crate::core::smtc::MediaInfo;
@@ -8,6 +9,41 @@ use crate::plugin::types::{INTERFACE_VERSION_1, WidgetDrawContextV1};
 use crate::ui::widget::{draw_widget, widget_animates, widget_grid_layout};
 use skia_safe::{Canvas, Color, Rect};
 use std::ffi::c_void;
+
+#[allow(clippy::too_many_arguments)]
+pub fn draw_plugin_widget(
+    canvas: &Canvas,
+    widget: &crate::core::plugin_widget::PluginWidget,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    scale: f32,
+    alpha: u8,
+) {
+    let Some(on_draw) = widget.on_draw else {
+        return;
+    };
+    let inv_scale = if scale > 0.0 { 1.0 / scale } else { 1.0 };
+    let ctx = WidgetDrawContextV1 {
+        struct_size: std::mem::size_of::<WidgetDrawContextV1>() as u32,
+        version: INTERFACE_VERSION_1,
+        width: width * inv_scale,
+        height: height * inv_scale,
+        scale,
+        alpha,
+        canvas_handle: canvas as *const Canvas as *mut c_void,
+        draw: crate::plugin::manager::draw_api(),
+    };
+    let save_count = canvas.save();
+    canvas.clip_rect(Rect::from_xywh(x, y, width, height), None, false);
+    canvas.translate((x, y));
+    crate::plugin::manager::reset_draw_transform();
+    // SAFETY: on_draw is invoked synchronously on the render thread; the context and borrowed
+    // canvas stay valid for this call.
+    unsafe { on_draw(widget.callback_data as *mut c_void, &ctx) };
+    canvas.restore_to_count(save_count);
+}
 
 #[allow(clippy::too_many_arguments)]
 pub fn draw_widget_page(
@@ -23,6 +59,7 @@ pub fn draw_widget_page(
     _lyrics_delay: f64,
     _dt: f32,
     widget_layout: &[WidgetSlot],
+    plugin_widget_layout: &[PluginWidgetSlot],
     plugin_widgets: &WidgetManager,
     text_color: Color,
     show_page_switcher: bool,
@@ -58,36 +95,27 @@ pub fn draw_widget_page(
         }
 
         for widget in plugin_widgets.widgets() {
-            let span = (widget.span_cols as usize, widget.span_rows as usize);
-            let Some(anchor) = first_free_anchor(&occupied, span) else {
+            let span = widget.span();
+            let configured_anchor = widget.layout_id().and_then(|id| {
+                plugin_widget_slot(plugin_widget_layout, &id).map(|entry| entry.slot)
+            });
+            let anchor = match configured_anchor {
+                Some(anchor) => {
+                    let cells = span_cells(anchor, span);
+                    (!cells.is_empty() && cells.iter().all(|cell| !occupied[*cell]))
+                        .then_some(cells[0])
+                }
+                None if widget.key.is_none() => first_free_anchor(&occupied, span),
+                None => None,
+            };
+            let Some(anchor) = anchor else {
                 continue;
             };
             for cell in span_cells(anchor, span) {
                 occupied[cell] = true;
             }
             let (slot_x, slot_y, tile_w, tile_h) = layout.footprint_rect_span(anchor, span);
-            let Some(on_draw) = widget.on_draw else {
-                continue;
-            };
-            let inv_scale = if scale > 0.0 { 1.0 / scale } else { 1.0 };
-            let ctx = WidgetDrawContextV1 {
-                struct_size: std::mem::size_of::<WidgetDrawContextV1>() as u32,
-                version: INTERFACE_VERSION_1,
-                width: tile_w * inv_scale,
-                height: tile_h * inv_scale,
-                scale,
-                alpha,
-                canvas_handle: canvas as *const Canvas as *mut c_void,
-                draw: crate::plugin::manager::draw_api(),
-            };
-            let save_count = canvas.save();
-            canvas.clip_rect(Rect::from_xywh(slot_x, slot_y, tile_w, tile_h), None, false);
-            canvas.translate((slot_x, slot_y));
-            crate::plugin::manager::reset_draw_transform();
-            // SAFETY: on_draw is invoked synchronously on the render thread;
-            // the context and the borrowed canvas stay valid for this call.
-            unsafe { on_draw(widget.callback_data as *mut c_void, &ctx) };
-            canvas.restore_to_count(save_count);
+            draw_plugin_widget(canvas, widget, slot_x, slot_y, tile_w, tile_h, scale, alpha);
         }
     }
 

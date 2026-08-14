@@ -205,7 +205,22 @@ impl App {
                         self.ctx_mgr.set_smtc_active(music_active);
                         crate::plugin::manager::drain_pending_contexts(&mut self.ctx_mgr);
                         let _ = self.ctx_mgr.tick();
-                        crate::plugin::manager::drain_widget_events(&mut self.widget_mgr);
+                        if crate::plugin::manager::drain_widget_events(&mut self.widget_mgr) {
+                            let widgets = self.widget_mgr.configurable_widgets();
+                            let mut layout_config = crate::core::persistence::load_config();
+                            if crate::core::config::normalize_active_plugin_widget_layout(
+                                &layout_config.widget_layout,
+                                &mut layout_config.plugin_widget_layout,
+                                &widgets,
+                            ) {
+                                crate::core::persistence::save_config(&layout_config);
+                            }
+                            self.config.widget_layout = layout_config.widget_layout;
+                            self.config.plugin_widget_layout = layout_config.plugin_widget_layout;
+                            if let Some(settings) = self.settings.as_mut() {
+                                settings.set_plugin_widgets(widgets);
+                            }
+                        }
                         let mini_content = self.ctx_mgr.current_mini();
 
                         let render_result =
@@ -256,6 +271,7 @@ impl App {
                                             lyrics_delay: self.config.lyrics_delay,
                                             dt,
                                             widget_layout: &self.config.widget_layout,
+                                            plugin_widget_layout: &self.config.plugin_widget_layout,
                                             plugin_widgets: &self.widget_mgr,
                                         },
                                         mini_content,

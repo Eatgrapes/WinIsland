@@ -826,6 +826,8 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
     let expanded_width = params.expanded_width;
     let expanded_height = params.expanded_height;
     let widget_layout = params.widget_layout;
+    let plugin_widget_layout = params.plugin_widget_layout;
+    let plugin_widgets = params.plugin_widgets;
     let widget_dragging = params.widget_dragging;
     let widget_drag_hover_slot = params.widget_drag_hover_slot;
     let widget_preview_hover_slot = params.widget_preview_hover_slot;
@@ -1005,7 +1007,8 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                 draw_center_text(&ctx, y, item.height(), text, *size, *color);
             }
             SettingsItem::Spacer { .. } => {}
-            SettingsItem::WidgetPreview => {
+            SettingsItem::Custom { .. } => {}
+            SettingsItem::WidgetPreview { .. } => {
                 draw_widget_preview(WidgetPreviewParams {
                     canvas,
                     item_y: y,
@@ -1017,6 +1020,8 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     expanded_width,
                     expanded_height,
                     widget_layout,
+                    plugin_widget_layout,
+                    plugin_widgets,
                     widget_dragging,
                     widget_drag_hover_slot,
                     widget_preview_hover_slot,

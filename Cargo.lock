@@ -9,12 +9,14 @@ dependencies = [
  "base64",
  "cpal",
  "dirs",
+ "ed25519-dalek",
  "encoding_rs",
  "fuzzengine",
  "image",
  "libloading 0.9.0",
  "log",
  "lrc",
+ "pulldown-cmark",
  "realfft",
  "reqwest",
  "rfd",
@@ -3170,6 +3172,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pulldown-cmark"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9f068eba8e7071c5f9511831b44f32c740d5adf574e990f946ddb53db2f314e"
+dependencies = [
+ "bitflags 2.11.0",
+ "memchr",
+ "unicase",
+]
+
+[[package]]
 name = "pxfm"
 version = "0.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5214,7 +5227,7 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
 name = "winisland-plugin-api"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "ed25519-dalek",
  "hex",

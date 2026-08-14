@@ -5,8 +5,8 @@ use winit::keyboard::{Key, NamedKey};
 use super::pages::PageInput;
 use super::{
     NumberInput, NumberInputHandler, PAGE_NAV_GAP, PAGE_NAV_SIZE, PAGE_NAV_X, PAGE_NAV_Y,
-    POPUP_OPACITY_KEY, PageNavigation, SETTINGS_HEADER_H, SIDEBAR_ROW_H, SIDEBAR_START_Y,
-    SIDEBAR_W, SettingsApp,
+    POPUP_OPACITY_KEY, PageNavigation, SETTINGS_HEADER_H, SIDEBAR_PAGE_COUNT, SIDEBAR_ROW_H,
+    SIDEBAR_START_Y, SIDEBAR_W, SettingsApp,
 };
 
 impl SettingsApp {
@@ -34,7 +34,7 @@ impl SettingsApp {
         }
 
         if mouse_x < SIDEBAR_W {
-            for page in 0..4 {
+            for page in 0..SIDEBAR_PAGE_COUNT {
                 let row_y = SIDEBAR_START_Y + page as f32 * (SIDEBAR_ROW_H + 2.0);
                 if mouse_y >= row_y
                     && mouse_y <= row_y + SIDEBAR_ROW_H
@@ -76,7 +76,8 @@ impl SettingsApp {
                     window.request_redraw();
                 }
             }
-            3 => self.handle_about_click(input),
+            3 => self.handle_plugin_click(),
+            4 => self.handle_about_click(input),
             _ => {}
         }
     }
@@ -122,7 +123,7 @@ impl SettingsApp {
         }
 
         if mouse_x < SIDEBAR_W {
-            for page in 0..4 {
+            for page in 0..SIDEBAR_PAGE_COUNT {
                 let row_y = SIDEBAR_START_Y + page as f32 * (SIDEBAR_ROW_H + 2.0);
                 if mouse_y >= row_y
                     && mouse_y <= row_y + SIDEBAR_ROW_H
@@ -142,6 +143,9 @@ impl SettingsApp {
         let content_width = self.win_w / scale - SIDEBAR_W;
         if self.widget_dragging.is_some() {
             return true;
+        }
+        if self.active_page == 3 {
+            return self.plugin_hovered();
         }
         if self
             .widget_preview_hit_at_mouse()
@@ -193,6 +197,12 @@ impl SettingsApp {
         };
         self.page_history_index = next_index;
         self.active_page = self.page_history[next_index];
+        if self.active_page != 3 {
+            self.selected_plugin_id = None;
+            self.plugin_detail_closing = false;
+            self.anim
+                .set_with_speed(super::PLUGIN_DETAIL_KEY, 0.0, 0.28);
+        }
         self.reset_scroll();
         true
     }
@@ -205,6 +215,12 @@ impl SettingsApp {
         self.page_history.push(page);
         self.page_history_index = self.page_history.len() - 1;
         self.active_page = page;
+        if page != 3 {
+            self.selected_plugin_id = None;
+            self.plugin_detail_closing = false;
+            self.anim
+                .set_with_speed(super::PLUGIN_DETAIL_KEY, 0.0, 0.28);
+        }
         self.reset_scroll();
     }
 

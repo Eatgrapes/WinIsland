@@ -5,6 +5,7 @@ use crate::core::persistence::{get_config_path, load_config};
 use crate::core::plugin_widget::WidgetManager;
 use crate::core::smtc::{MediaInfo, SmtcListener};
 use crate::plugin::PluginManager;
+use crate::plugin::marketplace::MarketplaceCatalog;
 use crate::plugin::zip_loader::PluginManifest;
 use crate::ui::compact::CompactOverlay;
 use crate::utils::physics::Spring;
@@ -27,6 +28,8 @@ mod startup;
 mod system;
 
 type InstallResult = Result<(PluginManifest, PathBuf), String>;
+type MarketplaceCatalogResult = Result<MarketplaceCatalog, String>;
+type MarketplaceDownloadResult = Result<PathBuf, String>;
 const RIGHT_DRAG_THRESHOLD: i32 = 4;
 pub(super) const DEFAULT_ANIMATION_REFRESH_RATE_MILLIHERTZ: u32 = 144_000;
 pub(super) const DEFAULT_ANIMATION_FRAME_INTERVAL: Duration = Duration::from_micros(6_944);
@@ -100,6 +103,9 @@ pub struct App {
     plugin_media_source: Option<PluginMediaSource>,
     is_light_theme: bool,
     pending_install: Option<mpsc::Receiver<InstallResult>>,
+    marketplace_catalog: Option<MarketplaceCatalog>,
+    pending_marketplace_catalog: Option<mpsc::Receiver<MarketplaceCatalogResult>>,
+    pending_marketplace_download: Option<mpsc::Receiver<MarketplaceDownloadResult>>,
     right_press_cursor: Option<(i32, i32)>,
     is_right_dragging: bool,
     right_drag_start_offset: Option<(i32, i32)>,
@@ -169,6 +175,9 @@ impl Default for App {
             plugin_media_source: None,
             is_light_theme: false,
             pending_install: None,
+            marketplace_catalog: None,
+            pending_marketplace_catalog: None,
+            pending_marketplace_download: None,
             right_press_cursor: None,
             is_right_dragging: false,
             right_drag_start_offset: None,

@@ -1,4 +1,7 @@
-use crate::core::config::{AppConfig, WidgetKind};
+use crate::core::config::AppConfig;
+use crate::core::plugin_widget::PluginWidget;
+use crate::plugin::manager::InstalledPlugin;
+use crate::plugin::marketplace::{MarketplaceCatalog, MarketplacePlugin};
 use crate::utils::anim::AnimPool;
 use crate::utils::color::*;
 use crate::utils::icon::get_app_icon;
@@ -31,6 +34,7 @@ pub(crate) const WIN_H: f32 = 680.0;
 pub(crate) const SIDEBAR_W: f32 = 184.0;
 pub(crate) const SIDEBAR_ROW_H: f32 = 34.0;
 pub(crate) const SIDEBAR_START_Y: f32 = 64.0;
+pub(crate) const SIDEBAR_PAGE_COUNT: usize = 5;
 pub(crate) const PAGE_NAV_X: f32 = SIDEBAR_W + 18.0;
 pub(crate) const PAGE_NAV_Y: f32 = 18.0;
 pub(crate) const PAGE_NAV_SIZE: f32 = 28.0;
@@ -85,6 +89,7 @@ pub(crate) enum PageNavigation {
 
 pub(crate) const POPUP_OPACITY_KEY: u64 = 1;
 pub(crate) const SIDEBAR_KEY_BASE: u64 = 1_000;
+pub(crate) const PLUGIN_DETAIL_KEY: u64 = 2_000;
 pub(crate) const SCROLL_STIFFNESS: f32 = 55.0;
 pub(crate) const SCROLL_DAMPING: f32 = 16.0;
 
@@ -112,6 +117,28 @@ pub(crate) struct NumberInput {
     pub(crate) rect: skia_safe::Rect,
     pub(crate) text: String,
     pub(crate) on_commit: NumberInputHandler,
+}
+
+pub(crate) enum PluginSettingsRequest {
+    Install(std::path::PathBuf),
+    LoadMarketplace,
+    InstallMarketplace(Box<MarketplacePlugin>),
+    SetEnabled { id: String, enabled: bool },
+    Uninstall { id: String },
+    Restart,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PluginPageTab {
+    Installed,
+    Marketplace,
+}
+
+pub(crate) enum MarketplaceViewState {
+    NotLoaded,
+    Loading,
+    Loaded(Vec<MarketplacePlugin>),
+    Failed(String),
 }
 
 pub struct SettingsApp {
@@ -147,14 +174,30 @@ pub struct SettingsApp {
     pub(crate) dots_hovered: bool,
     pub(crate) scroll_dragging: bool,
     scroll_drag_offset: f32,
-    pub(crate) widget_dragging: Option<WidgetKind>,
+    pub(crate) widget_dragging: Option<WidgetSource>,
     pub(crate) widget_drag_hover_slot: Option<usize>,
     pub(crate) widget_preview_hover_slot: Option<usize>,
+    pub(crate) plugin_widgets: Vec<PluginWidget>,
+    pub(crate) plugins: Vec<InstalledPlugin>,
+    pub(crate) plugin_page_tab: PluginPageTab,
+    pub(crate) marketplace_state: MarketplaceViewState,
+    pub(crate) marketplace_installing_id: Option<String>,
+    pub(crate) pending_plugin_uninstall_id: Option<String>,
+    pub(crate) selected_plugin_id: Option<String>,
+    pub(crate) plugin_detail_closing: bool,
+    pub(crate) plugin_detail_scroll: f32,
+    pub(crate) plugin_detail_max_scroll: f32,
+    pub(crate) plugin_status: Option<(String, bool)>,
+    plugin_request: Option<PluginSettingsRequest>,
     close_requested: bool,
 }
 
 impl SettingsApp {
-    pub fn new(config: AppConfig) -> Self {
+    pub fn new(
+        config: AppConfig,
+        plugins: Vec<InstalledPlugin>,
+        plugin_widgets: Vec<PluginWidget>,
+    ) -> Self {
         let switch_anim = SwitchAnimator::new(&[]);
         Self {
             window: None,
@@ -192,6 +235,18 @@ impl SettingsApp {
             widget_dragging: None,
             widget_drag_hover_slot: None,
             widget_preview_hover_slot: None,
+            plugin_widgets,
+            plugins,
+            plugin_page_tab: PluginPageTab::Installed,
+            marketplace_state: MarketplaceViewState::NotLoaded,
+            marketplace_installing_id: None,
+            pending_plugin_uninstall_id: None,
+            selected_plugin_id: None,
+            plugin_detail_closing: false,
+            plugin_detail_scroll: 0.0,
+            plugin_detail_max_scroll: 0.0,
+            plugin_status: None,
+            plugin_request: None,
             close_requested: false,
         }
     }
@@ -359,6 +414,7 @@ impl SettingsApp {
     pub(crate) fn invalidate_renderer_target(&mut self) {
         self.renderer_target = None;
         sidebar::clear_sidebar_icon_cache();
+        pages::plugins::clear_plugin_icon_cache();
     }
 
     pub(crate) fn recreate_renderer_target(
@@ -459,6 +515,12 @@ impl SettingsApp {
                     || (new_pos.1 - self.last_hover_mouse_pos.1).abs() > 0.5;
                 self.logical_mouse_pos = new_pos;
                 self.update_scroll_drag(new_pos.1);
+                if self.active_page == 3
+                    && mouse_moved
+                    && let Some(win) = &self.window
+                {
+                    win.request_redraw();
+                }
 
                 let dots_hovered = self.focused && window_controls_hovered(new_pos.0, new_pos.1);
                 if dots_hovered != self.dots_hovered {
@@ -514,19 +576,19 @@ impl SettingsApp {
                     let (mx, my) = self.logical_mouse_pos;
                     let mut new_hover: i32 = -1;
                     if mx < SIDEBAR_W {
-                        for i in 0..4 {
+                        for i in 0..SIDEBAR_PAGE_COUNT {
                             let row_y = SIDEBAR_START_Y + i as f32 * (SIDEBAR_ROW_H + 2.0);
                             if my >= row_y
                                 && my <= row_y + SIDEBAR_ROW_H
                                 && (SIDEBAR_PAD..=SIDEBAR_W - SIDEBAR_PAD).contains(&mx)
                             {
-                                new_hover = i;
+                                new_hover = i as i32;
                             }
                         }
                     }
                     if new_hover != self.sidebar_hover {
                         self.sidebar_hover = new_hover;
-                        for idx in 0..4 {
+                        for idx in 0..SIDEBAR_PAGE_COUNT {
                             if idx == new_hover as usize {
                                 self.anim.set(SIDEBAR_KEY_BASE + idx as u64, 1.0);
                             } else {
@@ -556,6 +618,19 @@ impl SettingsApp {
                     }
                 }
             }
+            WindowEvent::DroppedFile(path)
+                if self.active_page == 3
+                    && path
+                        .extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip")) =>
+            {
+                self.plugin_status = Some((crate::core::i18n::tr("plugin_installing"), false));
+                self.plugin_request = Some(PluginSettingsRequest::Install(path));
+                self.mark_items_dirty();
+                if let Some(win) = &self.window {
+                    win.request_redraw();
+                }
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 if self.popup.is_some() {
                     self.popup = None;
@@ -566,6 +641,18 @@ impl SettingsApp {
                     return;
                 }
                 let (mx, _) = self.logical_mouse_pos;
+                if self.active_page == 3 && self.plugin_detail_contains(mx) {
+                    let diff = match delta {
+                        winit::event::MouseScrollDelta::LineDelta(_, y) => y * 40.0,
+                        winit::event::MouseScrollDelta::PixelDelta(pos) => pos.y as f32,
+                    };
+                    self.plugin_detail_scroll = (self.plugin_detail_scroll - diff)
+                        .clamp(0.0, self.plugin_detail_max_scroll);
+                    if let Some(win) = &self.window {
+                        win.request_redraw();
+                    }
+                    return;
+                }
                 if mx >= SIDEBAR_W {
                     let diff = match delta {
                         winit::event::MouseScrollDelta::LineDelta(_, y) => y * 40.0,
@@ -666,6 +753,11 @@ impl SettingsApp {
         let mut redraw = is_widget_dragging || is_number_input_active || self.switch_anim.tick();
         if self.anim.tick() {
             redraw = true;
+        }
+        if self.plugin_detail_closing && self.anim.get(PLUGIN_DETAIL_KEY) <= 0.005 {
+            self.plugin_detail_closing = false;
+            self.selected_plugin_id = None;
+            self.plugin_detail_scroll = 0.0;
         }
 
         self.ensure_items_cache();
@@ -798,8 +890,97 @@ impl SettingsApp {
         self.popup = None;
         self.widget_dragging = None;
         sidebar::clear_sidebar_icon_cache();
+        pages::plugins::clear_plugin_icon_cache();
         let renderer_target = self.renderer_target.take();
         self.window = None;
         renderer_target
+    }
+
+    pub(crate) fn take_plugin_request(&mut self) -> Option<PluginSettingsRequest> {
+        self.plugin_request.take()
+    }
+
+    pub(crate) fn set_plugins(&mut self, plugins: Vec<InstalledPlugin>) {
+        pages::plugins::clear_plugin_icon_cache();
+        self.plugins = plugins;
+        if self
+            .selected_plugin_id
+            .as_ref()
+            .is_some_and(|id| !self.plugins.iter().any(|plugin| &plugin.id == id))
+        {
+            self.selected_plugin_id = None;
+            self.pending_plugin_uninstall_id = None;
+            self.plugin_detail_closing = true;
+            self.anim.set_with_speed(PLUGIN_DETAIL_KEY, 0.0, 0.28);
+        }
+        self.mark_items_dirty();
+        if let Some(win) = &self.window {
+            win.request_redraw();
+        }
+    }
+
+    pub(crate) fn set_plugin_widgets(&mut self, plugin_widgets: Vec<PluginWidget>) {
+        self.plugin_widgets = plugin_widgets;
+        let layout_changed = crate::core::config::normalize_active_plugin_widget_layout(
+            &self.config.widget_layout,
+            &mut self.config.plugin_widget_layout,
+            &self.plugin_widgets,
+        );
+        if self.widget_dragging.as_ref().is_some_and(|source| {
+            matches!(source, WidgetSource::Plugin(id) if !self.plugin_widgets.iter().any(|widget| widget.layout_id().as_ref() == Some(id)))
+        }) {
+            self.widget_dragging = None;
+            self.widget_drag_hover_slot = None;
+        }
+        self.mark_items_dirty();
+        if layout_changed {
+            crate::core::persistence::save_config(&self.config);
+        }
+        if let Some(win) = &self.window {
+            win.request_redraw();
+        }
+    }
+
+    pub(crate) fn set_plugin_status(&mut self, message: String, restart: bool) {
+        self.plugin_status = Some((message, restart));
+        self.mark_items_dirty();
+        if let Some(win) = &self.window {
+            win.request_redraw();
+        }
+    }
+
+    pub(crate) fn set_marketplace_loading(&mut self) {
+        if !matches!(self.marketplace_state, MarketplaceViewState::Loaded(_)) {
+            self.marketplace_state = MarketplaceViewState::Loading;
+        }
+        self.mark_items_dirty();
+        if let Some(win) = &self.window {
+            win.request_redraw();
+        }
+    }
+
+    pub(crate) fn set_marketplace_catalog(&mut self, catalog: MarketplaceCatalog) {
+        pages::plugins::clear_plugin_icon_cache();
+        self.marketplace_state = MarketplaceViewState::Loaded(catalog.plugins);
+        self.mark_items_dirty();
+        if let Some(win) = &self.window {
+            win.request_redraw();
+        }
+    }
+
+    pub(crate) fn set_marketplace_error(&mut self, error: String) {
+        self.marketplace_state = MarketplaceViewState::Failed(error);
+        self.mark_items_dirty();
+        if let Some(win) = &self.window {
+            win.request_redraw();
+        }
+    }
+
+    pub(crate) fn finish_marketplace_install(&mut self) {
+        self.marketplace_installing_id = None;
+        self.mark_items_dirty();
+        if let Some(win) = &self.window {
+            win.request_redraw();
+        }
     }
 }

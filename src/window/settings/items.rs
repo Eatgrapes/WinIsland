@@ -9,7 +9,8 @@ impl SettingsApp {
             0 => self.build_general_items(),
             1 => self.build_music_items(),
             2 => self.build_widget_items(),
-            3 => self.build_about_items(),
+            3 => self.build_plugin_items(),
+            4 => self.build_about_items(),
             _ => vec![],
         }
     }

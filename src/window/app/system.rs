@@ -12,6 +12,7 @@ use winit::window::Window;
 
 use crate::core::config::PADDING;
 use crate::core::persistence::{get_config_path, load_config};
+use crate::plugin::marketplace::{self, MarketplacePlugin};
 use crate::plugin::zip_loader;
 use crate::window::d3d::MAIN_D3D_TARGET;
 use crate::window::tray::TrayAction;
@@ -19,6 +20,72 @@ use crate::window::tray::TrayAction;
 use super::App;
 
 impl App {
+    pub(super) fn handle_plugin_settings_request(&mut self, event_loop: &ActiveEventLoop) {
+        let request = self
+            .settings
+            .as_mut()
+            .and_then(crate::window::settings::SettingsApp::take_plugin_request);
+        match request {
+            Some(crate::window::settings::PluginSettingsRequest::Install(path)) => {
+                self.install_zip_drop(&path);
+            }
+            Some(crate::window::settings::PluginSettingsRequest::LoadMarketplace) => {
+                self.load_plugin_marketplace();
+            }
+            Some(crate::window::settings::PluginSettingsRequest::InstallMarketplace(plugin)) => {
+                self.install_marketplace_plugin(*plugin);
+            }
+            Some(crate::window::settings::PluginSettingsRequest::SetEnabled { id, enabled }) => {
+                let result = self.plugin_mgr.set_plugin_enabled(&id, enabled);
+                if let Some(settings) = self.settings.as_mut() {
+                    match result {
+                        Ok(()) => {
+                            settings.set_plugins(self.plugin_mgr.installed_plugins());
+                            settings.set_plugin_status(
+                                crate::core::i18n::tr("plugin_state_restart"),
+                                true,
+                            );
+                        }
+                        Err(error) => settings.set_plugin_status(
+                            crate::core::i18n::tr_args("plugin_state_failed", &[&error]),
+                            false,
+                        ),
+                    }
+                }
+            }
+            Some(crate::window::settings::PluginSettingsRequest::Uninstall { id }) => {
+                let result = self.plugin_mgr.uninstall_plugin(&id);
+                if result.is_ok() {
+                    crate::plugin::manager::drain_widget_events(&mut self.widget_mgr);
+                }
+                if let Some(settings) = self.settings.as_mut() {
+                    match result {
+                        Ok(()) => {
+                            settings.set_plugin_widgets(self.widget_mgr.configurable_widgets());
+                            settings.set_plugins(self.plugin_mgr.installed_plugins());
+                            settings.set_plugin_status(
+                                crate::core::i18n::tr("plugin_uninstalled"),
+                                false,
+                            );
+                        }
+                        Err(error) => settings.set_plugin_status(
+                            crate::core::i18n::tr_args("plugin_uninstall_failed", &[&error]),
+                            false,
+                        ),
+                    }
+                }
+            }
+            Some(crate::window::settings::PluginSettingsRequest::Restart) => {
+                self.close_settings();
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(exe).arg("--restart").spawn();
+                }
+                event_loop.exit();
+            }
+            None => {}
+        }
+    }
+
     pub(super) fn invalidate_renderer(&mut self, reason: &str, now: Instant) {
         if self.renderer.take().is_some() {
             log::warn!("D3D12 renderer invalidated: {reason}");
@@ -134,8 +201,17 @@ impl App {
     }
 
     pub(super) fn install_zip_drop(&mut self, path: &Path) {
-        if self.pending_install.is_some() {
+        if self.pending_install.is_some() || self.pending_marketplace_download.is_some() {
             Self::show_toast("Plugin Info", "Another installation is already in progress");
+            if let Some(settings) = self.settings.as_mut() {
+                settings.set_plugin_status(
+                    crate::core::i18n::tr_args(
+                        "plugin_install_failed",
+                        &["another installation is already in progress"],
+                    ),
+                    false,
+                );
+            }
             return;
         }
 
@@ -152,18 +228,90 @@ impl App {
         log::info!("Plugin extraction started in background thread");
     }
 
+    fn load_plugin_marketplace(&mut self) {
+        if self.pending_marketplace_catalog.is_some() {
+            return;
+        }
+        if let Some(settings) = self.settings.as_mut() {
+            settings.set_marketplace_loading();
+        }
+        let (tx, rx) = mpsc::channel();
+        tokio::spawn(async move {
+            let result = marketplace::load_catalog().await;
+            let _ = tx.send(result);
+            crate::utils::event_loop::wake();
+        });
+        self.pending_marketplace_catalog = Some(rx);
+    }
+
+    fn install_marketplace_plugin(&mut self, plugin: MarketplacePlugin) {
+        if plugin.revoked_reason.is_some() || !plugin.is_compatible() {
+            if let Some(settings) = self.settings.as_mut() {
+                settings.finish_marketplace_install();
+                settings.set_plugin_status(
+                    crate::core::i18n::tr("plugin_marketplace_incompatible"),
+                    false,
+                );
+            }
+            return;
+        }
+        if self.pending_install.is_some() || self.pending_marketplace_download.is_some() {
+            if let Some(settings) = self.settings.as_mut() {
+                settings.finish_marketplace_install();
+                settings.set_plugin_status(
+                    crate::core::i18n::tr_args(
+                        "plugin_install_failed",
+                        &["another installation is already in progress"],
+                    ),
+                    false,
+                );
+            }
+            return;
+        }
+        if let Some(settings) = self.settings.as_mut() {
+            settings.set_plugin_status(
+                crate::core::i18n::tr("plugin_marketplace_downloading"),
+                false,
+            );
+        }
+        let (tx, rx) = mpsc::channel();
+        tokio::spawn(async move {
+            let result = marketplace::download_plugin(&plugin).await;
+            let _ = tx.send(result);
+            crate::utils::event_loop::wake();
+        });
+        self.pending_marketplace_download = Some(rx);
+    }
+
     pub(super) fn open_settings(&mut self, event_loop: &ActiveEventLoop) {
         if let Some(settings) = &self.settings {
             settings.bring_to_front();
             return;
         }
 
-        let mut settings = crate::window::settings::SettingsApp::new(load_config());
+        crate::plugin::manager::drain_widget_events(&mut self.widget_mgr);
+        let mut config = load_config();
+        let plugin_widgets = self.widget_mgr.configurable_widgets();
+        if crate::core::config::normalize_active_plugin_widget_layout(
+            &config.widget_layout,
+            &mut config.plugin_widget_layout,
+            &plugin_widgets,
+        ) {
+            crate::core::persistence::save_config(&config);
+        }
+        let mut settings = crate::window::settings::SettingsApp::new(
+            config,
+            self.plugin_mgr.installed_plugins(),
+            plugin_widgets,
+        );
         let Some(renderer) = self.renderer.as_mut() else {
             log::error!("Cannot open settings without the shared D3D12 renderer");
             return;
         };
         settings.create_window(event_loop, renderer);
+        if let Some(catalog) = self.marketplace_catalog.clone() {
+            settings.set_marketplace_catalog(catalog);
+        }
         self.settings = Some(settings);
         log::info!("Settings window opened in main process");
     }
