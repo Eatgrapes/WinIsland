@@ -1,9 +1,10 @@
 use super::items::*;
 use crate::core::config::{
-    AVAILABLE_WIDGETS, PluginWidgetId, PluginWidgetSlot, WidgetKind, WidgetSlot,
+    AVAILABLE_COMPACT_WIDGETS, AVAILABLE_WIDGETS, COMPACT_WIDGET_SLOTS, CompactWidgetKind,
+    CompactWidgetSlot, PluginWidgetId, PluginWidgetSlot, WidgetKind, WidgetSlot,
 };
 use crate::core::plugin_widget::PluginWidget;
-use crate::ui::widget::{WidgetGridLayout, widget_corner_radius, widget_grid_layout};
+use crate::ui::widget::expanded::{WidgetGridLayout, widget_corner_radius, widget_grid_layout};
 
 pub const WIDGET_PREVIEW_BASE_H: f32 = 480.0;
 pub const WIDGET_ISLAND_PANEL_H: f32 = 308.0;
@@ -13,6 +14,8 @@ pub const WIDGET_LIBRARY_HEADER_H: f32 = 52.0;
 pub const WIDGET_LIBRARY_TILE_W: f32 = 112.0;
 pub const WIDGET_LIBRARY_TILE_H: f32 = 72.0;
 pub const WIDGET_LIBRARY_TILE_GAP: f32 = 10.0;
+pub const COMPACT_WIDGET_PREVIEW_H: f32 = 388.0;
+pub const COMPACT_WIDGET_ISLAND_PANEL_H: f32 = 226.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClickResult {
@@ -35,6 +38,12 @@ pub enum ClickResult {
 pub enum StepDirection {
     Decrement,
     Increment,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WidgetEditorMode {
+    Expanded,
+    Compact,
 }
 
 impl ClickResult {
@@ -78,6 +87,13 @@ pub enum WidgetPreviewHit {
     Slot(usize),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompactWidgetPreviewHit {
+    None,
+    Source(CompactWidgetKind),
+    Slot(usize),
+}
+
 fn in_rect(mx: f32, my: f32, x: f32, y: f32, w: f32, h: f32) -> bool {
     mx >= x && mx <= x + w && my >= y && my <= y + h
 }
@@ -104,6 +120,51 @@ impl WidgetGridGeom {
 
     pub fn slot_at_point(&self, x: f32, y: f32, include_gaps: bool) -> Option<usize> {
         self.layout.slot_at_point(x, y, include_gaps)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CompactWidgetGridGeom {
+    pub cap_x: f32,
+    pub cap_y: f32,
+    pub cap_w: f32,
+    pub cap_h: f32,
+    pub cap_scale: f32,
+    slot_x: f32,
+    slot_y: f32,
+    slot_w: f32,
+    slot_h: f32,
+    gap: f32,
+}
+
+impl CompactWidgetGridGeom {
+    pub fn slot_rect(&self, slot: usize) -> (f32, f32, f32, f32) {
+        (
+            self.slot_x + slot.min(COMPACT_WIDGET_SLOTS - 1) as f32 * (self.slot_w + self.gap),
+            self.slot_y,
+            self.slot_w,
+            self.slot_h,
+        )
+    }
+
+    pub fn slot_at_point(&self, x: f32, y: f32, include_gaps: bool) -> Option<usize> {
+        if include_gaps
+            && x >= self.slot_x
+            && x <= self.slot_x
+                + self.slot_w * COMPACT_WIDGET_SLOTS as f32
+                + self.gap * (COMPACT_WIDGET_SLOTS - 1) as f32
+            && y >= self.slot_y
+            && y <= self.slot_y + self.slot_h
+        {
+            return Some(
+                (((x - self.slot_x + self.gap / 2.0) / (self.slot_w + self.gap)).floor() as usize)
+                    .min(COMPACT_WIDGET_SLOTS - 1),
+            );
+        }
+        (0..COMPACT_WIDGET_SLOTS).find(|slot| {
+            let (slot_x, slot_y, slot_w, slot_h) = self.slot_rect(*slot);
+            in_rect(x, y, slot_x, slot_y, slot_w, slot_h)
+        })
     }
 }
 
@@ -166,6 +227,19 @@ pub fn widget_library_items(
     items
 }
 
+pub fn compact_widget_library_items(
+    layout: &[CompactWidgetSlot],
+    dragging: Option<CompactWidgetKind>,
+) -> Vec<CompactWidgetKind> {
+    AVAILABLE_COMPACT_WIDGETS
+        .iter()
+        .copied()
+        .filter(|widget| {
+            dragging != Some(*widget) && !layout.iter().any(|entry| entry.widget == Some(*widget))
+        })
+        .collect()
+}
+
 pub fn widget_preview_height(item_count: usize) -> f32 {
     let rows = item_count.max(1).div_ceil(4);
     WIDGET_PREVIEW_BASE_H
@@ -223,6 +297,78 @@ pub fn widget_grid_geom(
         cap_scale,
         layout,
     }
+}
+
+pub fn compact_widget_grid_geom(
+    item_y: f32,
+    width: f32,
+    base_width: f32,
+    base_height: f32,
+) -> CompactWidgetGridGeom {
+    let content_w = width - CONTENT_PADDING * 2.0;
+    let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
+    let preview_w = content_w - GROUP_INNER_PAD * 2.0;
+    let panel_y = item_y + 10.0;
+    let editor_content_h = COMPACT_WIDGET_ISLAND_PANEL_H - WIDGET_EDITOR_HEADER_H - 16.0;
+    let max_w = preview_w - 48.0;
+    let max_h = editor_content_h - 12.0;
+    let cap_scale = (max_w / base_width.max(1.0))
+        .min(max_h / base_height.max(1.0))
+        .clamp(0.25, 3.0);
+    let cap_w = base_width * cap_scale;
+    let cap_h = base_height * cap_scale;
+    let cap_x = row_x + (preview_w - cap_w) / 2.0;
+    let cap_y = panel_y + WIDGET_EDITOR_HEADER_H + (editor_content_h - cap_h) / 2.0;
+    let inset = 7.0 * cap_scale;
+    let gap = 4.0 * cap_scale;
+    let slot_w = ((cap_w - inset * 2.0 - gap * (COMPACT_WIDGET_SLOTS - 1) as f32)
+        / COMPACT_WIDGET_SLOTS as f32)
+        .max(1.0);
+
+    CompactWidgetGridGeom {
+        cap_x,
+        cap_y,
+        cap_w,
+        cap_h,
+        cap_scale,
+        slot_x: cap_x + inset,
+        slot_y: cap_y + 3.0 * cap_scale,
+        slot_w,
+        slot_h: (cap_h - 6.0 * cap_scale).max(1.0),
+        gap,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn compact_widget_preview_hit_test(
+    mx: f32,
+    my: f32,
+    item_y: f32,
+    width: f32,
+    base_width: f32,
+    base_height: f32,
+    layout: &[CompactWidgetSlot],
+    dragging: Option<CompactWidgetKind>,
+) -> CompactWidgetPreviewHit {
+    let row_x = CONTENT_PADDING + GROUP_INNER_PAD;
+    let panel_y = item_y + 10.0;
+    let library_y = panel_y + COMPACT_WIDGET_ISLAND_PANEL_H + WIDGET_PANEL_GAP;
+    let source_y = library_y + WIDGET_LIBRARY_HEADER_H;
+    for (index, widget) in compact_widget_library_items(layout, dragging)
+        .into_iter()
+        .enumerate()
+    {
+        let (source_x, source_y, source_w, source_h) = widget_source_rect(row_x, source_y, index);
+        if in_rect(mx, my, source_x, source_y, source_w, source_h) {
+            return CompactWidgetPreviewHit::Source(widget);
+        }
+    }
+
+    let geometry = compact_widget_grid_geom(item_y, width, base_width, base_height);
+    if let Some(slot) = geometry.slot_at_point(mx, my, dragging.is_some()) {
+        return CompactWidgetPreviewHit::Slot(slot);
+    }
+    CompactWidgetPreviewHit::None
 }
 
 #[allow(clippy::too_many_arguments)]

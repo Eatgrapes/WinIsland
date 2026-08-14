@@ -273,6 +273,9 @@ impl App {
                                             widget_layout: &self.config.widget_layout,
                                             plugin_widget_layout: &self.config.plugin_widget_layout,
                                             plugin_widgets: &self.widget_mgr,
+                                            compact_widget_layout: &self
+                                                .config
+                                                .compact_widget_layout,
                                         },
                                         mini_content,
                                         compact_overlay: &self.compact_overlay,

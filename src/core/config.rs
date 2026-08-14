@@ -110,6 +110,19 @@ pub struct WidgetSlot {
     pub widget: Option<WidgetKind>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactWidgetKind {
+    Time,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct CompactWidgetSlot {
+    pub slot: usize,
+    #[serde(default, deserialize_with = "deserialize_compact_widget_kind")]
+    pub widget: Option<CompactWidgetKind>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PluginWidgetId {
     pub plugin_id: String,
@@ -142,6 +155,19 @@ where
         "calendar" => Some(WidgetKind::Calendar),
         "resource_usage" => Some(WidgetKind::ResourceUsage),
         "settings" => Some(WidgetKind::Settings),
+        _ => None,
+    }))
+}
+
+fn deserialize_compact_widget_kind<'de, D>(
+    deserializer: D,
+) -> Result<Option<CompactWidgetKind>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = Option::<String>::deserialize(deserializer)?;
+    Ok(raw.and_then(|value| match value.as_str() {
+        "time" => Some(CompactWidgetKind::Time),
         _ => None,
     }))
 }
@@ -222,6 +248,8 @@ pub struct AppConfig {
     pub widget_layout: Vec<WidgetSlot>,
     #[serde(default)]
     pub plugin_widget_layout: Vec<PluginWidgetSlot>,
+    #[serde(default = "default_compact_widget_layout")]
+    pub compact_widget_layout: Vec<CompactWidgetSlot>,
 }
 
 fn default_right_click_drag() -> bool {
@@ -344,6 +372,60 @@ pub const AVAILABLE_WIDGETS: [WidgetKind; 3] = [
     WidgetKind::Calendar,
     WidgetKind::ResourceUsage,
 ];
+pub const COMPACT_WIDGET_SLOTS: usize = 3;
+pub const AVAILABLE_COMPACT_WIDGETS: [CompactWidgetKind; 1] = [CompactWidgetKind::Time];
+
+pub fn default_compact_widget_layout() -> Vec<CompactWidgetSlot> {
+    (0..COMPACT_WIDGET_SLOTS)
+        .map(|slot| CompactWidgetSlot { slot, widget: None })
+        .collect()
+}
+
+pub fn normalize_compact_widget_layout(layout: &mut Vec<CompactWidgetSlot>) -> bool {
+    let original = layout.clone();
+    layout.retain(|entry| entry.slot < COMPACT_WIDGET_SLOTS);
+    layout.sort_by_key(|entry| entry.slot);
+    layout.dedup_by_key(|entry| entry.slot);
+
+    let mut seen = Vec::new();
+    for entry in layout.iter_mut() {
+        if entry.widget.is_some_and(|widget| seen.contains(&widget)) {
+            entry.widget = None;
+        } else if let Some(widget) = entry.widget {
+            seen.push(widget);
+        }
+    }
+    for slot in 0..COMPACT_WIDGET_SLOTS {
+        if !layout.iter().any(|entry| entry.slot == slot) {
+            layout.push(CompactWidgetSlot { slot, widget: None });
+        }
+    }
+    layout.sort_by_key(|entry| entry.slot);
+    *layout != original
+}
+
+pub fn place_compact_widget(
+    layout: &mut Vec<CompactWidgetSlot>,
+    widget: CompactWidgetKind,
+    target_slot: usize,
+) {
+    normalize_compact_widget_layout(layout);
+    let target_slot = target_slot.min(COMPACT_WIDGET_SLOTS - 1);
+    for entry in layout.iter_mut() {
+        if entry.widget == Some(widget) || entry.slot == target_slot {
+            entry.widget = None;
+        }
+    }
+    if let Some(entry) = layout.iter_mut().find(|entry| entry.slot == target_slot) {
+        entry.widget = Some(widget);
+    }
+}
+
+pub fn clear_compact_widget_slot(layout: &mut [CompactWidgetSlot], target_slot: usize) {
+    if let Some(entry) = layout.iter_mut().find(|entry| entry.slot == target_slot) {
+        entry.widget = None;
+    }
+}
 
 pub fn widget_footprint(widget: WidgetKind, anchor_slot: usize) -> Vec<usize> {
     let (cols, rows) = widget.span();
@@ -701,6 +783,7 @@ impl Default for AppConfig {
             notification_display: default_notification_display(),
             widget_layout: default_widget_layout(),
             plugin_widget_layout: Vec::new(),
+            compact_widget_layout: default_compact_widget_layout(),
         }
     }
 }

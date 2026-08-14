@@ -825,12 +825,19 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
     let island_style = params.island_style;
     let expanded_width = params.expanded_width;
     let expanded_height = params.expanded_height;
+    let base_width = params.base_width;
+    let base_height = params.base_height;
+    let widget_editor_mode = params.widget_editor_mode;
     let widget_layout = params.widget_layout;
     let plugin_widget_layout = params.plugin_widget_layout;
     let plugin_widgets = params.plugin_widgets;
     let widget_dragging = params.widget_dragging;
     let widget_drag_hover_slot = params.widget_drag_hover_slot;
     let widget_preview_hover_slot = params.widget_preview_hover_slot;
+    let compact_widget_layout = params.compact_widget_layout;
+    let compact_widget_dragging = params.compact_widget_dragging;
+    let compact_widget_drag_hover_slot = params.compact_widget_drag_hover_slot;
+    let compact_widget_preview_hover_slot = params.compact_widget_preview_hover_slot;
     let active_source_button = params.active_source_button;
     let active_stepper_value = params.active_stepper_value;
 
@@ -1019,12 +1026,19 @@ pub fn draw_items(params: DrawItemsParams<'_>) {
                     island_style,
                     expanded_width,
                     expanded_height,
+                    base_width,
+                    base_height,
+                    widget_editor_mode,
                     widget_layout,
                     plugin_widget_layout,
                     plugin_widgets,
                     widget_dragging,
                     widget_drag_hover_slot,
                     widget_preview_hover_slot,
+                    compact_widget_layout,
+                    compact_widget_dragging,
+                    compact_widget_drag_hover_slot,
+                    compact_widget_preview_hover_slot,
                     theme,
                 });
             }

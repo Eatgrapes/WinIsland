@@ -6,7 +6,7 @@ use crate::ui::expanded::music_view::{
     get_next_btn_rect, get_pause_btn_rect, get_prev_btn_rect, get_progress_bar_rect,
     trigger_cover_flip, trigger_next_click, trigger_pause_click, trigger_prev_click,
 };
-use crate::ui::widget::widget_grid_layout;
+use crate::ui::widget::expanded::widget_grid_layout;
 use crate::utils::mouse::{is_point_in_g3_rounded_rect, is_point_in_rect};
 
 use super::{App, IslandLayout, should_show_widget_view};

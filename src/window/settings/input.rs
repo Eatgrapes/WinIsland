@@ -1,5 +1,5 @@
+use crate::utils::settings_ui::hover_test;
 use crate::utils::settings_ui::items::SIDEBAR_PAD;
-use crate::utils::settings_ui::{WidgetPreviewHit, hover_test};
 use winit::keyboard::{Key, NamedKey};
 
 use super::pages::PageInput;
@@ -44,6 +44,10 @@ impl SettingsApp {
                     return;
                 }
             }
+            return;
+        }
+
+        if self.handle_widget_mode_click(mouse_x, mouse_y) {
             return;
         }
 
@@ -110,6 +114,9 @@ impl SettingsApp {
                 return true;
             }
         }
+        if self.widget_mode_at(mouse_x, mouse_y).is_some() {
+            return true;
+        }
 
         if let Some(popup) = &self.popup {
             let menu = popup.menu_rect();
@@ -141,16 +148,13 @@ impl SettingsApp {
             .map(|window| window.scale_factor() as f32)
             .unwrap_or(1.0);
         let content_width = self.win_w / scale - SIDEBAR_W;
-        if self.widget_dragging.is_some() {
+        if self.widget_drag_active() {
             return true;
         }
         if self.active_page == 3 {
             return self.plugin_hovered();
         }
-        if self
-            .widget_preview_hit_at_mouse()
-            .is_some_and(|hit| hit != WidgetPreviewHit::None)
-        {
+        if self.widget_preview_hovered_at_mouse() {
             return true;
         }
 

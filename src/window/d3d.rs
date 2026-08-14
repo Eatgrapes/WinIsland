@@ -41,6 +41,7 @@ use winit::{
 
 const BUFFER_COUNT: usize = 2;
 const GPU_RESOURCE_CACHE_LIMIT: usize = 48 * 1024 * 1024;
+const MULTI_TARGET_GPU_RESOURCE_CACHE_LIMIT: usize = 16 * 1024 * 1024;
 const INITIALIZATION_ATTEMPTS: usize = 3;
 const INITIALIZATION_RETRY_DELAY: Duration = Duration::from_millis(500);
 const RESOURCE_CLEANUP_INTERVAL: Duration = Duration::from_secs(5);
@@ -63,8 +64,8 @@ pub(crate) const MAIN_D3D_TARGET: D3DTargetId = D3DTargetId(0);
 
 struct D3DTarget {
     surfaces: Vec<(Surface, BackendRenderTarget)>,
-    _composition_visual: IDCompositionVisual,
-    _composition_target: IDCompositionTarget,
+    composition_visual: IDCompositionVisual,
+    composition_target: IDCompositionTarget,
     swap_chain: IDXGISwapChain3,
 }
 
@@ -189,11 +190,12 @@ impl D3DRenderer {
             target_id,
             D3DTarget {
                 surfaces,
-                _composition_visual: composition_visual,
-                _composition_target: composition_target,
+                composition_visual,
+                composition_target,
                 swap_chain,
             },
         );
+        self.update_resource_cache_limit();
         Ok(target_id)
     }
 
@@ -263,14 +265,49 @@ impl D3DRenderer {
     }
 
     pub(crate) fn remove_target(&mut self, target_id: D3DTargetId) {
-        if let Some(target) = self.targets.get_mut(&target_id) {
-            self.direct_context.flush_submit_and_sync_cpu();
-            target.surfaces.clear();
+        let Some(mut target) = self.targets.remove(&target_id) else {
+            return;
+        };
+        self.direct_context.flush_submit_and_sync_cpu();
+        target.surfaces.clear();
+        unsafe {
+            // SAFETY: The retained target and visual belong to this live composition device.
+            // Detaching both before dropping their COM handles lets DWM release the swap chain.
+            if let Err(error) = target
+                .composition_target
+                .SetRoot(None::<&IDCompositionVisual>)
+            {
+                log::warn!("Failed to detach DirectComposition target: {error}");
+            }
+            if let Err(error) = target
+                .composition_visual
+                .SetContent(None::<&windows::core::IUnknown>)
+            {
+                log::warn!("Failed to detach DirectComposition content: {error}");
+            }
+            match self.composition_device.Commit() {
+                Ok(()) => {
+                    if let Err(error) = self.composition_device.WaitForCommitCompletion() {
+                        log::warn!("Failed to wait for DirectComposition cleanup: {error}");
+                    }
+                }
+                Err(error) => log::warn!("Failed to commit DirectComposition cleanup: {error}"),
+            }
         }
-        if self.targets.remove(&target_id).is_some() {
-            self.direct_context
-                .purge_unlocked_resources(gpu::PurgeResourceOptions::ScratchResourcesOnly);
-        }
+        drop(target);
+        self.direct_context
+            .purge_unlocked_resources(gpu::PurgeResourceOptions::AllResources);
+        self.update_resource_cache_limit();
+        self.last_resource_cleanup = Instant::now();
+    }
+
+    fn update_resource_cache_limit(&mut self) {
+        let limit = if self.targets.len() > 1 {
+            MULTI_TARGET_GPU_RESOURCE_CACHE_LIMIT
+        } else {
+            GPU_RESOURCE_CACHE_LIMIT
+        };
+        self.direct_context.set_resource_cache_limit(limit);
     }
 
     fn cleanup_unused_resources(&mut self) {

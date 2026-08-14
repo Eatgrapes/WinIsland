@@ -1,6 +1,6 @@
 use crate::core::i18n::tr;
 use crate::ui::expanded::widget_view::draw_plugin_widget;
-use crate::ui::widget::draw_mini_card;
+use crate::ui::widget::expanded::draw_mini_card;
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::settings_ui::items::*;
@@ -10,7 +10,7 @@ use skia_safe::{Canvas, Color, Contains, Paint, Point, Rect};
 
 use super::{
     PAGE_NAV_GAP, PAGE_NAV_SIZE, PAGE_NAV_X, PAGE_NAV_Y, POPUP_MENU_R, POPUP_OPACITY_KEY,
-    SETTINGS_HEADER_H, SIDEBAR_W, SettingsApp, WINDOW_RADIUS,
+    SETTINGS_HEADER_H, SIDEBAR_W, SettingsApp, WINDOW_RADIUS, WidgetEditorMode,
 };
 
 impl SettingsApp {
@@ -58,6 +58,7 @@ impl SettingsApp {
             self.draw_sidebar(direct_context, canvas, &theme);
             self.draw_page_navigation(canvas, &theme);
             self.draw_page_header(canvas, &theme, win_w);
+            self.draw_widget_mode_control(canvas, &theme);
 
             let content_w = win_w - SIDEBAR_W;
 
@@ -104,12 +105,19 @@ impl SettingsApp {
                 island_style: &self.config.island_style,
                 expanded_width: self.config.expanded_width,
                 expanded_height: self.config.expanded_height,
+                base_width: self.config.base_width,
+                base_height: self.config.base_height,
+                widget_editor_mode: self.widget_editor_mode,
                 widget_layout: &self.config.widget_layout,
                 plugin_widget_layout: &self.config.plugin_widget_layout,
                 plugin_widgets: &self.plugin_widgets,
                 widget_dragging: self.widget_dragging.as_ref(),
                 widget_drag_hover_slot: self.widget_drag_hover_slot,
                 widget_preview_hover_slot: self.widget_preview_hover_slot,
+                compact_widget_layout: &self.config.compact_widget_layout,
+                compact_widget_dragging: self.compact_widget_dragging,
+                compact_widget_drag_hover_slot: self.compact_widget_drag_hover_slot,
+                compact_widget_preview_hover_slot: self.compact_widget_preview_hover_slot,
                 active_source_button,
                 active_stepper_value,
                 hover_pos: Some((
@@ -178,6 +186,30 @@ impl SettingsApp {
         win_w: f32,
         win_h: f32,
     ) {
+        if self.widget_editor_mode == WidgetEditorMode::Compact {
+            let Some(widget) = self.compact_widget_dragging else {
+                return;
+            };
+            let width = 92.0;
+            let height = 32.0;
+            let (mouse_x, mouse_y) = self.logical_mouse_pos;
+            let x = (mouse_x - width / 2.0).clamp(8.0, win_w - width - 8.0);
+            let y = (mouse_y - height / 2.0).clamp(8.0, win_h - height - 8.0);
+            let rect = Rect::from_xywh(x, y, width, height);
+            let mut paint = Paint::default();
+            paint.set_anti_alias(true);
+            paint.set_color(Color::from_argb(90, 0, 0, 0));
+            canvas.draw_round_rect(
+                Rect::from_xywh(x, y + 4.0, width, height),
+                height / 2.0,
+                height / 2.0,
+                &paint,
+            );
+            paint.set_color(Color::from_rgb(10, 10, 10));
+            canvas.draw_round_rect(rect, height / 2.0, height / 2.0, &paint);
+            crate::ui::widget::compact::draw_widget(canvas, widget, rect, 1.0, 255);
+            return;
+        }
         let Some(source) = self.widget_dragging.as_ref() else {
             return;
         };
@@ -333,6 +365,69 @@ impl SettingsApp {
             (win_w, SETTINGS_HEADER_H - 0.5),
             &paint,
         );
+    }
+
+    fn draw_widget_mode_control(&self, canvas: &Canvas, theme: &SettingsTheme) {
+        if self.active_page != 2 {
+            return;
+        }
+        let control = self.widget_mode_control_rect();
+        let mut paint = Paint::default();
+        paint.set_anti_alias(true);
+        paint.set_color(theme.control_bg);
+        canvas.draw_round_rect(control, 8.0, 8.0, &paint);
+        paint.set_style(skia_safe::paint::Style::Stroke);
+        paint.set_stroke_width(0.75);
+        paint.set_color(theme.control_border);
+        canvas.draw_round_rect(control, 8.0, 8.0, &paint);
+
+        let selected = self.widget_mode_segment_rect(self.widget_editor_mode);
+        paint.set_style(skia_safe::paint::Style::Fill);
+        paint.set_color(theme.card_highlight);
+        canvas.draw_round_rect(
+            Rect::from_xywh(
+                selected.left + 2.0,
+                selected.top + 2.0,
+                selected.width() - 4.0,
+                selected.height() - 4.0,
+            ),
+            6.0,
+            6.0,
+            &paint,
+        );
+
+        for (mode, label) in [
+            (WidgetEditorMode::Expanded, tr("widget_mode_expanded")),
+            (WidgetEditorMode::Compact, tr("widget_mode_compact")),
+        ] {
+            let rect = self.widget_mode_segment_rect(mode);
+            let hovered = self.focused
+                && rect.contains(Point::new(
+                    self.logical_mouse_pos.0,
+                    self.logical_mouse_pos.1,
+                ));
+            let color = if mode == self.widget_editor_mode || hovered {
+                theme.text_pri
+            } else {
+                theme.text_sec
+            };
+            paint.set_color(color);
+            let size = 11.5;
+            let width = FontManager::global().measure_text_cached(
+                &label,
+                size,
+                skia_safe::FontStyle::normal(),
+            );
+            FontManager::global().draw_text_cached(DrawTextCachedParams {
+                canvas,
+                text: &label,
+                x: rect.center_x() - width / 2.0,
+                y: rect.center_y() + size * 0.35,
+                size,
+                bold: mode == self.widget_editor_mode,
+                paint: &paint,
+            });
+        }
     }
 
     pub(crate) fn draw_popup(&self, canvas: &Canvas, theme: &SettingsTheme) {

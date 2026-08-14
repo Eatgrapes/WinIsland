@@ -139,6 +139,7 @@ impl App {
         let is_paused = music_active && !media_is_playing;
         self.update_lyrics(&window, music_active, is_paused, dt);
         self.update_spring_targets(&window, music_active, is_paused, dt);
+        self.update_compact_widget_refresh(&window, now);
 
         self.schedule_next_frame(
             event_loop,
@@ -619,6 +620,22 @@ impl App {
         dt: f32,
     ) {
         let lyric_target_w = self.compute_lyric_target_width(window, music_active, is_paused, dt);
+        let compact_widget_target_w =
+            if !self.expanded && !self.compact_overlay.is_visible() && !self.is_width_hiding() {
+                let scale = self.config.global_scale.max(f32::EPSILON);
+                let center_occupied = crate::ui::widget::compact::has_center_widget(
+                    &self.config.compact_widget_layout,
+                );
+                let has_mini_content = self.ctx_mgr.current_mini().is_some() && !center_occupied;
+                let center_content_width = has_mini_content.then_some(lyric_target_w / scale);
+                crate::ui::widget::compact::target_width(
+                    &self.config.compact_widget_layout,
+                    self.config.base_width,
+                    center_content_width,
+                ) * scale
+            } else {
+                lyric_target_w
+            };
         let default_target_h = (if self.expanded {
             self.config.expanded_height
         } else {
@@ -636,7 +653,7 @@ impl App {
         ) {
             (size.width, size.height, size.height / 2.0)
         } else {
-            (lyric_target_w, default_target_h, default_target_r)
+            (compact_widget_target_w, default_target_h, default_target_r)
         };
         let target_view = if self.widget_view || !self.music_page_available {
             1.0
@@ -665,6 +682,23 @@ impl App {
         self.springs.h.update_dt(target_h, 0.10, 0.68, dt);
         self.springs.r.update_dt(target_r, 0.10, 0.68, dt);
         self.springs.view.update_dt(target_view, 0.12, 0.68, dt);
+    }
+
+    fn update_compact_widget_refresh(&mut self, window: &Window, now: Instant) {
+        if self.expanded || self.is_hidden() || self.compact_overlay.is_visible() {
+            self.compact_widget_refresh_at = now;
+            return;
+        }
+        let Some(delay) =
+            crate::ui::widget::compact::next_refresh_delay(&self.config.compact_widget_layout)
+        else {
+            self.compact_widget_refresh_at = now;
+            return;
+        };
+        if now >= self.compact_widget_refresh_at {
+            window.request_redraw();
+            self.compact_widget_refresh_at = now + delay;
+        }
     }
 
     fn periodic_glass_redraw_due(&mut self) -> bool {
