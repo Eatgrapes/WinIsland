@@ -1,4 +1,4 @@
-import apiEn from '../api-changelog.md?raw'
+import apiChangelog from '../../crates/winisland-plugin-api/ChangeLog.md?raw'
 import downloadEn from '../download.md?raw'
 import gettingStartedEn from '../getting-started.md?raw'
 import guideEn from '../guide.md?raw'
@@ -7,7 +7,6 @@ import pluginAbiEn from '../plugin-dev/abi-lifecycle.md?raw'
 import pluginPackagingEn from '../plugin-dev/packaging.md?raw'
 import pluginQuickstartEn from '../plugin-dev/quickstart.md?raw'
 import pluginServicesEn from '../plugin-dev/services.md?raw'
-import apiZh from '../zh/api-changelog.md?raw'
 import downloadZh from '../zh/download.md?raw'
 import gettingStartedZh from '../zh/getting-started.md?raw'
 import guideZh from '../zh/guide.md?raw'
@@ -29,7 +28,7 @@ export const docs = {
     'plugin-dev/abi-lifecycle': pluginAbiEn,
     'plugin-dev/services': pluginServicesEn,
     'plugin-dev/packaging': pluginPackagingEn,
-    'api-changelog': apiEn,
+    'api-changelog': apiChangelog,
     changelog: changelogEn,
   },
   zh: {
@@ -41,7 +40,7 @@ export const docs = {
     'plugin-dev/abi-lifecycle': pluginAbiZh,
     'plugin-dev/services': pluginServicesZh,
     'plugin-dev/packaging': pluginPackagingZh,
-    'api-changelog': apiZh,
+    'api-changelog': apiChangelog,
     changelog: changelogZh,
   },
 } as const
