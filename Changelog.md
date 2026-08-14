@@ -6,6 +6,7 @@
 - Unified Nightly and Stable installer identities to prevent duplicate installations
 - Improved the update system
 - Added a plugin marketplace
+- Added a widget system for the compact island
 
 ### v1.2.9
 - Fixed notification text and app icon display issues (#129)
