@@ -6,7 +6,7 @@ use crate::core::plugin_widget::WidgetManager;
 use crate::core::smtc::MediaInfo;
 use crate::icons::arrows::draw_arrow_left;
 use crate::plugin::types::{INTERFACE_VERSION_1, WidgetDrawContextV1};
-use crate::ui::widget::{draw_widget, widget_animates, widget_grid_layout};
+use crate::ui::widget::expanded::{draw_widget, widget_animates, widget_grid_layout};
 use skia_safe::{Canvas, Color, Rect};
 use std::ffi::c_void;
 

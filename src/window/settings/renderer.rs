@@ -1,6 +1,6 @@
 use crate::core::i18n::tr;
 use crate::ui::expanded::widget_view::draw_plugin_widget;
-use crate::ui::widget::draw_mini_card;
+use crate::ui::widget::expanded::draw_mini_card;
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::settings_ui::items::*;

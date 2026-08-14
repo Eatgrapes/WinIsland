@@ -6,7 +6,9 @@ use crate::core::config::{
 };
 use crate::core::i18n::tr;
 use crate::core::plugin_widget::PluginWidget;
-use crate::ui::widget::{draw_mini_card, draw_widget_preview as draw_widget_card_preview};
+use crate::ui::widget::expanded::{
+    draw_mini_card, draw_widget_preview as draw_widget_card_preview,
+};
 use crate::utils::color::SettingsTheme;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::shape::g3_rounded_rect_path;

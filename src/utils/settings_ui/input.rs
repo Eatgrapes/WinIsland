@@ -3,7 +3,7 @@ use crate::core::config::{
     AVAILABLE_WIDGETS, PluginWidgetId, PluginWidgetSlot, WidgetKind, WidgetSlot,
 };
 use crate::core::plugin_widget::PluginWidget;
-use crate::ui::widget::{WidgetGridLayout, widget_corner_radius, widget_grid_layout};
+use crate::ui::widget::expanded::{WidgetGridLayout, widget_corner_radius, widget_grid_layout};
 
 pub const WIDGET_PREVIEW_BASE_H: f32 = 480.0;
 pub const WIDGET_ISLAND_PANEL_H: f32 = 308.0;
