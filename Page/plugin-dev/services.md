@@ -195,6 +195,46 @@ or remove them back to the widget library; the selected slot persists across res
 An empty key is accepted for compatibility with plugins built before API 0.5. Those widgets keep
 legacy automatic placement in the first free slot and do not appear in the Settings library.
 
+Implement the draw callback like this:
+
+```rust
+unsafe extern "C" fn draw_widget(
+    callback_data: *mut std::ffi::c_void,
+    ctx: *const WidgetDrawContextV1,
+) {
+    if ctx.is_null() {
+        return;
+    }
+    // SAFETY: WinIsland supplies the context and keeps it valid for this call.
+    let ctx = unsafe { &*ctx };
+    let Some(draw) = (unsafe { ctx.draw_api() }) else {
+        return;
+    };
+    let (Some(round_rect), Some(text), Some(circle)) =
+        (draw.draw_round_rect, draw.draw_text, draw.draw_circle)
+    else {
+        return;
+    };
+    let _ = callback_data;
+
+    // Coordinates are logical; the host applies the island scale and alpha.
+    unsafe { round_rect(ctx, 0.0, 0.0, ctx.width, ctx.height, 12.0, 0x28FFFFFF) };
+    unsafe { text(ctx, 16.0, 16.0, Utf8SliceV1::borrowed("Ready"), 18.0, 1, 0xFFFFFFFF) };
+    unsafe { circle(ctx, ctx.width - 14.0, 14.0, 4.0, 0xFF34C759) };
+
+    // save/restore/translate keep a plugin-local transform stack.
+    unsafe { draw.save.unwrap()(ctx) };
+    unsafe { draw.translate.unwrap()(ctx, 8.0, 0.0) };
+    unsafe { draw.draw_rect.unwrap()(ctx, 0.0, ctx.height - 3.0, 24.0, 2.0, 0x40FFFFFF) };
+    unsafe { draw.restore.unwrap()(ctx) };
+}
+```
+
+Colors are `0xAARRGGBB`, `draw_text`'s `y` is the text top (ascent line), and `draw_image`
+takes non-premultiplied RGBA8 pixels with the host applying the context alpha. The full draw
+surface is `draw_rect`, `draw_round_rect`, `draw_circle`, `draw_line`, `draw_arc`, `draw_text`,
+`measure_text`, `draw_image`, and the `save` / `restore` / `translate` transform stack.
+
 The draw callback runs synchronously on the render thread. Use logical coordinates relative to
 the widget, keep the callback short, never retain the context, and release the resource during
 shutdown. Widget calls reject invalid spans, unknown flags, missing callbacks, duplicate or

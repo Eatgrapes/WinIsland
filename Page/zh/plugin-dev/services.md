@@ -193,6 +193,46 @@ let result = unsafe { widget_api.create.unwrap()(token, &widget, &mut widget_id)
 空 key 只用于兼容 API 0.5 之前构建的插件。这类小组件仍会自动放进第一个空位，但不会进入
 设置中的小组件库。
 
+绘制回调的实现如下：
+
+```rust
+unsafe extern "C" fn draw_widget(
+    callback_data: *mut std::ffi::c_void,
+    ctx: *const WidgetDrawContextV1,
+) {
+    if ctx.is_null() {
+        return;
+    }
+    // SAFETY: WinIsland supplies the context and keeps it valid for this call.
+    let ctx = unsafe { &*ctx };
+    let Some(draw) = (unsafe { ctx.draw_api() }) else {
+        return;
+    };
+    let (Some(round_rect), Some(text), Some(circle)) =
+        (draw.draw_round_rect, draw.draw_text, draw.draw_circle)
+    else {
+        return;
+    };
+    let _ = callback_data;
+
+    // Coordinates are logical; the host applies the island scale and alpha.
+    unsafe { round_rect(ctx, 0.0, 0.0, ctx.width, ctx.height, 12.0, 0x28FFFFFF) };
+    unsafe { text(ctx, 16.0, 16.0, Utf8SliceV1::borrowed("就绪"), 18.0, 1, 0xFFFFFFFF) };
+    unsafe { circle(ctx, ctx.width - 14.0, 14.0, 4.0, 0xFF34C759) };
+
+    // save/restore/translate keep a plugin-local transform stack.
+    unsafe { draw.save.unwrap()(ctx) };
+    unsafe { draw.translate.unwrap()(ctx, 8.0, 0.0) };
+    unsafe { draw.draw_rect.unwrap()(ctx, 0.0, ctx.height - 3.0, 24.0, 2.0, 0x40FFFFFF) };
+    unsafe { draw.restore.unwrap()(ctx) };
+}
+```
+
+颜色使用 `0xAARRGGBB`，`draw_text` 的 `y` 是文字顶线（ascent 线），`draw_image` 接收非预乘
+RGBA8 像素并由宿主应用 context alpha。完整绘制操作包括 `draw_rect`、`draw_round_rect`、
+`draw_circle`、`draw_line`、`draw_arc`、`draw_text`、`measure_text`、`draw_image` 以及
+`save` / `restore` / `translate` 变换栈。
+
 绘制回调在渲染线程同步执行。请使用相对小组件的逻辑坐标，保持回调简短，不要保存 context，
 并在 shutdown 中释放资源。Widget 调用会拒绝非法占格、未知 flag、缺少回调、重复或非法 key、
 update 时更换 key、所有权不匹配，以及超过每插件资源上限。
