@@ -229,12 +229,6 @@ impl App {
     }
 
     fn load_plugin_marketplace(&mut self) {
-        if let Some(catalog) = self.marketplace_catalog.clone() {
-            if let Some(settings) = self.settings.as_mut() {
-                settings.set_marketplace_catalog(catalog);
-            }
-            return;
-        }
         if self.pending_marketplace_catalog.is_some() {
             return;
         }

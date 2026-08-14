@@ -950,7 +950,9 @@ impl SettingsApp {
     }
 
     pub(crate) fn set_marketplace_loading(&mut self) {
-        self.marketplace_state = MarketplaceViewState::Loading;
+        if !matches!(self.marketplace_state, MarketplaceViewState::Loaded(_)) {
+            self.marketplace_state = MarketplaceViewState::Loading;
+        }
         self.mark_items_dirty();
         if let Some(win) = &self.window {
             win.request_redraw();

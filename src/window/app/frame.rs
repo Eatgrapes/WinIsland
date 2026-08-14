@@ -225,7 +225,9 @@ impl App {
                 }
                 Ok(Err(error)) => {
                     log::error!("Failed to load plugin marketplace: {error}");
-                    if let Some(settings) = self.settings.as_mut() {
+                    if self.marketplace_catalog.is_none()
+                        && let Some(settings) = self.settings.as_mut()
+                    {
                         settings.set_marketplace_error(error);
                     }
                 }
@@ -233,7 +235,9 @@ impl App {
                     self.pending_marketplace_catalog = Some(rx);
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    if let Some(settings) = self.settings.as_mut() {
+                    if self.marketplace_catalog.is_none()
+                        && let Some(settings) = self.settings.as_mut()
+                    {
                         settings.set_marketplace_error(
                             "The marketplace task stopped unexpectedly".into(),
                         );

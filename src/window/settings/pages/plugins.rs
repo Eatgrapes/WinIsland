@@ -396,9 +396,11 @@ impl SettingsApp {
         self.scroll_vel_y = 0.0;
         self.mark_items_dirty();
         if tab == PluginPageTab::Marketplace
-            && matches!(self.marketplace_state, MarketplaceViewState::NotLoaded)
+            && !matches!(self.marketplace_state, MarketplaceViewState::Loading)
         {
-            self.marketplace_state = MarketplaceViewState::Loading;
+            if !matches!(self.marketplace_state, MarketplaceViewState::Loaded(_)) {
+                self.marketplace_state = MarketplaceViewState::Loading;
+            }
             self.plugin_request = Some(PluginSettingsRequest::LoadMarketplace);
         }
         if let Some(win) = &self.window {
