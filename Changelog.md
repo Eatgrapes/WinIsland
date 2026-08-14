@@ -5,6 +5,7 @@
 - Improved the notification system
 - Unified Nightly and Stable installer identities to prevent duplicate installations
 - Improved the update system
+- Added a plugin marketplace
 
 ### v1.2.9
 - Fixed notification text and app icon display issues (#129)

@@ -2,6 +2,32 @@
 
 This changelog lists published `winisland-plugin-api` releases only. Release notes are added when a version is published; there is no `Unreleased` section.
 
+## 0.5.0 - Aug 14, 2026
+
+Added:
+
+- Stable per-plugin widget keys through `WidgetDataV1::key`
+- Persistent plugin widget placement and settings layout control using those stable keys
+
+Changed:
+
+- Widgets with a key can be managed in the layout editor and keep their placement across restarts;
+  keyless 0.4 widgets remain supported
+- Widget keys must be unique within a plugin, match `[a-zA-Z0-9_-]+`, and remain unchanged
+  after creation
+
+## 0.4.1 - Aug 14, 2026
+
+Added:
+
+- Optional `icon` and `readme` fields in packaged plugin manifests
+- `PluginPackager::icon()` and `PluginPackager::readme()` for including plugin detail assets
+- Automatic detection of supported root-level icon and README files during packaging
+
+Fixed:
+
+- Legacy package signature verification when the optional `icon` and `readme` fields are absent
+
 ## 0.4.0 - Aug 13, 2026
 
 Added:
