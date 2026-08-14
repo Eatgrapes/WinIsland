@@ -688,7 +688,8 @@ impl SettingsApp {
                         let is_in_sidebar_title = mx < SIDEBAR_W && my < 60.0;
                         let is_in_content_title = mx >= SIDEBAR_W
                             && my < SETTINGS_HEADER_H
-                            && self.page_navigation_at(mx, my).is_none();
+                            && self.page_navigation_at(mx, my).is_none()
+                            && self.widget_mode_at(mx, my).is_none();
                         if (is_in_sidebar_title || is_in_content_title) && self.popup.is_none() {
                             if let Some(win) = &self.window {
                                 let _ = win.drag_window();
