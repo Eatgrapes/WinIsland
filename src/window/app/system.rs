@@ -10,7 +10,7 @@ use winit::event_loop::ActiveEventLoop;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
-use crate::core::config::PADDING;
+use crate::core::config::{MAX_LYRIC_WIDTH, PADDING};
 use crate::core::persistence::{get_config_path, load_config};
 use crate::plugin::marketplace::{self, MarketplacePlugin};
 use crate::plugin::zip_loader;
@@ -430,7 +430,7 @@ impl App {
                     let compact_max_w = crate::ui::widget::compact::target_width(
                         &self.config.compact_widget_layout,
                         self.config.base_width,
-                        Some(450.0),
+                        Some(MAX_LYRIC_WIDTH),
                     );
                     let max_w = self.config.expanded_width.max(compact_max_w);
                     let new_os_w = (max_w * self.config.global_scale + PADDING) as u32;

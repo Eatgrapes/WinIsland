@@ -2,6 +2,8 @@ mod background;
 mod expanded;
 mod mini;
 
+pub(crate) use mini::lyric_font_size as mini_lyric_font_size;
+
 use self::background::{BackgroundParams, draw_background};
 use self::expanded::{ExpandedContentParams, draw_expanded_content};
 use self::mini::{MiniContentParams, draw_mini_content};

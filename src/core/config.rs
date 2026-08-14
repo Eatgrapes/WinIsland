@@ -7,6 +7,7 @@ pub const TOP_OFFSET: i32 = 10;
 pub const PADDING: f32 = 80.0;
 pub const MIN_HIDDEN_WIDTH: f32 = 0.0;
 pub const MAX_HIDDEN_WIDTH: f32 = 400.0;
+pub const MAX_LYRIC_WIDTH: f32 = 700.0;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(from = "String", into = "String")]

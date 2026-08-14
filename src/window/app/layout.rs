@@ -6,7 +6,8 @@ use winit::platform::windows::WindowExtWindows;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
-use crate::core::config::{DockPosition, MAX_HIDDEN_WIDTH, TOP_OFFSET};
+use crate::core::config::{DockPosition, MAX_HIDDEN_WIDTH, MAX_LYRIC_WIDTH, TOP_OFFSET};
+use crate::utils::font::FontManager;
 
 use super::{App, DEFAULT_ANIMATION_REFRESH_RATE_MILLIHERTZ, HideEdge, IslandLayout};
 
@@ -433,15 +434,10 @@ impl App {
     }
 
     pub(super) fn measure_lyric_text_width(&self, text: &str) -> f32 {
-        let mut text_w: f32 = 0.0;
-        for c in text.chars() {
-            if c.is_ascii() {
-                text_w += 7.5;
-            } else {
-                text_w += 13.5;
-            }
-        }
-        text_w
+        let scale = self.config.global_scale.max(f32::EPSILON);
+        let font_size = crate::core::render::mini_lyric_font_size(self.config.font_size, scale);
+        FontManager::global().measure_text_cached(text, font_size, skia_safe::FontStyle::normal())
+            / scale
     }
 
     pub(super) fn compute_lyric_target_width(
@@ -502,7 +498,7 @@ impl App {
                     self.lyrics.scroll_offset = 0.0;
                     let min_w = self.config.base_width + 35.0;
                     let w: f32 = 60.0 + text_w;
-                    w.clamp(min_w.min(450.0), 450.0)
+                    w.clamp(min_w.min(MAX_LYRIC_WIDTH), MAX_LYRIC_WIDTH)
                 }
             } else {
                 self.config.base_width + 35.0

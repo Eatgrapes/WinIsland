@@ -6,7 +6,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::platform::windows::WindowAttributesExtWindows;
 use winit::window::{Window, WindowButtons, WindowLevel};
 
-use crate::core::config::{PADDING, WINDOW_TITLE};
+use crate::core::config::{MAX_LYRIC_WIDTH, PADDING, WINDOW_TITLE};
 use crate::utils::icon::get_app_icon;
 use crate::window::tray::TrayManager;
 
@@ -20,7 +20,7 @@ impl App {
             let compact_max_w = crate::ui::widget::compact::target_width(
                 &self.config.compact_widget_layout,
                 self.config.base_width,
-                Some(450.0),
+                Some(MAX_LYRIC_WIDTH),
             );
             let max_w = self.config.expanded_width.max(compact_max_w);
             self.geom.os_w = (max_w * self.config.global_scale + PADDING) as u32;

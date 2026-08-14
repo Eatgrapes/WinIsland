@@ -11,6 +11,14 @@ use crate::ui::expanded::music_view::{
 };
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 
+pub(crate) fn lyric_font_size(font_size: f32, global_scale: f32) -> f32 {
+    if font_size > 0.0 {
+        font_size * 0.8 * global_scale
+    } else {
+        12.0 * global_scale
+    }
+}
+
 pub(super) struct MiniContentParams<'a> {
     pub(super) canvas: &'a Canvas,
     pub(super) content: Option<MiniContent<'a>>,
@@ -128,11 +136,7 @@ pub(super) fn draw_mini_content(params: MiniContentParams<'_>) {
                     let alpha = (alpha as f32 * lyric_fade_f) as u8;
 
                     if alpha > 0 {
-                        let lyric_font_sz = if font_size > 0.0 {
-                            font_size * 0.8 * global_scale
-                        } else {
-                            12.0 * global_scale
-                        };
+                        let lyric_font_sz = lyric_font_size(font_size, global_scale);
                         let space_left = offset_x + 30.0 * global_scale;
                         let space_right = offset_x + current_w - 29.0 * global_scale;
                         let available_w = space_right - space_left;

@@ -7,6 +7,7 @@
 - Improved the update system
 - Added a plugin marketplace
 - Added a widget system for the compact island
+- Fixed compact lyrics being clipped when using larger fonts (#145)
 
 ### v1.2.9
 - Fixed notification text and app icon display issues (#129)
