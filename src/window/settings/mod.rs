@@ -1,4 +1,5 @@
 use crate::core::config::AppConfig;
+use crate::core::persistence::load_config;
 use crate::core::plugin_widget::PluginWidget;
 use crate::plugin::manager::InstalledPlugin;
 use crate::plugin::marketplace::{MarketplaceCatalog, MarketplacePlugin};
@@ -203,6 +204,7 @@ impl SettingsApp {
         plugin_widgets: Vec<PluginWidget>,
     ) -> Self {
         let switch_anim = SwitchAnimator::new(&[]);
+        let detected_apps = config.smtc_known_apps.clone();
         Self {
             window: None,
             renderer_target: None,
@@ -221,7 +223,7 @@ impl SettingsApp {
             scroll_vel_y: 0.0,
             last_frame_time: Instant::now(),
             next_frame_deadline: Instant::now(),
-            detected_apps: Vec::new(),
+            detected_apps,
             sidebar_hover: -1,
             popup: None,
             number_input: None,
@@ -354,28 +356,11 @@ impl SettingsApp {
     }
 
     pub(crate) fn update_detected_apps(&mut self) {
-        use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
+        let known_apps = load_config().smtc_known_apps;
         let mut changed = false;
-        if let Ok(manager_async) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
-            && let Ok(manager) = manager_async.join()
-            && let Ok(sessions) = manager.GetSessions()
-            && let Ok(size) = sessions.Size()
-        {
-            for i in 0..size {
-                if let Ok(session) = sessions.GetAt(i)
-                    && let Ok(id) = session.SourceAppUserModelId()
-                {
-                    let name = id.to_string();
-                    if !self.detected_apps.contains(&name) {
-                        self.detected_apps.push(name);
-                        changed = true;
-                    }
-                }
-            }
-        }
-        for app in &self.config.smtc_known_apps {
-            if !self.detected_apps.contains(app) {
-                self.detected_apps.push(app.clone());
+        for app in known_apps {
+            if !self.detected_apps.contains(&app) {
+                self.detected_apps.push(app);
                 changed = true;
             }
         }
@@ -416,7 +401,6 @@ impl SettingsApp {
         self.close_requested = false;
         self.next_frame_deadline = Instant::now();
         self.update_theme();
-        self.update_detected_apps();
     }
 
     pub(crate) fn invalidate_renderer_target(&mut self) {

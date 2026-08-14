@@ -41,7 +41,6 @@ use winit::{
 
 const BUFFER_COUNT: usize = 2;
 const GPU_RESOURCE_CACHE_LIMIT: usize = 48 * 1024 * 1024;
-const MULTI_TARGET_GPU_RESOURCE_CACHE_LIMIT: usize = 16 * 1024 * 1024;
 const INITIALIZATION_ATTEMPTS: usize = 3;
 const INITIALIZATION_RETRY_DELAY: Duration = Duration::from_millis(500);
 const RESOURCE_CLEANUP_INTERVAL: Duration = Duration::from_secs(5);
@@ -195,7 +194,6 @@ impl D3DRenderer {
                 swap_chain,
             },
         );
-        self.update_resource_cache_limit();
         Ok(target_id)
     }
 
@@ -297,17 +295,7 @@ impl D3DRenderer {
         drop(target);
         self.direct_context
             .purge_unlocked_resources(gpu::PurgeResourceOptions::AllResources);
-        self.update_resource_cache_limit();
         self.last_resource_cleanup = Instant::now();
-    }
-
-    fn update_resource_cache_limit(&mut self) {
-        let limit = if self.targets.len() > 1 {
-            MULTI_TARGET_GPU_RESOURCE_CACHE_LIMIT
-        } else {
-            GPU_RESOURCE_CACHE_LIMIT
-        };
-        self.direct_context.set_resource_cache_limit(limit);
     }
 
     fn cleanup_unused_resources(&mut self) {
