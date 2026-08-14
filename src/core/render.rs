@@ -6,7 +6,7 @@ use self::background::{BackgroundParams, draw_background};
 use self::expanded::{ExpandedContentParams, draw_expanded_content};
 use self::mini::{MiniContentParams, draw_mini_content};
 
-use crate::core::config::{PluginWidgetSlot, WidgetSlot};
+use crate::core::config::{CompactWidgetSlot, PluginWidgetSlot, WidgetSlot};
 use crate::core::smtc::MediaInfo;
 use crate::ui::compact::CompactOverlay;
 use crate::ui::expanded::music_view::{default_media_palette, get_media_palette};
@@ -59,6 +59,7 @@ pub struct StyleParams<'a> {
     pub widget_layout: &'a [WidgetSlot],
     pub plugin_widget_layout: &'a [PluginWidgetSlot],
     pub plugin_widgets: &'a crate::core::plugin_widget::WidgetManager,
+    pub compact_widget_layout: &'a [CompactWidgetSlot],
 }
 
 use crate::core::context::MiniContent;
@@ -130,6 +131,7 @@ pub fn draw_island(
         widget_layout,
         plugin_widget_layout,
         plugin_widgets,
+        compact_widget_layout,
     } = style;
     let canvas = surface.canvas();
     canvas.clear(Color::TRANSPARENT);
@@ -221,14 +223,22 @@ pub fn draw_island(
     if compact_overlay_visible {
         compact_overlay.draw(canvas, rect, global_scale, 1.0 - hide_progress);
     } else {
+        let center_occupied = crate::ui::widget::compact::has_center_widget(compact_widget_layout);
+        let visible_mini_content = if center_occupied { None } else { mini_content };
+        let has_mini_content = visible_mini_content.is_some();
+        let has_center_content = center_occupied || has_mini_content;
+        let (left_extension, right_extension) =
+            crate::ui::widget::compact::side_extensions(compact_widget_layout, has_center_content);
+        let left_extension = left_extension * global_scale;
+        let right_extension = right_extension * global_scale;
         draw_mini_content(MiniContentParams {
             canvas,
-            content: mini_content,
+            content: visible_mini_content,
             mini_alpha: mini_alpha_f,
-            current_w,
+            current_w: (current_w - left_extension - right_extension).max(0.0),
             global_scale,
             media,
-            offset_x,
+            offset_x: offset_x + left_extension,
             stable_offset_y,
             base_h,
             palette: &palette,
@@ -242,6 +252,14 @@ pub fn draw_island(
             lyric_transition,
             text_color,
         });
+        crate::ui::widget::compact::draw(
+            canvas,
+            compact_widget_layout,
+            Rect::from_xywh(offset_x, stable_offset_y, current_w, base_h),
+            global_scale,
+            (mini_alpha_f * 255.0) as u8,
+            has_center_content,
+        );
     }
     canvas.restore();
 

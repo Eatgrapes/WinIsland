@@ -17,7 +17,12 @@ impl App {
         event_loop.set_control_flow(ControlFlow::Wait);
         if self.window.is_none() {
             Self::set_aumid();
-            let max_w = self.config.expanded_width.max(450.0);
+            let compact_max_w = crate::ui::widget::compact::target_width(
+                &self.config.compact_widget_layout,
+                self.config.base_width,
+                Some(450.0),
+            );
+            let max_w = self.config.expanded_width.max(compact_max_w);
             self.geom.os_w = (max_w * self.config.global_scale + PADDING) as u32;
             self.geom.os_h =
                 (self.config.expanded_height * self.config.global_scale + PADDING) as u32;

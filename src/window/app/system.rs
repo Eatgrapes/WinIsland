@@ -427,7 +427,12 @@ impl App {
                             .set_custom_font_path(self.config.custom_font_path.as_deref());
                     }
 
-                    let max_w = self.config.expanded_width.max(450.0);
+                    let compact_max_w = crate::ui::widget::compact::target_width(
+                        &self.config.compact_widget_layout,
+                        self.config.base_width,
+                        Some(450.0),
+                    );
+                    let max_w = self.config.expanded_width.max(compact_max_w);
                     let new_os_w = (max_w * self.config.global_scale + PADDING) as u32;
                     let new_os_h =
                         (self.config.expanded_height * self.config.global_scale + PADDING) as u32;
