@@ -8,7 +8,7 @@ use crate::utils::icon::get_app_icon;
 use crate::utils::settings_ui::items::*;
 use crate::utils::settings_ui::*;
 use crate::window::d3d::{D3DRenderer, D3DTargetId};
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Dwm::{DWMWINDOWATTRIBUTE, DwmSetWindowAttribute};
@@ -160,6 +160,7 @@ pub struct SettingsApp {
     pub(crate) last_frame_time: Instant,
     pub(crate) next_frame_deadline: Instant,
     pub(crate) detected_apps: Vec<String>,
+    detected_apps_rx: Option<mpsc::Receiver<Vec<String>>>,
     pub(crate) sidebar_hover: i32,
     pub(crate) popup: Option<PopupState>,
     pub(crate) number_input: Option<NumberInput>,
@@ -183,6 +184,7 @@ pub struct SettingsApp {
     pub(crate) compact_widget_preview_hover_slot: Option<usize>,
     pub(crate) plugin_widgets: Vec<PluginWidget>,
     pub(crate) plugins: Vec<InstalledPlugin>,
+    plugin_inventory_rx: Option<mpsc::Receiver<Vec<InstalledPlugin>>>,
     pub(crate) plugin_page_tab: PluginPageTab,
     pub(crate) marketplace_state: MarketplaceViewState,
     pub(crate) marketplace_installing_id: Option<String>,
@@ -203,6 +205,7 @@ impl SettingsApp {
         plugin_widgets: Vec<PluginWidget>,
     ) -> Self {
         let switch_anim = SwitchAnimator::new(&[]);
+        let detected_apps = config.smtc_known_apps.clone();
         Self {
             window: None,
             renderer_target: None,
@@ -221,7 +224,8 @@ impl SettingsApp {
             scroll_vel_y: 0.0,
             last_frame_time: Instant::now(),
             next_frame_deadline: Instant::now(),
-            detected_apps: Vec::new(),
+            detected_apps,
+            detected_apps_rx: None,
             sidebar_hover: -1,
             popup: None,
             number_input: None,
@@ -245,6 +249,7 @@ impl SettingsApp {
             compact_widget_preview_hover_slot: None,
             plugin_widgets,
             plugins,
+            plugin_inventory_rx: None,
             plugin_page_tab: PluginPageTab::Installed,
             marketplace_state: MarketplaceViewState::NotLoaded,
             marketplace_installing_id: None,
@@ -354,25 +359,7 @@ impl SettingsApp {
     }
 
     pub(crate) fn update_detected_apps(&mut self) {
-        use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
         let mut changed = false;
-        if let Ok(manager_async) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
-            && let Ok(manager) = manager_async.join()
-            && let Ok(sessions) = manager.GetSessions()
-            && let Ok(size) = sessions.Size()
-        {
-            for i in 0..size {
-                if let Ok(session) = sessions.GetAt(i)
-                    && let Ok(id) = session.SourceAppUserModelId()
-                {
-                    let name = id.to_string();
-                    if !self.detected_apps.contains(&name) {
-                        self.detected_apps.push(name);
-                        changed = true;
-                    }
-                }
-            }
-        }
         for app in &self.config.smtc_known_apps {
             if !self.detected_apps.contains(app) {
                 self.detected_apps.push(app.clone());
@@ -381,6 +368,45 @@ impl SettingsApp {
         }
         if changed {
             self.items_dirty = true;
+        }
+        if self.detected_apps_rx.is_none() {
+            self.detected_apps_rx = Some(crate::core::smtc::detect_active_apps_async());
+        }
+    }
+
+    fn poll_detected_apps(&mut self) {
+        let Some(rx) = self.detected_apps_rx.take() else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(apps) => {
+                let mut changed = false;
+                for app in apps {
+                    if !self.detected_apps.contains(&app) {
+                        self.detected_apps.push(app);
+                        changed = true;
+                    }
+                }
+                if changed {
+                    self.items_dirty = true;
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => self.detected_apps_rx = Some(rx),
+            Err(mpsc::TryRecvError::Disconnected) => {}
+        }
+    }
+
+    fn poll_plugin_inventory(&mut self) {
+        let Some(rx) = self.plugin_inventory_rx.take() else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(plugins) => self.set_plugins(plugins),
+            Err(mpsc::TryRecvError::Empty) => self.plugin_inventory_rx = Some(rx),
+            Err(mpsc::TryRecvError::Disconnected) => {}
         }
     }
 }
@@ -725,6 +751,8 @@ impl SettingsApp {
         self.window.as_ref()?;
 
         self.frame_count += 1;
+        self.poll_detected_apps();
+        self.poll_plugin_inventory();
         if self.frame_count.is_multiple_of(120) {
             self.update_detected_apps();
         }
@@ -918,6 +946,13 @@ impl SettingsApp {
         if let Some(win) = &self.window {
             win.request_redraw();
         }
+    }
+
+    pub(crate) fn set_plugin_inventory_receiver(
+        &mut self,
+        receiver: mpsc::Receiver<Vec<InstalledPlugin>>,
+    ) {
+        self.plugin_inventory_rx = Some(receiver);
     }
 
     pub(crate) fn set_plugin_widgets(&mut self, plugin_widgets: Vec<PluginWidget>) {

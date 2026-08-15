@@ -11,6 +11,57 @@ mod properties;
 mod session;
 mod worker;
 
+pub(crate) fn detect_active_apps_async() -> std::sync::mpsc::Receiver<Vec<String>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let spawn_result = std::thread::Builder::new()
+        .name("winisland-smtc-settings".to_string())
+        .spawn(move || {
+            use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
+            use windows::Win32::System::Com::{
+                COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize,
+            };
+
+            // SAFETY: CoInitializeEx initializes COM for this worker thread. COINIT_MULTITHREADED
+            // is compatible with the WinRT session manager calls made below.
+            let com_initialized = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
+            struct ComGuard;
+            impl Drop for ComGuard {
+                fn drop(&mut self) {
+                    // SAFETY: CoUninitialize balances the successful CoInitializeEx call.
+                    unsafe { CoUninitialize() };
+                }
+            }
+            let _com_guard = com_initialized.then_some(ComGuard);
+
+            let apps = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
+                .ok()
+                .and_then(|operation| operation.join().ok())
+                .and_then(|manager| {
+                    let sessions = manager.GetSessions().ok()?;
+                    let count = sessions.Size().ok()?;
+                    let mut apps = Vec::new();
+                    for index in 0..count {
+                        if let Ok(session) = sessions.GetAt(index)
+                            && let Ok(id) = session.SourceAppUserModelId()
+                        {
+                            let app = id.to_string();
+                            if !apps.contains(&app) {
+                                apps.push(app);
+                            }
+                        }
+                    }
+                    Some(apps)
+                })
+                .unwrap_or_default();
+            let _ = tx.send(apps);
+            crate::utils::event_loop::wake();
+        });
+    if let Err(error) = spawn_result {
+        log::warn!("Failed to start settings media app scan: {error}");
+    }
+    rx
+}
+
 #[derive(Clone, Debug)]
 pub struct MediaInfo {
     pub title: String,

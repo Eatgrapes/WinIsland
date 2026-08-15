@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, mpsc};
 
 use super::loader::NativePlugin;
 use super::types::{
@@ -1280,7 +1280,7 @@ pub fn drain_pending_contexts(manager: &mut crate::core::context::ContextManager
 }
 
 pub fn drain_widget_events(manager: &mut crate::core::plugin_widget::WidgetManager) -> bool {
-    let events = match runtime().lock() {
+    let events = match runtime().try_lock() {
         Ok(mut runtime) => runtime
             .widget_events
             .drain()
@@ -1610,48 +1610,48 @@ impl PluginManager {
 
     pub fn installed_plugins(&self) -> Vec<InstalledPlugin> {
         let disabled = disabled_plugin_ids(&self.plugin_dir);
-        let mut plugins = discover_packaged_plugins(&self.plugin_dir, &disabled);
-        if let Ok(entries) = self.entries.try_borrow() {
-            for plugin in entries.iter() {
-                if plugins.iter().any(|entry| entry.id == plugin.metadata().id) {
-                    continue;
-                }
+        collect_installed_plugins(&self.plugin_dir, &disabled, self.loaded_plugin_snapshot())
+    }
+
+    pub fn installed_plugins_async(&self) -> mpsc::Receiver<Vec<InstalledPlugin>> {
+        let plugin_dir = self.plugin_dir.clone();
+        let loaded_plugins = self.loaded_plugin_snapshot();
+        let (tx, rx) = mpsc::channel();
+        let spawn_result = std::thread::Builder::new()
+            .name("winisland-plugin-scan".to_string())
+            .spawn(move || {
+                let disabled = disabled_plugin_ids(&plugin_dir);
+                let plugins = collect_installed_plugins(&plugin_dir, &disabled, loaded_plugins);
+                let _ = tx.send(plugins);
+                crate::utils::event_loop::wake();
+            });
+        if let Err(error) = spawn_result {
+            log::warn!("Failed to start plugin scan: {error}");
+        }
+        rx
+    }
+
+    fn loaded_plugin_snapshot(&self) -> Vec<InstalledPlugin> {
+        let Ok(entries) = self.entries.try_borrow() else {
+            return Vec::new();
+        };
+        entries
+            .iter()
+            .map(|plugin| {
                 let metadata = plugin.metadata();
-                plugins.push(InstalledPlugin {
+                InstalledPlugin {
                     id: metadata.id.clone(),
                     name: metadata.name.clone(),
                     author: metadata.author.clone(),
                     version: metadata.version.clone(),
                     description: metadata.description.clone(),
                     github_link: String::new(),
-                    enabled: !disabled.contains(&metadata.id),
+                    enabled: true,
                     icon: None,
                     readme: None,
-                });
-            }
-        }
-        for path in discover_manual_plugin_dlls(&self.plugin_dir) {
-            let Ok(plugin) = NativePlugin::load(&path) else {
-                continue;
-            };
-            let metadata = plugin.metadata();
-            if plugins.iter().any(|entry| entry.id == metadata.id) {
-                continue;
-            }
-            plugins.push(InstalledPlugin {
-                id: metadata.id.clone(),
-                name: metadata.name.clone(),
-                author: metadata.author.clone(),
-                version: metadata.version.clone(),
-                description: metadata.description.clone(),
-                github_link: String::new(),
-                enabled: !disabled.contains(&metadata.id),
-                icon: None,
-                readme: None,
-            });
-        }
-        plugins.sort_by_key(|plugin| plugin.name.to_lowercase());
-        plugins
+                }
+            })
+            .collect()
     }
 
     pub fn set_plugin_enabled(&self, plugin_id: &str, enabled: bool) -> Result<(), String> {
@@ -1982,6 +1982,43 @@ fn discover_packaged_plugins(directory: &Path, disabled: &HashSet<String>) -> Ve
             })
         })
         .collect()
+}
+
+fn collect_installed_plugins(
+    directory: &Path,
+    disabled: &HashSet<String>,
+    loaded_plugins: Vec<InstalledPlugin>,
+) -> Vec<InstalledPlugin> {
+    let mut plugins = discover_packaged_plugins(directory, disabled);
+    for mut plugin in loaded_plugins {
+        if plugins.iter().any(|entry| entry.id == plugin.id) {
+            continue;
+        }
+        plugin.enabled = !disabled.contains(&plugin.id);
+        plugins.push(plugin);
+    }
+    for path in discover_manual_plugin_dlls(directory) {
+        let Ok(plugin) = NativePlugin::load(&path) else {
+            continue;
+        };
+        let metadata = plugin.metadata();
+        if plugins.iter().any(|entry| entry.id == metadata.id) {
+            continue;
+        }
+        plugins.push(InstalledPlugin {
+            id: metadata.id.clone(),
+            name: metadata.name.clone(),
+            author: metadata.author.clone(),
+            version: metadata.version.clone(),
+            description: metadata.description.clone(),
+            github_link: String::new(),
+            enabled: !disabled.contains(&metadata.id),
+            icon: None,
+            readme: None,
+        });
+    }
+    plugins.sort_by_key(|plugin| plugin.name.to_lowercase());
+    plugins
 }
 
 fn discover_manual_plugin_dlls(directory: &Path) -> Vec<PathBuf> {

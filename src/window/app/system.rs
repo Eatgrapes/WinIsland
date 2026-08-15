@@ -37,10 +37,15 @@ impl App {
             }
             Some(crate::window::settings::PluginSettingsRequest::SetEnabled { id, enabled }) => {
                 let result = self.plugin_mgr.set_plugin_enabled(&id, enabled);
+                let plugin_inventory = result
+                    .is_ok()
+                    .then(|| self.plugin_mgr.installed_plugins_async());
                 if let Some(settings) = self.settings.as_mut() {
                     match result {
                         Ok(()) => {
-                            settings.set_plugins(self.plugin_mgr.installed_plugins());
+                            if let Some(receiver) = plugin_inventory {
+                                settings.set_plugin_inventory_receiver(receiver);
+                            }
                             settings.set_plugin_status(
                                 crate::core::i18n::tr("plugin_state_restart"),
                                 true,
@@ -58,11 +63,16 @@ impl App {
                 if result.is_ok() {
                     crate::plugin::manager::drain_widget_events(&mut self.widget_mgr);
                 }
+                let plugin_inventory = result
+                    .is_ok()
+                    .then(|| self.plugin_mgr.installed_plugins_async());
                 if let Some(settings) = self.settings.as_mut() {
                     match result {
                         Ok(()) => {
                             settings.set_plugin_widgets(self.widget_mgr.configurable_widgets());
-                            settings.set_plugins(self.plugin_mgr.installed_plugins());
+                            if let Some(receiver) = plugin_inventory {
+                                settings.set_plugin_inventory_receiver(receiver);
+                            }
                             settings.set_plugin_status(
                                 crate::core::i18n::tr("plugin_uninstalled"),
                                 false,
@@ -299,16 +309,14 @@ impl App {
         ) {
             crate::core::persistence::save_config(&config);
         }
-        let mut settings = crate::window::settings::SettingsApp::new(
-            config,
-            self.plugin_mgr.installed_plugins(),
-            plugin_widgets,
-        );
+        let mut settings =
+            crate::window::settings::SettingsApp::new(config, Vec::new(), plugin_widgets);
         let Some(renderer) = self.renderer.as_mut() else {
             log::error!("Cannot open settings without the shared D3D12 renderer");
             return;
         };
         settings.create_window(event_loop, renderer);
+        settings.set_plugin_inventory_receiver(self.plugin_mgr.installed_plugins_async());
         if let Some(catalog) = self.marketplace_catalog.clone() {
             settings.set_marketplace_catalog(catalog);
         }
