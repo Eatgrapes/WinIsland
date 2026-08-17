@@ -2,6 +2,7 @@
 
 ### v1.3.1
 - Fixed known issues
+- Fixed a crash issue when quickly switching songs(#130)
 
 ### v1.3.0
 - Fixed known bugs
