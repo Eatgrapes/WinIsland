@@ -1,10 +1,11 @@
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use skia_safe::{Canvas, Color, FontStyle, Paint, Rect};
 use tokio_util::sync::CancellationToken;
-use windows::Win32::Foundation::PROPERTYKEY;
+use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, PROPERTYKEY, WPARAM};
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::Media::Audio::{
     DEVICE_STATE, EDataFlow, ERole, IMMDeviceEnumerator, IMMNotificationClient,
@@ -12,6 +13,12 @@ use windows::Win32::Media::Audio::{
 };
 use windows::Win32::System::Com::{
     CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
+};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Input::KeyboardAndMouse::{VK_VOLUME_DOWN, VK_VOLUME_MUTE, VK_VOLUME_UP};
+use windows::Win32::UI::WindowsAndMessaging::{
+    CallNextHookEx, HC_ACTION, HHOOK, KBDLLHOOKSTRUCT, SetWindowsHookExW, UnhookWindowsHookEx,
+    WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 use windows::core::{PCWSTR, Result};
 
@@ -28,6 +35,21 @@ const FADE_DURATION: Duration = Duration::from_millis(240);
 const VOLUME_CHANGE_THRESHOLD: f32 = 0.002;
 
 #[derive(Clone, Copy)]
+enum VolumeCommand {
+    StepUp,
+    StepDown,
+    ToggleMute,
+}
+
+struct VolumeKeyHandler {
+    sender: SyncSender<VolumeCommand>,
+    endpoint_ready: Arc<AtomicBool>,
+    display_enabled: Arc<AtomicBool>,
+}
+
+static VOLUME_KEY_HANDLER: Mutex<Option<VolumeKeyHandler>> = Mutex::new(None);
+
+#[derive(Clone, Copy)]
 pub(super) struct VolumeSnapshot {
     level: f32,
     muted: bool,
@@ -41,6 +63,8 @@ struct SharedVolumeState {
 pub(super) struct VolumeMonitor {
     state: Arc<SharedVolumeState>,
     cancellation: CancellationToken,
+    display_enabled: Arc<AtomicBool>,
+    keyboard_hook: Option<HHOOK>,
 }
 
 impl VolumeMonitor {
@@ -53,10 +77,25 @@ impl VolumeMonitor {
             }),
         });
         let cancellation = CancellationToken::new();
-        spawn_volume_monitor(state.clone(), cancellation.clone());
+        let endpoint_ready = Arc::new(AtomicBool::new(false));
+        let display_enabled = Arc::new(AtomicBool::new(false));
+        let (command_sender, command_receiver) = mpsc::sync_channel(32);
+        spawn_volume_monitor(
+            state.clone(),
+            cancellation.clone(),
+            command_receiver,
+            endpoint_ready.clone(),
+        );
+        let keyboard_hook = install_volume_keyboard_hook(VolumeKeyHandler {
+            sender: command_sender,
+            endpoint_ready,
+            display_enabled: display_enabled.clone(),
+        });
         Self {
             state,
             cancellation,
+            display_enabled,
+            keyboard_hook,
         }
     }
 
@@ -67,15 +106,105 @@ impl VolumeMonitor {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
     }
+
+    pub(super) fn set_key_handling_enabled(&self, enabled: bool) {
+        self.display_enabled.store(enabled, Ordering::Release);
+    }
 }
 
 impl Drop for VolumeMonitor {
     fn drop(&mut self) {
+        self.display_enabled.store(false, Ordering::Release);
+        *VOLUME_KEY_HANDLER
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = None;
+        if let Some(hook) = self.keyboard_hook.take() {
+            // SAFETY: hook was returned by SetWindowsHookExW and is removed once while the
+            // callback function remains valid for the process lifetime.
+            if unsafe { UnhookWindowsHookEx(hook) }.is_err() {
+                log::warn!("Volume keyboard hook could not be removed");
+            }
+        }
         self.cancellation.cancel();
     }
 }
 
-fn spawn_volume_monitor(state: Arc<SharedVolumeState>, cancellation: CancellationToken) {
+fn install_volume_keyboard_hook(handler: VolumeKeyHandler) -> Option<HHOOK> {
+    // SAFETY: the current process module contains the static hook callback, and the hook is
+    // installed on the main thread whose winit event loop pumps messages for its lifetime.
+    let hook_result = unsafe {
+        match GetModuleHandleW(None) {
+            Ok(module) => SetWindowsHookExW(
+                WH_KEYBOARD_LL,
+                Some(volume_keyboard_hook),
+                Some(HINSTANCE(module.0)),
+                0,
+            ),
+            Err(error) => Err(error),
+        }
+    };
+    let hook = match hook_result {
+        Ok(hook) => hook,
+        Err(error) => {
+            log::warn!("Volume keyboard hook could not be installed: {error}");
+            return None;
+        }
+    };
+    *VOLUME_KEY_HANDLER
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = Some(handler);
+    log::info!("Volume keys are handled by WinIsland");
+    Some(hook)
+}
+
+unsafe extern "system" fn volume_keyboard_hook(
+    code: i32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    if code == HC_ACTION as i32
+        && matches!(
+            wparam.0 as u32,
+            WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
+        )
+    {
+        // SAFETY: for HC_ACTION, Windows supplies lparam as a valid KBDLLHOOKSTRUCT pointer for
+        // the duration of this callback.
+        let key = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
+        let command = match key.vkCode {
+            value if value == VK_VOLUME_UP.0 as u32 => Some(VolumeCommand::StepUp),
+            value if value == VK_VOLUME_DOWN.0 as u32 => Some(VolumeCommand::StepDown),
+            value if value == VK_VOLUME_MUTE.0 as u32 => Some(VolumeCommand::ToggleMute),
+            _ => None,
+        };
+        if let Some(command) = command {
+            let is_key_down = matches!(wparam.0 as u32, WM_KEYDOWN | WM_SYSKEYDOWN);
+            let handled = VOLUME_KEY_HANDLER
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .as_ref()
+                .is_some_and(|handler| {
+                    handler.endpoint_ready.load(Ordering::Acquire)
+                        && handler.display_enabled.load(Ordering::Acquire)
+                        && (!is_key_down || handler.sender.try_send(command).is_ok())
+                });
+            if handled {
+                return LRESULT(1);
+            }
+        }
+    }
+
+    // SAFETY: unhandled input is forwarded with the original hook parameters, as required by
+    // the low-level keyboard hook contract.
+    unsafe { CallNextHookEx(None, code, wparam, lparam) }
+}
+
+fn spawn_volume_monitor(
+    state: Arc<SharedVolumeState>,
+    cancellation: CancellationToken,
+    command_receiver: Receiver<VolumeCommand>,
+    endpoint_ready: Arc<AtomicBool>,
+) {
     tokio::task::spawn_blocking(move || {
         // SAFETY: This worker owns its COM apartment and releases every COM interface before
         // uninitializing it when the monitor stops.
@@ -99,6 +228,7 @@ fn spawn_volume_monitor(state: Arc<SharedVolumeState>, cancellation: Cancellatio
                 .is_some_and(|notifier| notifier.take_change())
             {
                 endpoint = None;
+                endpoint_ready.store(false, Ordering::Release);
                 previous = None;
                 next_endpoint_retry = now;
             }
@@ -119,22 +249,38 @@ fn spawn_volume_monitor(state: Arc<SharedVolumeState>, cancellation: Cancellatio
 
             if endpoint.is_none() && now >= next_endpoint_retry {
                 endpoint = enumerator.as_ref().and_then(create_default_endpoint);
+                endpoint_ready.store(endpoint.is_some(), Ordering::Release);
                 previous = None;
                 next_endpoint_retry = now + ENDPOINT_RETRY_INTERVAL;
             }
 
+            let mut command_handled = false;
+            while let Ok(command) = command_receiver.try_recv() {
+                if endpoint
+                    .as_ref()
+                    .is_some_and(|endpoint| apply_volume_command(endpoint, command))
+                {
+                    command_handled = true;
+                } else {
+                    endpoint = None;
+                    endpoint_ready.store(false, Ordering::Release);
+                }
+            }
+
             if let Some(current) = endpoint.as_ref().and_then(read_volume) {
-                publish_volume_snapshot(&state, current, previous);
+                publish_volume_snapshot(&state, current, previous, command_handled);
 
                 previous = Some(current);
             } else {
                 endpoint = None;
+                endpoint_ready.store(false, Ordering::Release);
             }
 
             std::thread::sleep(POLL_INTERVAL);
         }
 
         drop(endpoint);
+        endpoint_ready.store(false, Ordering::Release);
         drop(notifier);
         drop(enumerator);
         // SAFETY: COM was initialized successfully on this worker and all COM interfaces have
@@ -143,6 +289,21 @@ fn spawn_volume_monitor(state: Arc<SharedVolumeState>, cancellation: Cancellatio
             CoUninitialize();
         }
     });
+}
+
+fn apply_volume_command(endpoint: &IAudioEndpointVolume, command: VolumeCommand) -> bool {
+    // SAFETY: endpoint belongs to this initialized COM worker thread. A null event-context GUID
+    // is explicitly supported by the endpoint volume API.
+    unsafe {
+        match command {
+            VolumeCommand::StepUp => endpoint.VolumeStepUp(std::ptr::null()),
+            VolumeCommand::StepDown => endpoint.VolumeStepDown(std::ptr::null()),
+            VolumeCommand::ToggleMute => endpoint
+                .GetMute()
+                .and_then(|muted| endpoint.SetMute(!muted.as_bool(), std::ptr::null())),
+        }
+        .is_ok()
+    }
 }
 
 fn create_endpoint_enumerator() -> Option<IMMDeviceEnumerator> {
@@ -178,10 +339,13 @@ fn publish_volume_snapshot(
     state: &SharedVolumeState,
     current: VolumeSnapshot,
     previous: Option<VolumeSnapshot>,
+    force_changed: bool,
 ) {
-    let changed = previous.is_some_and(|last| {
-        (last.level - current.level).abs() > VOLUME_CHANGE_THRESHOLD || last.muted != current.muted
-    });
+    let changed = force_changed
+        || previous.is_some_and(|last| {
+            (last.level - current.level).abs() > VOLUME_CHANGE_THRESHOLD
+                || last.muted != current.muted
+        });
     let mut snapshot = state
         .snapshot
         .lock()
@@ -195,6 +359,10 @@ fn publish_volume_snapshot(
         revision,
         ..current
     };
+    drop(snapshot);
+    if changed {
+        crate::utils::event_loop::wake();
+    }
 }
 
 struct DefaultEndpointNotifier {

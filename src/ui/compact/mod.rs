@@ -61,6 +61,8 @@ impl Default for CompactOverlay {
 
 impl CompactOverlay {
     pub fn update(&mut self, state: CompactOverlayState, notification_display: bool) -> bool {
+        self.volume_monitor
+            .set_key_handling_enabled(!matches!(state, CompactOverlayState::Discard));
         let volume_changed = self
             .volume_indicator
             .update(self.volume_monitor.snapshot(), state);
@@ -117,12 +119,12 @@ impl CompactOverlay {
     }
 
     fn active(&self) -> Option<ActiveCompactOverlay<'_>> {
-        if self.notification_indicator.is_visible() {
+        if self.volume_indicator.is_visible() {
+            Some(ActiveCompactOverlay::Volume(&self.volume_indicator))
+        } else if self.notification_indicator.is_visible() {
             Some(ActiveCompactOverlay::Notification(
                 &self.notification_indicator,
             ))
-        } else if self.volume_indicator.is_visible() {
-            Some(ActiveCompactOverlay::Volume(&self.volume_indicator))
         } else {
             None
         }
