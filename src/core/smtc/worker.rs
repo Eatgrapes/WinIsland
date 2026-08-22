@@ -4,13 +4,12 @@ use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 use windows::Foundation::TypedEventHandler;
 use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
-use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 
 use crate::core::lyrics::LyricsMode;
 
-use super::properties::fetch_properties;
+use super::properties::{ThumbnailFetcher, fetch_properties};
 use super::session::{auto_allow_new_apps, get_target_session};
-use super::{LyricsFetchRequest, MediaInfo, PlaybackCommand, spawn_lyrics_fetch};
+use super::{LyricsFetchRequest, MediaInfo, PlaybackCommand, WinRtGuard, spawn_lyrics_fetch};
 
 pub(super) struct WorkerChannels {
     pub(super) info_tx: watch::Sender<MediaInfo>,
@@ -32,20 +31,13 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
         mut lyrics_local_dir_rx,
         mut allowed_apps_rx,
     } = channels;
-    // SAFETY: CoInitializeEx initializes COM for this thread. We use
-    // COINIT_MULTITHREADED because tokio's spawn_blocking pool is MTA.
-    // If it fails (e.g. already initialized with a different mode), we
-    // skip creating the guard so CoUninitialize is not called unbalanced.
-    let com_initialized = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
-    struct ComGuard;
-    impl Drop for ComGuard {
-        fn drop(&mut self) {
-            // SAFETY: CoUninitialize balances the successful CoInitializeEx
-            // that triggered the creation of this guard.
-            unsafe { CoUninitialize() };
+    let _winrt_guard = match WinRtGuard::new() {
+        Ok(guard) => guard,
+        Err(error) => {
+            log::error!("SMTC: failed to initialize WinRT: {error}");
+            return;
         }
-    }
-    let _com_guard = com_initialized.then_some(ComGuard);
+    };
 
     let manager = match GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
         Ok(op) => match op.join() {
@@ -60,17 +52,15 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
             return;
         }
     };
-    log::info!(
-        "SMTC: session manager created (COM initialized: {})",
-        com_initialized
-    );
+    log::info!("SMTC: session manager created");
 
-    let (event_tx, event_rx) = std::sync::mpsc::channel::<()>();
+    let (event_tx, event_rx) = std::sync::mpsc::sync_channel::<()>(1);
     let handler = TypedEventHandler::new(move |_m, _| {
-        let _ = event_tx.send(());
+        let _ = event_tx.try_send(());
         Ok(())
     });
-    let _ = manager.SessionsChanged(&handler);
+    let sessions_changed_token = manager.SessionsChanged(&handler).ok();
+    let thumbnail_fetcher = ThumbnailFetcher::new(info_tx.clone());
 
     let mut current_lyrics_mode = LyricsMode::Online;
     let mut current_lyrics_source = "163".to_string();
@@ -104,6 +94,7 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
             true,
             &mut last_session_seen,
             &mut last_was_playing,
+            thumbnail_fetcher.as_ref(),
         );
         let info = info_tx.borrow();
         let timeline_ready = info.duration_ms > 0
@@ -123,23 +114,10 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
         }
     }
 
-    let mut last_manager_refresh = Instant::now();
-    let mut current_manager = manager;
     let mut last_regular_update = Instant::now();
     let mut regular_poll_count = 0u32;
 
     while !cancel.is_cancelled() {
-        if last_manager_refresh.elapsed() > Duration::from_secs(30) {
-            if let Ok(new_mgr_op) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
-                && let Ok(new_mgr) = new_mgr_op.join()
-            {
-                current_manager = new_mgr;
-                let _ = current_manager.SessionsChanged(&handler);
-            }
-            log::info!("SMTC: manager refreshed (30s interval)");
-            last_manager_refresh = Instant::now();
-        }
-
         let mut lyrics_settings_changed = false;
         while let Ok(mode) = lyrics_mode_rx.try_recv() {
             if mode != current_lyrics_mode {
@@ -176,7 +154,7 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
             seek_pos = Some(v);
         }
         if let Some(seek_pos) = seek_pos
-            && let Some(session) = get_target_session(&current_manager, &current_allowed_apps)
+            && let Some(session) = get_target_session(&manager, &current_allowed_apps)
         {
             log::info!("SMTC: seek to {}ms", seek_pos);
             let ticks = seek_pos as i64 * 10_000;
@@ -193,7 +171,7 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
 
         while let Ok(cmd) = playback_rx.try_recv() {
             log::info!("SMTC: playback command {:?}", cmd);
-            if let Some(session) = get_target_session(&current_manager, &current_allowed_apps) {
+            if let Some(session) = get_target_session(&manager, &current_allowed_apps) {
                 match cmd {
                     PlaybackCommand::Toggle => {
                         if let Ok(pb_info) = session.GetPlaybackInfo()
@@ -219,7 +197,7 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
         if event_rx.try_recv().is_ok() {
             log::info!("SMTC: session change event received, updating immediately");
             update_media_info(
-                &current_manager,
+                &manager,
                 &info_tx,
                 current_lyrics_mode,
                 &current_lyrics_source,
@@ -228,6 +206,7 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
                 true,
                 &mut last_session_seen,
                 &mut last_was_playing,
+                thumbnail_fetcher.as_ref(),
             );
             last_regular_update = Instant::now();
         }
@@ -236,7 +215,7 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
             regular_poll_count += 1;
             let do_auto_allow = regular_poll_count.is_multiple_of(10);
             update_media_info(
-                &current_manager,
+                &manager,
                 &info_tx,
                 current_lyrics_mode,
                 &current_lyrics_source,
@@ -245,11 +224,18 @@ pub(super) fn smtc_poll_loop(channels: WorkerChannels, cancel: CancellationToken
                 do_auto_allow,
                 &mut last_session_seen,
                 &mut last_was_playing,
+                thumbnail_fetcher.as_ref(),
             );
             last_regular_update = Instant::now();
         }
 
         std::thread::sleep(Duration::from_millis(300));
+    }
+
+    if let Some(token) = sessions_changed_token
+        && let Err(error) = manager.RemoveSessionsChanged(token)
+    {
+        log::warn!("SMTC: failed to remove session change handler: {error}");
     }
 }
 
@@ -264,6 +250,7 @@ fn update_media_info(
     auto_allow: bool,
     last_session_seen: &mut Instant,
     last_was_playing: &mut bool,
+    thumbnail_fetcher: Option<&ThumbnailFetcher>,
 ) {
     if auto_allow {
         *allowed_apps = auto_allow_new_apps(manager, allowed_apps);
@@ -271,7 +258,14 @@ fn update_media_info(
 
     if let Some(session) = get_target_session(manager, allowed_apps) {
         *last_session_seen = Instant::now();
-        let _ = fetch_properties(&session, info_tx, lyrics_mode, lyrics_source, local_dir);
+        let _ = fetch_properties(
+            &session,
+            info_tx,
+            lyrics_mode,
+            lyrics_source,
+            local_dir,
+            thumbnail_fetcher,
+        );
         *last_was_playing = info_tx.borrow().is_playing;
     } else if *last_was_playing {
         let info = info_tx.borrow();

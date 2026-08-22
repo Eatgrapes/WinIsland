@@ -14,7 +14,7 @@ const MAX_SOURCE_PIXELS: u64 = 8 * 1024 * 1024;
 const MAX_DECODE_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_OUTPUT_DIMENSION: u32 = 1024;
 const MAX_SMTC_SOURCE_DIMENSION: u32 = 32_768;
-const MAX_SMTC_SOURCE_PIXELS: u64 = 32 * 1024 * 1024;
+const MAX_SMTC_SOURCE_PIXELS: u64 = 16 * 1024 * 1024;
 
 pub(crate) fn decode_cover_image(data: &Data) -> Option<Image> {
     let mut reader = ImageReader::new(Cursor::new(data.as_bytes()))
