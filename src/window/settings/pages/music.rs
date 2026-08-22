@@ -87,6 +87,7 @@ impl SettingsApp {
                     label: tr("lyrics_source"),
                     options: vec![
                         (tr("lyrics_source_163"), self.config.lyrics_source == "163"),
+                        (tr("lyrics_source_qq"), self.config.lyrics_source == "qq"),
                         (
                             tr("lyrics_source_kugou"),
                             self.config.lyrics_source == "kugou",
@@ -271,11 +272,17 @@ impl SettingsApp {
                 button_rect,
                 vec![
                     tr("lyrics_source_163"),
+                    tr("lyrics_source_qq"),
                     tr("lyrics_source_kugou"),
                     tr("lyrics_source_lrclib"),
                 ],
-                vec!["163".to_string(), "kugou".to_string(), "lrclib".to_string()],
-                ["163", "kugou", "lrclib"]
+                vec![
+                    "163".to_string(),
+                    "qq".to_string(),
+                    "kugou".to_string(),
+                    "lrclib".to_string(),
+                ],
+                ["163", "qq", "kugou", "lrclib"]
                     .iter()
                     .position(|source| *source == self.config.lyrics_source)
                     .unwrap_or_default(),

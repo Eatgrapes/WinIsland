@@ -132,6 +132,7 @@ lyrics_mode_online=En línea
 lyrics_mode_lrc=Carpeta LRC
 lyrics_source=Fuente de Letras
 lyrics_source_163=NetEase
+lyrics_source_qq=QQ Music
 lyrics_source_kugou=Kugou
 lyrics_source_lrclib=LRCLIB
 lyrics_delay=Retraso de Letras (s)

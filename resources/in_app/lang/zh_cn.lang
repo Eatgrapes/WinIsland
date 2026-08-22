@@ -132,6 +132,7 @@ lyrics_mode_online=在线
 lyrics_mode_lrc=LRC 文件夹
 lyrics_source=歌词来源
 lyrics_source_163=网易
+lyrics_source_qq=QQ 音乐
 lyrics_source_kugou=酷狗
 lyrics_source_lrclib=LRCLIB
 lyrics_delay=歌词延迟 (s)
