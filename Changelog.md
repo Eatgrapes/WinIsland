@@ -1,6 +1,8 @@
 # Changelog
 
 ### v1.3.1
+- Added word-synced LRC lyrics with smooth per-character highlighting
+- Added QQ Music as a lyrics source
 - Fixed known issues
 - Fixed a crash issue when quickly switching songs(#130)
 - Optimized performance and resource usage
