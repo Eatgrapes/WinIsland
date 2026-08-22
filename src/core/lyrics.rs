@@ -58,6 +58,76 @@ async fn get_json(url: &str, user_agent: &str) -> Option<Value> {
 pub struct LyricLine {
     pub time_ms: u64,
     pub text: String,
+    timings: Vec<LyricTiming>,
+}
+
+#[derive(Clone, Debug)]
+struct LyricTiming {
+    start_time_ms: u64,
+    end_byte: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct LyricHighlight {
+    pub(crate) start_byte: usize,
+    pub(crate) end_byte: usize,
+    pub(crate) progress: f32,
+}
+
+impl LyricLine {
+    pub(crate) fn highlight_at(
+        &self,
+        position_ms: u64,
+        next_line_time_ms: Option<u64>,
+    ) -> Option<LyricHighlight> {
+        if self.timings.is_empty() {
+            return None;
+        }
+
+        let started = self
+            .timings
+            .partition_point(|timing| timing.start_time_ms <= position_ms);
+        let index = started.saturating_sub(1);
+        let timing = &self.timings[index];
+        let start_byte = index
+            .checked_sub(1)
+            .map_or(0, |previous| self.timings[previous].end_byte);
+        let end_time_ms = self
+            .timings
+            .get(index + 1)
+            .map(|next| next.start_time_ms)
+            .unwrap_or_else(|| {
+                let previous_duration = index
+                    .checked_sub(1)
+                    .map(|previous| {
+                        timing
+                            .start_time_ms
+                            .saturating_sub(self.timings[previous].start_time_ms)
+                    })
+                    .filter(|duration| *duration > 0)
+                    .unwrap_or(400)
+                    .clamp(80, 1000);
+                let estimated_end = timing.start_time_ms.saturating_add(previous_duration);
+                next_line_time_ms
+                    .filter(|next| *next > timing.start_time_ms)
+                    .map_or(estimated_end, |next| next.min(estimated_end))
+            })
+            .max(timing.start_time_ms.saturating_add(1));
+        let progress = if started == 0 {
+            0.0
+        } else {
+            position_ms
+                .saturating_sub(timing.start_time_ms)
+                .min(end_time_ms - timing.start_time_ms) as f32
+                / (end_time_ms - timing.start_time_ms) as f32
+        };
+
+        Some(LyricHighlight {
+            start_byte,
+            end_byte: timing.end_byte,
+            progress,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -711,10 +781,20 @@ fn artist_matches(artist: &str, singer: &str) -> bool {
 }
 
 fn parse_lyrics(lrc: &str, tlrc: &str) -> Vec<LyricLine> {
-    let mut map: BTreeMap<u64, String> = BTreeMap::new();
+    let mut map: BTreeMap<u64, LyricLine> = BTreeMap::new();
 
     let mut process_content = |content: &str, keep_empty: bool| {
-        let normalized = normalize_lrc_timestamps(content);
+        let mut standard_lrc = String::with_capacity(content.len());
+        for source_line in content.lines() {
+            if let Some(line) = parse_word_synced_line(source_line) {
+                map.entry(line.time_ms).or_insert(line);
+            } else {
+                standard_lrc.push_str(source_line);
+                standard_lrc.push('\n');
+            }
+        }
+
+        let normalized = normalize_lrc_timestamps(&standard_lrc);
         let Ok(lyrics) = Lyrics::from_str(&normalized) else {
             return;
         };
@@ -729,20 +809,104 @@ fn parse_lyrics(lrc: &str, tlrc: &str) -> Vec<LyricLine> {
             }
             map.entry(timestamp as u64)
                 .and_modify(|current| {
-                    if current.is_empty() && !text.is_empty() {
-                        *current = text.to_string();
+                    if current.text.is_empty() && !text.is_empty() {
+                        current.text = text.to_string();
                     }
                 })
-                .or_insert_with(|| text.to_string());
+                .or_insert_with(|| LyricLine {
+                    time_ms: timestamp as u64,
+                    text: text.to_string(),
+                    timings: Vec::new(),
+                });
         }
     };
 
     process_content(lrc, true);
     process_content(tlrc, false);
 
-    map.into_iter()
-        .map(|(time_ms, text)| LyricLine { time_ms, text })
-        .collect()
+    map.into_values().collect()
+}
+
+fn parse_word_synced_line(line: &str) -> Option<LyricLine> {
+    let line = line.trim_start_matches('\u{feff}');
+    let mut tags = Vec::new();
+    let mut search_from = 0;
+    while let Some(relative_start) = line.get(search_from..)?.find('[') {
+        let start = search_from + relative_start;
+        let Some(relative_end) = line.get(start + 1..)?.find(']') else {
+            break;
+        };
+        let end = start + relative_end + 2;
+        if let Some(time_ms) = parse_lrc_timestamp(line.get(start + 1..end - 1)?) {
+            tags.push((start, end, time_ms));
+        }
+        search_from = end;
+    }
+
+    let mut text = String::new();
+    let mut timings = Vec::new();
+    for (index, &(_, segment_start, start_time_ms)) in tags.iter().enumerate() {
+        let segment_end = tags
+            .get(index + 1)
+            .map_or(line.len(), |(start, _, _)| *start);
+        let segment = line.get(segment_start..segment_end)?;
+        if segment.is_empty() {
+            continue;
+        }
+        if timings
+            .last()
+            .is_some_and(|previous: &LyricTiming| previous.start_time_ms > start_time_ms)
+        {
+            return None;
+        }
+        text.push_str(segment);
+        timings.push(LyricTiming {
+            start_time_ms,
+            end_byte: text.len(),
+        });
+    }
+
+    if timings.len() < 2 || text.is_empty() {
+        return None;
+    }
+    Some(LyricLine {
+        time_ms: timings.first()?.start_time_ms,
+        text,
+        timings,
+    })
+}
+
+fn parse_lrc_timestamp(timestamp: &str) -> Option<u64> {
+    let (minutes, second_part) = timestamp.split_once(':')?;
+    let (seconds, fraction) = second_part
+        .split_once('.')
+        .map_or((second_part, ""), |parts| parts);
+    if minutes.is_empty()
+        || seconds.is_empty()
+        || seconds.len() > 2
+        || fraction.len() > 3
+        || !minutes.bytes().all(|byte| byte.is_ascii_digit())
+        || !seconds.bytes().all(|byte| byte.is_ascii_digit())
+        || !fraction.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let minutes = minutes.parse::<u64>().ok()?;
+    let seconds = seconds.parse::<u64>().ok()?;
+    if seconds >= 60 {
+        return None;
+    }
+    let fraction = match fraction.len() {
+        0 => 0,
+        1 => fraction.parse::<u64>().ok()? * 100,
+        2 => fraction.parse::<u64>().ok()? * 10,
+        3 => fraction.parse::<u64>().ok()?,
+        _ => return None,
+    };
+    minutes
+        .checked_mul(60_000)?
+        .checked_add(seconds * 1000)?
+        .checked_add(fraction)
 }
 
 fn normalize_lrc_timestamps(content: &str) -> String {

@@ -5,11 +5,14 @@ use skia_safe::{
 };
 
 use crate::core::context::MiniContent;
+use crate::core::lyrics::LyricHighlight;
 use crate::core::smtc::MediaInfo;
 use crate::ui::expanded::music_view::{
     DrawVisualizerParams, draw_text_cached, draw_visualizer, get_cached_media_image,
 };
 use crate::utils::font::{DrawTextCachedParams, FontManager};
+
+const PENDING_LYRIC_CHANNEL: u8 = 190;
 
 pub(crate) fn lyric_font_size(font_size: f32, global_scale: f32) -> f32 {
     if font_size > 0.0 {
@@ -33,6 +36,7 @@ pub(super) struct MiniContentParams<'a> {
     pub(super) viz_h_scale: f32,
     pub(super) current_lyric: &'a str,
     pub(super) old_lyric: &'a str,
+    pub(super) lyric_highlight: Option<LyricHighlight>,
     pub(super) expansion_progress: f32,
     pub(super) font_size: f32,
     pub(super) lyric_scroll_offset: f32,
@@ -56,6 +60,7 @@ pub(super) fn draw_mini_content(params: MiniContentParams<'_>) {
         viz_h_scale,
         current_lyric,
         old_lyric,
+        lyric_highlight,
         expansion_progress,
         font_size,
         lyric_scroll_offset,
@@ -233,15 +238,15 @@ pub(super) fn draw_mini_content(params: MiniContentParams<'_>) {
                                 } else {
                                     text_x
                                 };
-                                draw_text_cached(DrawTextCachedParams {
+                                draw_highlighted_lyric(
                                     canvas,
-                                    text: current_lyric,
-                                    x: cur_lx,
-                                    y: text_y,
-                                    size: lyric_font_sz,
-                                    bold: false,
-                                    paint: &text_paint,
-                                });
+                                    current_lyric,
+                                    cur_lx,
+                                    text_y,
+                                    lyric_font_sz,
+                                    &text_paint,
+                                    lyric_highlight,
+                                );
                             }
                         } else {
                             let text_y = stable_offset_y + base_h / 2.0 + 4.0 * global_scale;
@@ -296,15 +301,15 @@ pub(super) fn draw_mini_content(params: MiniContentParams<'_>) {
                                 } else {
                                     text_x
                                 };
-                                draw_text_cached(DrawTextCachedParams {
+                                draw_highlighted_lyric(
                                     canvas,
-                                    text: current_lyric,
-                                    x: cur_lx2,
-                                    y: text_y,
-                                    size: lyric_font_sz,
-                                    bold: false,
-                                    paint: &text_paint,
-                                });
+                                    current_lyric,
+                                    cur_lx2,
+                                    text_y,
+                                    lyric_font_sz,
+                                    &text_paint,
+                                    lyric_highlight,
+                                );
                             }
                         }
                         canvas.restore();
@@ -371,4 +376,91 @@ pub(super) fn draw_mini_content(params: MiniContentParams<'_>) {
             None => {}
         }
     }
+}
+
+fn draw_highlighted_lyric(
+    canvas: &Canvas,
+    text: &str,
+    x: f32,
+    y: f32,
+    size: f32,
+    active_paint: &Paint,
+    highlight: Option<LyricHighlight>,
+) {
+    let Some(highlight) = highlight.filter(|highlight| {
+        highlight.start_byte <= highlight.end_byte
+            && highlight.end_byte <= text.len()
+            && text.is_char_boundary(highlight.start_byte)
+            && text.is_char_boundary(highlight.end_byte)
+    }) else {
+        draw_text_cached(DrawTextCachedParams {
+            canvas,
+            text,
+            x,
+            y,
+            size,
+            bold: false,
+            paint: active_paint,
+        });
+        return;
+    };
+
+    let active_color = active_paint.color();
+    let mut pending_paint = active_paint.clone();
+    pending_paint.set_color(Color::from_argb(
+        active_color.a(),
+        PENDING_LYRIC_CHANNEL,
+        PENDING_LYRIC_CHANNEL,
+        PENDING_LYRIC_CHANNEL,
+    ));
+    draw_text_cached(DrawTextCachedParams {
+        canvas,
+        text,
+        x,
+        y,
+        size,
+        bold: false,
+        paint: &pending_paint,
+    });
+
+    let font_manager = FontManager::global();
+    let style = skia_safe::FontStyle::normal();
+    let completed_width =
+        font_manager.measure_text_cached(&text[..highlight.start_byte], size, style);
+    let active_width = font_manager.measure_text_cached(&text[..highlight.end_byte], size, style);
+    let draw_layer = |paint: &Paint, clip_left: f32, clip_right: f32| {
+        if clip_right <= clip_left {
+            return;
+        }
+        canvas.save();
+        canvas.clip_rect(
+            Rect::from_ltrb(clip_left, y - size * 1.5, clip_right, y + size * 0.5),
+            ClipOp::Intersect,
+            true,
+        );
+        draw_text_cached(DrawTextCachedParams {
+            canvas,
+            text,
+            x,
+            y,
+            size,
+            bold: false,
+            paint,
+        });
+        canvas.restore();
+    };
+    draw_layer(active_paint, x, x + completed_width);
+
+    let progress = highlight.progress.clamp(0.0, 1.0);
+    let interpolate = |pending: u8, active: u8| {
+        (pending as f32 + (active as f32 - pending as f32) * progress).round() as u8
+    };
+    let mut current_paint = active_paint.clone();
+    current_paint.set_color(Color::from_argb(
+        active_color.a(),
+        interpolate(PENDING_LYRIC_CHANNEL, active_color.r()),
+        interpolate(PENDING_LYRIC_CHANNEL, active_color.g()),
+        interpolate(PENDING_LYRIC_CHANNEL, active_color.b()),
+    ));
+    draw_layer(&current_paint, x + completed_width, x + active_width);
 }

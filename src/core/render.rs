@@ -9,6 +9,7 @@ use self::expanded::{ExpandedContentParams, draw_expanded_content};
 use self::mini::{MiniContentParams, draw_mini_content};
 
 use crate::core::config::{CompactWidgetSlot, PluginWidgetSlot, WidgetSlot};
+use crate::core::lyrics::LyricHighlight;
 use crate::core::smtc::MediaInfo;
 use crate::ui::compact::CompactOverlay;
 use crate::ui::expanded::music_view::{default_media_palette, get_media_palette};
@@ -39,6 +40,7 @@ pub struct MediaParams<'a> {
 pub struct LyricsParams<'a> {
     pub current_lyric: &'a str,
     pub old_lyric: &'a str,
+    pub lyric_highlight: Option<LyricHighlight>,
     pub lyric_transition: f32,
     pub lyric_scroll_offset: f32,
 }
@@ -113,6 +115,7 @@ pub fn draw_island(
     let LyricsParams {
         current_lyric,
         old_lyric,
+        lyric_highlight,
         lyric_transition,
         lyric_scroll_offset,
     } = lyrics;
@@ -251,6 +254,7 @@ pub fn draw_island(
             viz_h_scale,
             current_lyric,
             old_lyric,
+            lyric_highlight,
             expansion_progress,
             font_size,
             lyric_scroll_offset,

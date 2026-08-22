@@ -1,6 +1,7 @@
 use crate::core::audio::AudioProcessor;
 use crate::core::config::AppConfig;
 use crate::core::context::ContextManager;
+use crate::core::lyrics::LyricHighlight;
 use crate::core::persistence::{get_config_path, load_config};
 use crate::core::plugin_widget::WidgetManager;
 use crate::core::smtc::{MediaInfo, SmtcListener};
@@ -241,6 +242,7 @@ impl SeekDrag {
 struct LyricState {
     current_text: String,
     old_text: String,
+    highlight: Option<LyricHighlight>,
     transition: f32,
     scroll_offset: f32,
     scroll_pause: f32,
@@ -251,6 +253,7 @@ impl Default for LyricState {
         Self {
             current_text: String::new(),
             old_text: String::new(),
+            highlight: None,
             transition: 1.0,
             scroll_offset: 0.0,
             scroll_pause: 0.0,
@@ -259,8 +262,9 @@ impl Default for LyricState {
 }
 
 impl LyricState {
-    fn transition_to(&mut self, text: String) {
+    fn transition_to(&mut self, text: String, highlight: Option<LyricHighlight>) {
         self.old_text = std::mem::replace(&mut self.current_text, text);
+        self.highlight = highlight;
         self.transition = 0.0;
         self.scroll_offset = 0.0;
         self.scroll_pause = 0.0;

@@ -253,6 +253,7 @@ impl App {
                                         lyrics: crate::core::render::LyricsParams {
                                             current_lyric: &self.lyrics.current_text,
                                             old_lyric: &self.lyrics.old_text,
+                                            lyric_highlight: self.lyrics.highlight,
                                             lyric_transition: self.lyrics.transition,
                                             lyric_scroll_offset: self.lyrics.scroll_offset,
                                         },

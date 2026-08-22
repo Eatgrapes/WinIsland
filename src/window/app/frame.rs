@@ -600,16 +600,19 @@ impl App {
         let current_lyric = if music_active && self.config.show_lyrics && !is_paused {
             self.current_media_info()
                 .current_lyric((self.config.lyrics_delay * 1000.0) as i64)
-                .map(str::to_owned)
+                .map(|lyric| (lyric.text.to_owned(), lyric.highlight))
         } else {
             None
         };
-        if let Some(lyric) = current_lyric {
+        if let Some((lyric, highlight)) = current_lyric {
             if lyric != self.lyrics.current_text {
-                self.lyrics.transition_to(lyric);
+                self.lyrics.transition_to(lyric, highlight);
+            } else if highlight != self.lyrics.highlight {
+                self.lyrics.highlight = highlight;
+                window.request_redraw();
             }
         } else if !is_paused && !self.lyrics.current_text.is_empty() {
-            self.lyrics.transition_to(String::new());
+            self.lyrics.transition_to(String::new(), None);
         }
 
         if self.lyrics.transition < 1.0 {

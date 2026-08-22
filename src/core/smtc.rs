@@ -6,7 +6,7 @@ use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize, RoUninitialize};
 
-use crate::core::lyrics::{LyricLine, LyricsMode, fetch_lyrics};
+use crate::core::lyrics::{LyricHighlight, LyricLine, LyricsMode, fetch_lyrics};
 
 mod properties;
 mod session;
@@ -135,7 +135,7 @@ impl MediaInfo {
         }
     }
 
-    pub fn current_lyric(&self, delay_ms: i64) -> Option<&str> {
+    pub fn current_lyric(&self, delay_ms: i64) -> Option<CurrentLyric<'_>> {
         let lyrics = self.lyrics.as_ref()?;
         if lyrics.is_empty() {
             return None;
@@ -159,17 +159,20 @@ impl MediaInfo {
             current_pos
         };
 
-        match lyrics.binary_search_by_key(&current_pos, |line| line.time_ms) {
-            Ok(idx) => Some(&lyrics[idx].text),
-            Err(idx) => {
-                if idx > 0 {
-                    Some(&lyrics[idx - 1].text)
-                } else {
-                    None
-                }
-            }
-        }
+        let index = lyrics.partition_point(|line| line.time_ms <= current_pos);
+        let index = index.checked_sub(1)?;
+        let line = &lyrics[index];
+        Some(CurrentLyric {
+            text: &line.text,
+            highlight: line
+                .highlight_at(current_pos, lyrics.get(index + 1).map(|next| next.time_ms)),
+        })
     }
+}
+
+pub(crate) struct CurrentLyric<'a> {
+    pub(crate) text: &'a str,
+    pub(crate) highlight: Option<LyricHighlight>,
 }
 
 #[derive(Debug, Clone)]
