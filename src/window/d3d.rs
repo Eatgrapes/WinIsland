@@ -73,9 +73,10 @@ pub(crate) struct D3DRenderer {
     direct_context: DirectContext,
     composition_device: IDCompositionDevice,
     factory: IDXGIFactory4,
-    _backend_context: BackendContext,
+    backend_context: BackendContext,
     next_target_id: u64,
     last_resource_cleanup: Instant,
+    failure: Option<String>,
 }
 
 impl D3DRenderer {
@@ -143,9 +144,10 @@ impl D3DRenderer {
             direct_context,
             composition_device,
             factory,
-            _backend_context: backend_context,
+            backend_context,
             next_target_id: 0,
             last_resource_cleanup: Instant::now(),
+            failure: None,
         };
         let target_id = renderer.create_target(window, width, height)?;
         debug_assert_eq!(target_id, MAIN_D3D_TARGET);
@@ -159,7 +161,7 @@ impl D3DRenderer {
         height: u32,
     ) -> Result<D3DTargetId, String> {
         let hwnd = window_hwnd(window)?;
-        let swap_chain = create_swap_chain(&self.factory, &self._backend_context, width, height)?;
+        let swap_chain = create_swap_chain(&self.factory, &self.backend_context, width, height)?;
         let composition_target = unsafe {
             // SAFETY: hwnd belongs to the live winit window retained by the caller.
             self.composition_device.CreateTargetForHwnd(hwnd, false)
@@ -202,6 +204,20 @@ impl D3DRenderer {
         target_id: D3DTargetId,
         draw: impl FnOnce(&mut DirectContext, &mut Surface) -> T,
     ) -> Result<T, String> {
+        let result = self.draw_inner(target_id, draw);
+        if let Err(error) = &result {
+            self.failure = Some(error.clone());
+        }
+        result
+    }
+
+    fn draw_inner<T>(
+        &mut self,
+        target_id: D3DTargetId,
+        draw: impl FnOnce(&mut DirectContext, &mut Surface) -> T,
+    ) -> Result<T, String> {
+        self.check_context("before drawing")?;
+        let device = self.backend_context.device.clone();
         let target = self
             .targets
             .get_mut(&target_id)
@@ -215,15 +231,25 @@ impl D3DRenderer {
             .get_mut(index)
             .ok_or_else(|| "DXGI returned an invalid back buffer index".to_string())?;
         let output = draw(&mut self.direct_context, surface);
-        self.direct_context.flush_and_submit_surface(surface, None);
-        unsafe {
-            // SAFETY: The current back buffer is rendered and submitted before presentation.
-            target
-                .swap_chain
-                .Present(1, DXGI_PRESENT(0))
-                .ok()
-                .map_err(|error| format!("DXGI Present failed: {error}"))?;
+        self.direct_context.flush_surface(surface);
+        if !self.direct_context.submit(None) {
+            return Err(format!(
+                "Skia failed to submit D3D12 work: {}",
+                device_status(&device)
+            ));
         }
+        check_context(&mut self.direct_context, &device, "after submitting")?;
+        let present_result = unsafe {
+            // SAFETY: The current back buffer is rendered and submitted before presentation.
+            target.swap_chain.Present(1, DXGI_PRESENT(0)).ok()
+        };
+        if let Err(error) = present_result {
+            return Err(format!(
+                "DXGI Present failed: {error}; {}",
+                device_status(&device)
+            ));
+        }
+        check_context(&mut self.direct_context, &device, "after presenting")?;
         self.cleanup_unused_resources();
         Ok(output)
     }
@@ -234,32 +260,66 @@ impl D3DRenderer {
         width: u32,
         height: u32,
     ) -> Result<(), String> {
+        let result = self.resize_inner(target_id, width, height);
+        if let Err(error) = &result {
+            self.failure = Some(error.clone());
+        }
+        result
+    }
+
+    fn resize_inner(
+        &mut self,
+        target_id: D3DTargetId,
+        width: u32,
+        height: u32,
+    ) -> Result<(), String> {
         if width == 0 || height == 0 {
             return Ok(());
         }
+        self.check_context("before resizing")?;
+        let device = self.backend_context.device.clone();
         self.direct_context.flush_submit_and_sync_cpu();
+        check_context(
+            &mut self.direct_context,
+            &device,
+            "while synchronizing resize",
+        )?;
         let target = self
             .targets
             .get_mut(&target_id)
             .ok_or_else(|| "D3D12 render target is unavailable".to_string())?;
         target.surfaces.clear();
-        unsafe {
+        self.direct_context
+            .purge_unlocked_resources(gpu::PurgeResourceOptions::AllResources);
+        let resize_result = unsafe {
             // SAFETY: All Skia surfaces that reference the back buffers were dropped and the
-            // DirectContext was synchronized before resizing the retained swap chain.
-            target
-                .swap_chain
-                .ResizeBuffers(
-                    BUFFER_COUNT as u32,
-                    width,
-                    height,
-                    DXGI_FORMAT_R8G8B8A8_UNORM,
-                    Default::default(),
-                )
-                .map_err(|error| format!("DXGI ResizeBuffers failed: {error}"))?;
+            // DirectContext was synchronized and purged before resizing the retained swap chain.
+            target.swap_chain.ResizeBuffers(
+                BUFFER_COUNT as u32,
+                width,
+                height,
+                DXGI_FORMAT_R8G8B8A8_UNORM,
+                Default::default(),
+            )
+        };
+        if let Err(error) = resize_result {
+            return Err(format!(
+                "DXGI ResizeBuffers failed: {error}; {}",
+                device_status(&device)
+            ));
         }
         target.surfaces =
             create_surfaces(&target.swap_chain, &mut self.direct_context, width, height)?;
+        check_context(&mut self.direct_context, &device, "after resizing")?;
         Ok(())
+    }
+
+    pub(crate) fn take_failure(&mut self) -> Option<String> {
+        self.failure.take()
+    }
+
+    pub(crate) fn abandon(&mut self) {
+        self.direct_context.abandon();
     }
 
     pub(crate) fn remove_target(&mut self, target_id: D3DTargetId) {
@@ -308,6 +368,42 @@ impl D3DRenderer {
         );
         self.last_resource_cleanup = Instant::now();
     }
+
+    fn check_context(&mut self, stage: &str) -> Result<(), String> {
+        let device = self.backend_context.device.clone();
+        check_context(&mut self.direct_context, &device, stage)
+    }
+}
+
+fn check_context(
+    direct_context: &mut DirectContext,
+    device: &ID3D12Device,
+    stage: &str,
+) -> Result<(), String> {
+    if direct_context.is_device_lost() {
+        return Err(format!(
+            "Skia D3D12 device lost {stage}: {}",
+            device_status(device)
+        ));
+    }
+    if direct_context.oomed() {
+        return Err(format!(
+            "Skia D3D12 allocation failed {stage}: {}",
+            device_status(device)
+        ));
+    }
+    Ok(())
+}
+
+fn device_status(device: &ID3D12Device) -> String {
+    match unsafe {
+        // SAFETY: device is a live COM interface retained by the renderer. The call only queries
+        // the device's removal status.
+        device.GetDeviceRemovedReason()
+    } {
+        Ok(()) => "device reports no removal reason".to_string(),
+        Err(error) => format!("device removal reason: {error}"),
+    }
 }
 
 fn window_hwnd(window: &Window) -> Result<HWND, String> {
@@ -331,11 +427,16 @@ fn hardware_adapter_and_device(
             Ok(adapter) => adapter,
             Err(_) => break,
         };
-        let desc = unsafe {
+        let desc = match unsafe {
             // SAFETY: adapter is a valid COM interface from EnumAdapters1.
             adapter.GetDesc1()
-        }
-        .map_err(|error| format!("IDXGIAdapter1::GetDesc1 failed: {error}"))?;
+        } {
+            Ok(desc) => desc,
+            Err(error) => {
+                log::warn!("Skipping DXGI adapter {index}: GetDesc1 failed: {error}");
+                continue;
+            }
+        };
         if (DXGI_ADAPTER_FLAG(desc.Flags as _) & DXGI_ADAPTER_FLAG_SOFTWARE)
             != DXGI_ADAPTER_FLAG_NONE
         {
@@ -347,11 +448,9 @@ fn hardware_adapter_and_device(
             D3D12CreateDevice(&adapter, D3D_FEATURE_LEVEL_11_0, &mut device)
         }
         .is_ok()
+            && let Some(device) = device
         {
-            return Ok((
-                adapter,
-                device.expect("D3D12CreateDevice returned no device"),
-            ));
+            return Ok((adapter, device));
         }
     }
     Err("No hardware D3D12 adapter is available".to_string())

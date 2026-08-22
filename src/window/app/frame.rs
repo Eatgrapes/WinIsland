@@ -31,6 +31,13 @@ impl App {
             None => return,
         };
         let now = Instant::now();
+        if let Some(error) = self
+            .renderer
+            .as_mut()
+            .and_then(crate::window::d3d::D3DRenderer::take_failure)
+        {
+            self.invalidate_renderer(&error, now);
+        }
         if crate::window::d3d::take_dwm_composition_changed() {
             self.invalidate_renderer("DWM composition changed", now);
         }

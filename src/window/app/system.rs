@@ -97,7 +97,8 @@ impl App {
     }
 
     pub(super) fn invalidate_renderer(&mut self, reason: &str, now: Instant) {
-        if self.renderer.take().is_some() {
+        let mut renderer = self.renderer.take();
+        if renderer.is_some() {
             log::warn!("D3D12 renderer invalidated: {reason}");
         }
         if let Some(settings) = self.settings.as_mut() {
@@ -107,6 +108,10 @@ impl App {
         crate::utils::backdrop::clear_blurred_cover_cache();
         crate::utils::glass::clear_glass_cache();
         crate::ui::expanded::music_view::clear_cover_cache();
+        if let Some(renderer) = renderer.as_mut() {
+            renderer.abandon();
+        }
+        drop(renderer);
         self.renderer_retry_at = Some(now);
         self.next_frame_deadline = now;
     }
