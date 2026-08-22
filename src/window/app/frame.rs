@@ -23,6 +23,8 @@ const IDLE_FRAME_INTERVAL: Duration = Duration::from_millis(50);
 const HIDDEN_FRAME_INTERVAL: Duration = Duration::from_millis(100);
 const WORKING_SET_TRIM_INTERVAL: Duration = Duration::from_secs(30);
 const RENDERER_RECOVERY_INTERVAL: Duration = Duration::from_secs(1);
+const LYRIC_TRANSITION_STEP: f32 = 0.05;
+const LYRIC_TRANSITION_LEAD_MS: u64 = (1000.0 / (60.0 * LYRIC_TRANSITION_STEP as f64)) as u64;
 
 impl App {
     pub(super) fn on_about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -599,24 +601,28 @@ impl App {
     fn update_lyrics(&mut self, window: &Window, music_active: bool, is_paused: bool, dt: f32) {
         let current_lyric = if music_active && self.config.show_lyrics && !is_paused {
             self.current_media_info()
-                .current_lyric((self.config.lyrics_delay * 1000.0) as i64)
-                .map(|lyric| (lyric.text.to_owned(), lyric.highlight))
+                .current_lyric(
+                    (self.config.lyrics_delay * 1000.0) as i64,
+                    LYRIC_TRANSITION_LEAD_MS,
+                )
+                .map(|lyric| (lyric.text.to_owned(), lyric.highlight, lyric.started))
         } else {
             None
         };
-        if let Some((lyric, highlight)) = current_lyric {
+        if let Some((lyric, highlight, started)) = current_lyric {
             if lyric != self.lyrics.current_text {
-                self.lyrics.transition_to(lyric, highlight);
+                self.lyrics.transition_to(lyric, highlight, started);
+                window.request_redraw();
             } else if highlight != self.lyrics.highlight {
                 self.lyrics.highlight = highlight;
                 window.request_redraw();
             }
         } else if !is_paused && !self.lyrics.current_text.is_empty() {
-            self.lyrics.transition_to(String::new(), None);
+            self.lyrics.transition_to(String::new(), None, false);
         }
 
         if self.lyrics.transition < 1.0 {
-            self.lyrics.transition += 0.05 * dt;
+            self.lyrics.transition += LYRIC_TRANSITION_STEP * dt;
             if self.lyrics.transition > 1.0 {
                 self.lyrics.transition = 1.0;
             }

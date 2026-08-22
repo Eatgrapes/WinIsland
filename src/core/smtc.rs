@@ -135,7 +135,11 @@ impl MediaInfo {
         }
     }
 
-    pub fn current_lyric(&self, delay_ms: i64) -> Option<CurrentLyric<'_>> {
+    pub fn current_lyric(
+        &self,
+        delay_ms: i64,
+        line_transition_lead_ms: u64,
+    ) -> Option<CurrentLyric<'_>> {
         let lyrics = self.lyrics.as_ref()?;
         if lyrics.is_empty() {
             return None;
@@ -159,11 +163,13 @@ impl MediaInfo {
             current_pos
         };
 
-        let index = lyrics.partition_point(|line| line.time_ms <= current_pos);
+        let line_selection_pos = current_pos.saturating_add(line_transition_lead_ms);
+        let index = lyrics.partition_point(|line| line.time_ms <= line_selection_pos);
         let index = index.checked_sub(1)?;
         let line = &lyrics[index];
         Some(CurrentLyric {
             text: &line.text,
+            started: line.time_ms <= current_pos,
             highlight: line
                 .highlight_at(current_pos, lyrics.get(index + 1).map(|next| next.time_ms)),
         })
@@ -172,6 +178,7 @@ impl MediaInfo {
 
 pub(crate) struct CurrentLyric<'a> {
     pub(crate) text: &'a str,
+    pub(crate) started: bool,
     pub(crate) highlight: Option<LyricHighlight>,
 }
 

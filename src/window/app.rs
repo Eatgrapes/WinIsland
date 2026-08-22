@@ -262,10 +262,15 @@ impl Default for LyricState {
 }
 
 impl LyricState {
-    fn transition_to(&mut self, text: String, highlight: Option<LyricHighlight>) {
+    fn transition_to(
+        &mut self,
+        text: String,
+        highlight: Option<LyricHighlight>,
+        show_immediately: bool,
+    ) {
         self.old_text = std::mem::replace(&mut self.current_text, text);
         self.highlight = highlight;
-        self.transition = 0.0;
+        self.transition = if show_immediately { 1.0 } else { 0.0 };
         self.scroll_offset = 0.0;
         self.scroll_pause = 0.0;
     }

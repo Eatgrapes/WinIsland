@@ -199,9 +199,7 @@ pub(super) fn fetch_properties(
             info.lyrics_fetch_id = info.lyrics_fetch_id.wrapping_add(1);
             info.thumbnail = None;
             info.thumbnail_hash = 0;
-            if smtc_pos > 0 {
-                info.position_ms = smtc_pos;
-            }
+            info.position_ms = smtc_pos;
             info.last_smtc_pos = smtc_pos;
             info.last_update = Instant::now();
             info.last_thumbnail_fetch = Instant::now();
