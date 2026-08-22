@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
@@ -19,7 +19,8 @@ use windows::core::HRESULT;
 
 use crate::ui::compact::notification_event::{self, NotificationEventSubscription};
 use crate::ui::compact::{CompactOverlayState, CompactSize};
-use crate::utils::font::{DrawTextCachedParams, FontManager};
+use crate::utils::font::DrawTextCachedParams;
+use crate::utils::scroll::{ScrollDrawParams, ScrollText};
 
 const DISPLAY_DURATION: Duration = Duration::from_secs(5);
 const ENTER_DURATION: Duration = Duration::from_millis(220);
@@ -555,6 +556,9 @@ pub(super) struct NotificationIndicator {
     pending: Option<NotificationPayload>,
     display_started: Option<Instant>,
     display_until: Option<Instant>,
+    app_name_scroll: RefCell<ScrollText>,
+    title_scroll: RefCell<ScrollText>,
+    detail_scroll: RefCell<ScrollText>,
 }
 
 impl NotificationIndicator {
@@ -614,6 +618,7 @@ impl NotificationIndicator {
         self.icon = icon.and_then(decode_notification_icon);
         self.display_started = Some(Instant::now());
         self.display_until = Some(Instant::now() + DISPLAY_DURATION);
+        self.reset_text_scroll();
         received_notification
     }
 
@@ -656,6 +661,7 @@ impl NotificationIndicator {
         self.display_started = None;
         self.display_until = None;
         self.icon = None;
+        self.reset_text_scroll();
     }
 
     fn take_notification_id(&mut self) -> Option<u32> {
@@ -715,6 +721,7 @@ impl NotificationIndicator {
         let top = rect.top();
         if !self.app_name.is_empty() {
             draw_notification_text(
+                &self.app_name_scroll,
                 DrawTextCachedParams {
                     canvas,
                     text: &self.app_name,
@@ -725,6 +732,7 @@ impl NotificationIndicator {
                     paint: &app_paint,
                 },
                 content_width,
+                scale,
             );
         }
         let title_y = if self.app_name.is_empty() && self.detail.is_empty() {
@@ -735,6 +743,7 @@ impl NotificationIndicator {
             top + 43.0 * scale
         };
         draw_notification_text(
+            &self.title_scroll,
             DrawTextCachedParams {
                 canvas,
                 text: &self.title,
@@ -745,9 +754,11 @@ impl NotificationIndicator {
                 paint: &title_paint,
             },
             content_width,
+            scale,
         );
         if !self.detail.is_empty() {
             draw_notification_text(
+                &self.detail_scroll,
                 DrawTextCachedParams {
                     canvas,
                     text: &self.detail,
@@ -758,6 +769,7 @@ impl NotificationIndicator {
                     paint: &detail_paint,
                 },
                 content_width,
+                scale,
             );
         }
         canvas.restore();
@@ -783,6 +795,12 @@ impl NotificationIndicator {
         };
         (enter * exit, (1.0 - enter) * 7.0)
     }
+
+    fn reset_text_scroll(&self) {
+        self.app_name_scroll.borrow_mut().reset();
+        self.title_scroll.borrow_mut().reset();
+        self.detail_scroll.borrow_mut().reset();
+    }
 }
 
 fn decode_notification_icon(icon: NotificationIconData) -> Option<NotificationIcon> {
@@ -796,48 +814,28 @@ fn ease_out_cubic(value: f32) -> f32 {
     1.0 - (1.0 - value).powi(3)
 }
 
-fn draw_notification_text(params: DrawTextCachedParams<'_>, max_width: f32) {
-    let text = truncate_notification_text(params.text, params.size, params.bold, max_width);
-    FontManager::global().draw_text_cached(DrawTextCachedParams {
-        text: &text,
-        ..params
-    });
-}
-
-fn truncate_notification_text<'a>(
-    text: &'a str,
-    size: f32,
-    bold: bool,
+fn draw_notification_text(
+    scroll: &RefCell<ScrollText>,
+    params: DrawTextCachedParams<'_>,
     max_width: f32,
-) -> Cow<'a, str> {
-    let font_manager = FontManager::global();
-    let style = if bold {
+    scale: f32,
+) {
+    let style = if params.bold {
         FontStyle::bold()
     } else {
         FontStyle::normal()
     };
-    if font_manager.measure_text_cached(text, size, style) <= max_width {
-        return Cow::Borrowed(text);
-    }
-
-    const ELLIPSIS: &str = "…";
-    let ellipsis_width = font_manager.measure_text_cached(ELLIPSIS, size, style);
-    if ellipsis_width >= max_width {
-        return Cow::Borrowed(ELLIPSIS);
-    }
-
-    let mut truncated = String::new();
-    let mut width = 0.0;
-    for character in text.chars() {
-        let character_width = font_manager.measure_text_cached(&character.to_string(), size, style);
-        if width + character_width + ellipsis_width > max_width {
-            break;
-        }
-        width += character_width;
-        truncated.push(character);
-    }
-    truncated.push_str(ELLIPSIS);
-    Cow::Owned(truncated)
+    scroll.borrow_mut().draw(ScrollDrawParams {
+        canvas: params.canvas,
+        text: params.text,
+        x: params.x,
+        y: params.y,
+        max_w: max_width,
+        size: params.size,
+        style,
+        paint: params.paint,
+        scale,
+    });
 }
 
 fn draw_notification_icon(

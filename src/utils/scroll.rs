@@ -31,6 +31,13 @@ impl ScrollText {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.last_text.clear();
+        self.offset = 0.0;
+        self.pause = 2.0;
+        self.last_time = Instant::now();
+    }
+
     pub fn draw(&mut self, params: ScrollDrawParams<'_>) {
         let canvas = params.canvas;
         let text = params.text;
@@ -106,5 +113,11 @@ impl ScrollText {
                 paint,
             });
         }
+    }
+}
+
+impl Default for ScrollText {
+    fn default() -> Self {
+        Self::new()
     }
 }
